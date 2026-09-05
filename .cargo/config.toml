@@ -1,0 +1,9 @@
+# Sirius 构建使用中科大 sparse 镜像，避免本机 crates.io 代理不可用时阻塞依赖解析。
+[source.crates-io]
+replace-with = "ustc"
+
+[source.ustc]
+registry = "sparse+https://mirrors.ustc.edu.cn/crates.io-index/"
+
+[http]
+multiplexing = false

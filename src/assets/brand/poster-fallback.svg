@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 900" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Sirius 品牌备援视觉">
+  <defs>
+    <linearGradient id="stage" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1526"/>
+      <stop offset=".5" stop-color="#12233f"/>
+      <stop offset="1" stop-color="#1c3a6e"/>
+    </linearGradient>
+    <radialGradient id="glow-a" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#4078ff" stop-opacity=".5"/>
+      <stop offset="1" stop-color="#4078ff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow-b" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#7a5cff" stop-opacity=".38"/>
+      <stop offset="1" stop-color="#7a5cff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="veil" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0b1526" stop-opacity="0"/>
+      <stop offset="1" stop-color="#0b1526" stop-opacity=".55"/>
+    </linearGradient>
+  </defs>
+  <rect width="600" height="900" fill="url(#stage)"/>
+  <circle cx="150" cy="190" r="300" fill="url(#glow-a)"/>
+  <circle cx="510" cy="780" r="280" fill="url(#glow-b)"/>
+  <rect width="600" height="900" fill="url(#veil)"/>
+  <g fill="none" stroke="rgba(214,228,255,.42)" stroke-width="6">
+    <rect x="220" y="386" width="160" height="128" rx="18"/>
+  </g>
+  <path d="M284 420v60l52-30z" fill="rgba(214,228,255,.42)"/>
+</svg>

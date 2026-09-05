@@ -1,0 +1,38 @@
+# ---- 依赖 ----
+node_modules/
+**/node_modules/
+
+# ---- 构建产物 ----
+dist/
+**/dist/
+build/
+**/build/
+
+# ---- 开发过程中的验证截图(临时产物) ----
+prototype/home-check*.png
+prototype/home-final-check.png
+prototype/home-verified.png
+
+# ---- 日志 ----
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ---- 系统 / 编辑器 ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# ---- 环境变量 / 密钥(严禁提交) ----
+.env
+.env.local
+.env.*.local
+application-gin.yml
+**/application-gin.yml
+
+# ---- Rust / Tauri 构建产物 ----
+src-tauri/target/
+src-tauri/gen/

@@ -1,0 +1,4095 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "Sirius-Desktop",
+  "documentNamespace": "https://sirius.local/sbom/sirius-desktop-2026-09-05T03:19:20.095Z",
+  "creationInfo": {
+    "created": "2026-09-05T03:19:20.095Z",
+    "creators": [
+      "Tool: Sirius scripts/generate-sbom.mjs"
+    ]
+  },
+  "packages": [
+    {
+      "SPDXID": "SPDXRef-Package-0",
+      "name": "adler2",
+      "versionInfo": "2.0.1",
+      "licenseConcluded": "0BSD OR MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-1",
+      "name": "aho-corasick",
+      "versionInfo": "1.1.4",
+      "licenseConcluded": "Unlicense OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-2",
+      "name": "alloc-no-stdlib",
+      "versionInfo": "2.0.4",
+      "licenseConcluded": "BSD-3-Clause",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-3",
+      "name": "alloc-stdlib",
+      "versionInfo": "0.2.4",
+      "licenseConcluded": "BSD-3-Clause",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-4",
+      "name": "android_system_properties",
+      "versionInfo": "0.1.5",
+      "licenseConcluded": "MIT/Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-5",
+      "name": "anyhow",
+      "versionInfo": "1.0.104",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-6",
+      "name": "atk",
+      "versionInfo": "0.18.2",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-7",
+      "name": "atk-sys",
+      "versionInfo": "0.18.2",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-8",
+      "name": "atomic-waker",
+      "versionInfo": "1.1.2",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-9",
+      "name": "autocfg",
+      "versionInfo": "1.5.1",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-10",
+      "name": "base64",
+      "versionInfo": "0.21.7",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-11",
+      "name": "base64",
+      "versionInfo": "0.22.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-12",
+      "name": "bit-set",
+      "versionInfo": "0.8.0",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-13",
+      "name": "bit-vec",
+      "versionInfo": "0.8.0",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-14",
+      "name": "bitflags",
+      "versionInfo": "1.3.2",
+      "licenseConcluded": "MIT/Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-15",
+      "name": "bitflags",
+      "versionInfo": "2.13.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-16",
+      "name": "block-buffer",
+      "versionInfo": "0.10.4",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-17",
+      "name": "block2",
+      "versionInfo": "0.6.2",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-18",
+      "name": "brotli",
+      "versionInfo": "8.0.4",
+      "licenseConcluded": "BSD-3-Clause AND MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-19",
+      "name": "brotli-decompressor",
+      "versionInfo": "5.0.3",
+      "licenseConcluded": "BSD-3-Clause/MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-20",
+      "name": "bs58",
+      "versionInfo": "0.5.1",
+      "licenseConcluded": "MIT/Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-21",
+      "name": "bumpalo",
+      "versionInfo": "3.20.3",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-22",
+      "name": "bytemuck",
+      "versionInfo": "1.25.2",
+      "licenseConcluded": "Zlib OR Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-23",
+      "name": "byteorder",
+      "versionInfo": "1.5.0",
+      "licenseConcluded": "Unlicense OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-24",
+      "name": "byteorder-lite",
+      "versionInfo": "0.1.0",
+      "licenseConcluded": "Unlicense OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-25",
+      "name": "bytes",
+      "versionInfo": "1.12.1",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-26",
+      "name": "cairo-rs",
+      "versionInfo": "0.18.5",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-27",
+      "name": "cairo-sys-rs",
+      "versionInfo": "0.18.2",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-28",
+      "name": "camino",
+      "versionInfo": "1.2.5",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-29",
+      "name": "cargo-platform",
+      "versionInfo": "0.1.9",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-30",
+      "name": "cargo_metadata",
+      "versionInfo": "0.19.2",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-31",
+      "name": "cargo_toml",
+      "versionInfo": "0.22.3",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-32",
+      "name": "cc",
+      "versionInfo": "1.4.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-33",
+      "name": "cesu8",
+      "versionInfo": "1.1.0",
+      "licenseConcluded": "Apache-2.0/MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-34",
+      "name": "cfb",
+      "versionInfo": "0.7.3",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-35",
+      "name": "cfg-expr",
+      "versionInfo": "0.15.8",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-36",
+      "name": "cfg-if",
+      "versionInfo": "1.0.4",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-37",
+      "name": "cfg_aliases",
+      "versionInfo": "0.2.2",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-38",
+      "name": "cgl",
+      "versionInfo": "0.3.2",
+      "licenseConcluded": "MIT / Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-39",
+      "name": "chacha20",
+      "versionInfo": "0.10.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-40",
+      "name": "chrono",
+      "versionInfo": "0.4.45",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-41",
+      "name": "combine",
+      "versionInfo": "4.6.7",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-42",
+      "name": "cookie",
+      "versionInfo": "0.18.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-43",
+      "name": "core-foundation",
+      "versionInfo": "0.10.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-44",
+      "name": "core-foundation-sys",
+      "versionInfo": "0.8.7",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-45",
+      "name": "core-graphics",
+      "versionInfo": "0.25.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-46",
+      "name": "core-graphics-types",
+      "versionInfo": "0.2.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-47",
+      "name": "cpufeatures",
+      "versionInfo": "0.2.17",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-48",
+      "name": "cpufeatures",
+      "versionInfo": "0.3.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-49",
+      "name": "crc32fast",
+      "versionInfo": "1.5.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-50",
+      "name": "crossbeam-channel",
+      "versionInfo": "0.5.16",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-51",
+      "name": "crossbeam-utils",
+      "versionInfo": "0.8.22",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-52",
+      "name": "crypto-common",
+      "versionInfo": "0.1.7",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-53",
+      "name": "cssparser",
+      "versionInfo": "0.36.0",
+      "licenseConcluded": "MPL-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-54",
+      "name": "cssparser-macros",
+      "versionInfo": "0.6.1",
+      "licenseConcluded": "MPL-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-55",
+      "name": "ctor",
+      "versionInfo": "0.8.0",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-56",
+      "name": "ctor-proc-macro",
+      "versionInfo": "0.0.7",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-57",
+      "name": "darling",
+      "versionInfo": "0.23.0",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-58",
+      "name": "darling_core",
+      "versionInfo": "0.23.0",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-59",
+      "name": "darling_macro",
+      "versionInfo": "0.23.0",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-60",
+      "name": "dbus",
+      "versionInfo": "0.9.12",
+      "licenseConcluded": "Apache-2.0/MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-61",
+      "name": "deranged",
+      "versionInfo": "0.5.8",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-62",
+      "name": "derive_more",
+      "versionInfo": "2.1.1",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-63",
+      "name": "derive_more-impl",
+      "versionInfo": "2.1.1",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-64",
+      "name": "digest",
+      "versionInfo": "0.10.7",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-65",
+      "name": "dirs",
+      "versionInfo": "6.0.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-66",
+      "name": "dirs-sys",
+      "versionInfo": "0.5.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-67",
+      "name": "dispatch2",
+      "versionInfo": "0.3.1",
+      "licenseConcluded": "Zlib OR Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-68",
+      "name": "displaydoc",
+      "versionInfo": "0.2.7",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-69",
+      "name": "dlib",
+      "versionInfo": "0.5.3",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-70",
+      "name": "dlopen2",
+      "versionInfo": "0.8.2",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-71",
+      "name": "dlopen2_derive",
+      "versionInfo": "0.4.3",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-72",
+      "name": "dom_query",
+      "versionInfo": "0.27.0",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-73",
+      "name": "dpi",
+      "versionInfo": "0.1.2",
+      "licenseConcluded": "Apache-2.0 AND MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-74",
+      "name": "dtoa",
+      "versionInfo": "1.0.11",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-75",
+      "name": "dtoa-short",
+      "versionInfo": "0.3.5",
+      "licenseConcluded": "MPL-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-76",
+      "name": "dtor",
+      "versionInfo": "0.3.0",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-77",
+      "name": "dtor-proc-macro",
+      "versionInfo": "0.0.6",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-78",
+      "name": "dunce",
+      "versionInfo": "1.0.5",
+      "licenseConcluded": "CC0-1.0 OR MIT-0 OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-79",
+      "name": "dyn-clone",
+      "versionInfo": "1.0.20",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-80",
+      "name": "embed-resource",
+      "versionInfo": "3.0.11",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-81",
+      "name": "embed_plist",
+      "versionInfo": "1.2.2",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-82",
+      "name": "equivalent",
+      "versionInfo": "1.0.2",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-83",
+      "name": "erased-serde",
+      "versionInfo": "0.4.10",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-84",
+      "name": "fallible-iterator",
+      "versionInfo": "0.3.0",
+      "licenseConcluded": "MIT/Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-85",
+      "name": "fallible-streaming-iterator",
+      "versionInfo": "0.1.9",
+      "licenseConcluded": "MIT/Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-86",
+      "name": "fastrand",
+      "versionInfo": "2.5.0",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-87",
+      "name": "fdeflate",
+      "versionInfo": "0.3.7",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-88",
+      "name": "field-offset",
+      "versionInfo": "0.3.6",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-89",
+      "name": "find-msvc-tools",
+      "versionInfo": "0.1.9",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-90",
+      "name": "flate2",
+      "versionInfo": "1.1.9",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-91",
+      "name": "fnv",
+      "versionInfo": "1.0.7",
+      "licenseConcluded": "Apache-2.0 / MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-92",
+      "name": "foldhash",
+      "versionInfo": "0.1.5",
+      "licenseConcluded": "Zlib",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-93",
+      "name": "foldhash",
+      "versionInfo": "0.2.0",
+      "licenseConcluded": "Zlib",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-94",
+      "name": "foreign-types",
+      "versionInfo": "0.5.0",
+      "licenseConcluded": "MIT/Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-95",
+      "name": "foreign-types-macros",
+      "versionInfo": "0.2.4",
+      "licenseConcluded": "MIT/Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-96",
+      "name": "foreign-types-shared",
+      "versionInfo": "0.3.1",
+      "licenseConcluded": "MIT/Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-97",
+      "name": "form_urlencoded",
+      "versionInfo": "1.2.2",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-98",
+      "name": "futures-channel",
+      "versionInfo": "0.3.33",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-99",
+      "name": "futures-core",
+      "versionInfo": "0.3.33",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-100",
+      "name": "futures-executor",
+      "versionInfo": "0.3.33",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-101",
+      "name": "futures-io",
+      "versionInfo": "0.3.33",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-102",
+      "name": "futures-macro",
+      "versionInfo": "0.3.33",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-103",
+      "name": "futures-sink",
+      "versionInfo": "0.3.33",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-104",
+      "name": "futures-task",
+      "versionInfo": "0.3.33",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-105",
+      "name": "futures-util",
+      "versionInfo": "0.3.33",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-106",
+      "name": "gdk",
+      "versionInfo": "0.18.2",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-107",
+      "name": "gdk-pixbuf",
+      "versionInfo": "0.18.5",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-108",
+      "name": "gdk-pixbuf-sys",
+      "versionInfo": "0.18.0",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-109",
+      "name": "gdk-sys",
+      "versionInfo": "0.18.2",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-110",
+      "name": "gdkwayland-sys",
+      "versionInfo": "0.18.2",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-111",
+      "name": "gdkx11",
+      "versionInfo": "0.18.2",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-112",
+      "name": "gdkx11-sys",
+      "versionInfo": "0.18.2",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-113",
+      "name": "generic-array",
+      "versionInfo": "0.14.7",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-114",
+      "name": "getrandom",
+      "versionInfo": "0.2.17",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-115",
+      "name": "getrandom",
+      "versionInfo": "0.3.4",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-116",
+      "name": "getrandom",
+      "versionInfo": "0.4.3",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-117",
+      "name": "gio",
+      "versionInfo": "0.18.4",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-118",
+      "name": "gio-sys",
+      "versionInfo": "0.18.1",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-119",
+      "name": "gl_generator",
+      "versionInfo": "0.14.0",
+      "licenseConcluded": "Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-120",
+      "name": "glib",
+      "versionInfo": "0.18.5",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-121",
+      "name": "glib-macros",
+      "versionInfo": "0.18.5",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-122",
+      "name": "glib-sys",
+      "versionInfo": "0.18.1",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-123",
+      "name": "glob",
+      "versionInfo": "0.3.4",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-124",
+      "name": "glutin",
+      "versionInfo": "0.32.3",
+      "licenseConcluded": "Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-125",
+      "name": "glutin_egl_sys",
+      "versionInfo": "0.7.1",
+      "licenseConcluded": "Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-126",
+      "name": "glutin_glx_sys",
+      "versionInfo": "0.6.1",
+      "licenseConcluded": "Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-127",
+      "name": "glutin_wgl_sys",
+      "versionInfo": "0.6.1",
+      "licenseConcluded": "Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-128",
+      "name": "gobject-sys",
+      "versionInfo": "0.18.0",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-129",
+      "name": "gtk",
+      "versionInfo": "0.18.2",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-130",
+      "name": "gtk-sys",
+      "versionInfo": "0.18.2",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-131",
+      "name": "gtk3-macros",
+      "versionInfo": "0.18.2",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-132",
+      "name": "hashbrown",
+      "versionInfo": "0.12.3",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-133",
+      "name": "hashbrown",
+      "versionInfo": "0.15.5",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-134",
+      "name": "hashbrown",
+      "versionInfo": "0.17.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-135",
+      "name": "hashlink",
+      "versionInfo": "0.10.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-136",
+      "name": "heck",
+      "versionInfo": "0.4.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-137",
+      "name": "heck",
+      "versionInfo": "0.5.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-138",
+      "name": "hex",
+      "versionInfo": "0.4.3",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-139",
+      "name": "hmac",
+      "versionInfo": "0.12.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-140",
+      "name": "html5ever",
+      "versionInfo": "0.38.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-141",
+      "name": "http",
+      "versionInfo": "1.4.2",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-142",
+      "name": "http-body",
+      "versionInfo": "1.1.0",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-143",
+      "name": "http-body-util",
+      "versionInfo": "0.1.4",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-144",
+      "name": "http-range",
+      "versionInfo": "0.1.5",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-145",
+      "name": "httparse",
+      "versionInfo": "1.10.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-146",
+      "name": "httpdate",
+      "versionInfo": "1.0.3",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-147",
+      "name": "hyper",
+      "versionInfo": "1.11.0",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-148",
+      "name": "hyper-rustls",
+      "versionInfo": "0.27.9",
+      "licenseConcluded": "Apache-2.0 OR ISC OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-149",
+      "name": "hyper-util",
+      "versionInfo": "0.1.20",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-150",
+      "name": "iana-time-zone",
+      "versionInfo": "0.1.65",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-151",
+      "name": "iana-time-zone-haiku",
+      "versionInfo": "0.1.2",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-152",
+      "name": "ico",
+      "versionInfo": "0.5.0",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-153",
+      "name": "icu_collections",
+      "versionInfo": "2.2.0",
+      "licenseConcluded": "Unicode-3.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-154",
+      "name": "icu_locale_core",
+      "versionInfo": "2.2.0",
+      "licenseConcluded": "Unicode-3.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-155",
+      "name": "icu_normalizer",
+      "versionInfo": "2.2.0",
+      "licenseConcluded": "Unicode-3.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-156",
+      "name": "icu_normalizer_data",
+      "versionInfo": "2.2.0",
+      "licenseConcluded": "Unicode-3.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-157",
+      "name": "icu_properties",
+      "versionInfo": "2.2.0",
+      "licenseConcluded": "Unicode-3.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-158",
+      "name": "icu_properties_data",
+      "versionInfo": "2.2.0",
+      "licenseConcluded": "Unicode-3.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-159",
+      "name": "icu_provider",
+      "versionInfo": "2.2.0",
+      "licenseConcluded": "Unicode-3.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-160",
+      "name": "ident_case",
+      "versionInfo": "1.0.1",
+      "licenseConcluded": "MIT/Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-161",
+      "name": "idna",
+      "versionInfo": "1.1.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-162",
+      "name": "idna_adapter",
+      "versionInfo": "1.2.2",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-163",
+      "name": "image",
+      "versionInfo": "0.25.10",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-164",
+      "name": "image-webp",
+      "versionInfo": "0.2.4",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-165",
+      "name": "indexmap",
+      "versionInfo": "1.9.3",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-166",
+      "name": "indexmap",
+      "versionInfo": "2.14.0",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-167",
+      "name": "infer",
+      "versionInfo": "0.19.0",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-168",
+      "name": "ipnet",
+      "versionInfo": "2.12.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-169",
+      "name": "itoa",
+      "versionInfo": "1.0.18",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-170",
+      "name": "javascriptcore-rs",
+      "versionInfo": "1.1.2",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-171",
+      "name": "javascriptcore-rs-sys",
+      "versionInfo": "1.1.1",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-172",
+      "name": "jni",
+      "versionInfo": "0.21.1",
+      "licenseConcluded": "MIT/Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-173",
+      "name": "jni-sys",
+      "versionInfo": "0.3.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-174",
+      "name": "jni-sys",
+      "versionInfo": "0.4.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-175",
+      "name": "jni-sys-macros",
+      "versionInfo": "0.4.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-176",
+      "name": "js-sys",
+      "versionInfo": "0.3.103",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-177",
+      "name": "json-patch",
+      "versionInfo": "3.0.1",
+      "licenseConcluded": "MIT/Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-178",
+      "name": "jsonptr",
+      "versionInfo": "0.6.3",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-179",
+      "name": "keyboard-types",
+      "versionInfo": "0.7.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-180",
+      "name": "khronos_api",
+      "versionInfo": "3.1.0",
+      "licenseConcluded": "Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-181",
+      "name": "libappindicator",
+      "versionInfo": "0.9.0",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-182",
+      "name": "libappindicator-sys",
+      "versionInfo": "0.9.0",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-183",
+      "name": "libc",
+      "versionInfo": "0.2.189",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-184",
+      "name": "libdbus-sys",
+      "versionInfo": "0.2.7",
+      "licenseConcluded": "Apache-2.0/MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-185",
+      "name": "libloading",
+      "versionInfo": "0.7.4",
+      "licenseConcluded": "ISC",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-186",
+      "name": "libloading",
+      "versionInfo": "0.8.9",
+      "licenseConcluded": "ISC",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-187",
+      "name": "libmpv2",
+      "versionInfo": "6.0.0",
+      "licenseConcluded": "LGPL-2.1",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-188",
+      "name": "libmpv2-sys",
+      "versionInfo": "4.0.1",
+      "licenseConcluded": "LGPL-2.1",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-189",
+      "name": "libredox",
+      "versionInfo": "0.1.18",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-190",
+      "name": "libsqlite3-sys",
+      "versionInfo": "0.35.0",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-191",
+      "name": "litemap",
+      "versionInfo": "0.8.2",
+      "licenseConcluded": "Unicode-3.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-192",
+      "name": "lock_api",
+      "versionInfo": "0.4.14",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-193",
+      "name": "log",
+      "versionInfo": "0.4.33",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-194",
+      "name": "lru-slab",
+      "versionInfo": "0.1.2",
+      "licenseConcluded": "MIT OR Apache-2.0 OR Zlib",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-195",
+      "name": "markup5ever",
+      "versionInfo": "0.38.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-196",
+      "name": "memchr",
+      "versionInfo": "2.8.3",
+      "licenseConcluded": "Unlicense OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-197",
+      "name": "memoffset",
+      "versionInfo": "0.9.1",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-198",
+      "name": "mime",
+      "versionInfo": "0.3.17",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-199",
+      "name": "miniz_oxide",
+      "versionInfo": "0.8.9",
+      "licenseConcluded": "MIT OR Zlib OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-200",
+      "name": "mio",
+      "versionInfo": "1.2.2",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-201",
+      "name": "moxcms",
+      "versionInfo": "0.8.1",
+      "licenseConcluded": "BSD-3-Clause OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-202",
+      "name": "muda",
+      "versionInfo": "0.19.3",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-203",
+      "name": "ndk",
+      "versionInfo": "0.9.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-204",
+      "name": "ndk-sys",
+      "versionInfo": "0.6.0+11769913",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-205",
+      "name": "new_debug_unreachable",
+      "versionInfo": "1.0.6",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-206",
+      "name": "num-conv",
+      "versionInfo": "0.2.2",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-207",
+      "name": "num-traits",
+      "versionInfo": "0.2.19",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-208",
+      "name": "num_enum",
+      "versionInfo": "0.7.6",
+      "licenseConcluded": "BSD-3-Clause OR MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-209",
+      "name": "num_enum_derive",
+      "versionInfo": "0.7.6",
+      "licenseConcluded": "BSD-3-Clause OR MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-210",
+      "name": "objc2",
+      "versionInfo": "0.6.4",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-211",
+      "name": "objc2-app-kit",
+      "versionInfo": "0.3.2",
+      "licenseConcluded": "Zlib OR Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-212",
+      "name": "objc2-cloud-kit",
+      "versionInfo": "0.3.2",
+      "licenseConcluded": "Zlib OR Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-213",
+      "name": "objc2-core-data",
+      "versionInfo": "0.3.2",
+      "licenseConcluded": "Zlib OR Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-214",
+      "name": "objc2-core-foundation",
+      "versionInfo": "0.3.2",
+      "licenseConcluded": "Zlib OR Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-215",
+      "name": "objc2-core-graphics",
+      "versionInfo": "0.3.2",
+      "licenseConcluded": "Zlib OR Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-216",
+      "name": "objc2-core-image",
+      "versionInfo": "0.3.2",
+      "licenseConcluded": "Zlib OR Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-217",
+      "name": "objc2-core-location",
+      "versionInfo": "0.3.2",
+      "licenseConcluded": "Zlib OR Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-218",
+      "name": "objc2-core-text",
+      "versionInfo": "0.3.2",
+      "licenseConcluded": "Zlib OR Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-219",
+      "name": "objc2-encode",
+      "versionInfo": "4.1.0",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-220",
+      "name": "objc2-exception-helper",
+      "versionInfo": "0.1.1",
+      "licenseConcluded": "Zlib OR Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-221",
+      "name": "objc2-foundation",
+      "versionInfo": "0.3.2",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-222",
+      "name": "objc2-io-surface",
+      "versionInfo": "0.3.2",
+      "licenseConcluded": "Zlib OR Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-223",
+      "name": "objc2-quartz-core",
+      "versionInfo": "0.3.2",
+      "licenseConcluded": "Zlib OR Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-224",
+      "name": "objc2-ui-kit",
+      "versionInfo": "0.3.2",
+      "licenseConcluded": "Zlib OR Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-225",
+      "name": "objc2-user-notifications",
+      "versionInfo": "0.3.2",
+      "licenseConcluded": "Zlib OR Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-226",
+      "name": "objc2-web-kit",
+      "versionInfo": "0.3.2",
+      "licenseConcluded": "Zlib OR Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-227",
+      "name": "once_cell",
+      "versionInfo": "1.21.4",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-228",
+      "name": "option-ext",
+      "versionInfo": "0.2.0",
+      "licenseConcluded": "MPL-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-229",
+      "name": "pango",
+      "versionInfo": "0.18.3",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-230",
+      "name": "pango-sys",
+      "versionInfo": "0.18.0",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-231",
+      "name": "parking_lot",
+      "versionInfo": "0.12.5",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-232",
+      "name": "parking_lot_core",
+      "versionInfo": "0.9.12",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-233",
+      "name": "percent-encoding",
+      "versionInfo": "2.3.2",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-234",
+      "name": "phf",
+      "versionInfo": "0.13.1",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-235",
+      "name": "phf_codegen",
+      "versionInfo": "0.13.1",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-236",
+      "name": "phf_generator",
+      "versionInfo": "0.13.1",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-237",
+      "name": "phf_macros",
+      "versionInfo": "0.13.1",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-238",
+      "name": "phf_shared",
+      "versionInfo": "0.13.1",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-239",
+      "name": "pin-project-lite",
+      "versionInfo": "0.2.17",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-240",
+      "name": "pkg-config",
+      "versionInfo": "0.3.33",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-241",
+      "name": "plist",
+      "versionInfo": "1.10.0",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-242",
+      "name": "png",
+      "versionInfo": "0.17.16",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-243",
+      "name": "png",
+      "versionInfo": "0.18.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-244",
+      "name": "potential_utf",
+      "versionInfo": "0.1.5",
+      "licenseConcluded": "Unicode-3.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-245",
+      "name": "powerfmt",
+      "versionInfo": "0.2.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-246",
+      "name": "precomputed-hash",
+      "versionInfo": "0.1.1",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-247",
+      "name": "proc-macro-crate",
+      "versionInfo": "1.3.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-248",
+      "name": "proc-macro-crate",
+      "versionInfo": "2.0.2",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-249",
+      "name": "proc-macro-crate",
+      "versionInfo": "3.5.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-250",
+      "name": "proc-macro-error",
+      "versionInfo": "1.0.4",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-251",
+      "name": "proc-macro-error-attr",
+      "versionInfo": "1.0.4",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-252",
+      "name": "proc-macro2",
+      "versionInfo": "1.0.107",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-253",
+      "name": "pxfm",
+      "versionInfo": "0.1.30",
+      "licenseConcluded": "BSD-3-Clause OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-254",
+      "name": "qrcode",
+      "versionInfo": "0.14.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-255",
+      "name": "quick-error",
+      "versionInfo": "2.0.1",
+      "licenseConcluded": "MIT/Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-256",
+      "name": "quick-xml",
+      "versionInfo": "0.41.0",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-257",
+      "name": "quinn",
+      "versionInfo": "0.11.11",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-258",
+      "name": "quinn-proto",
+      "versionInfo": "0.11.16",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-259",
+      "name": "quinn-udp",
+      "versionInfo": "0.5.15",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-260",
+      "name": "quote",
+      "versionInfo": "1.0.47",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-261",
+      "name": "r-efi",
+      "versionInfo": "5.3.0",
+      "licenseConcluded": "MIT OR Apache-2.0 OR LGPL-2.1-or-later",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-262",
+      "name": "r-efi",
+      "versionInfo": "6.0.0",
+      "licenseConcluded": "MIT OR Apache-2.0 OR LGPL-2.1-or-later",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-263",
+      "name": "rand",
+      "versionInfo": "0.10.2",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-264",
+      "name": "rand_core",
+      "versionInfo": "0.10.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-265",
+      "name": "rand_pcg",
+      "versionInfo": "0.10.2",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-266",
+      "name": "raw-window-handle",
+      "versionInfo": "0.6.2",
+      "licenseConcluded": "MIT OR Apache-2.0 OR Zlib",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-267",
+      "name": "redox_syscall",
+      "versionInfo": "0.5.18",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-268",
+      "name": "redox_users",
+      "versionInfo": "0.5.2",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-269",
+      "name": "ref-cast",
+      "versionInfo": "1.0.26",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-270",
+      "name": "ref-cast-impl",
+      "versionInfo": "1.0.26",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-271",
+      "name": "regex",
+      "versionInfo": "1.13.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-272",
+      "name": "regex-automata",
+      "versionInfo": "0.4.16",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-273",
+      "name": "regex-syntax",
+      "versionInfo": "0.8.11",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-274",
+      "name": "reqwest",
+      "versionInfo": "0.12.28",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-275",
+      "name": "reqwest",
+      "versionInfo": "0.13.4",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-276",
+      "name": "rfd",
+      "versionInfo": "0.16.0",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-277",
+      "name": "ring",
+      "versionInfo": "0.17.14",
+      "licenseConcluded": "Apache-2.0 AND ISC",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-278",
+      "name": "rusqlite",
+      "versionInfo": "0.37.0",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-279",
+      "name": "rustc-hash",
+      "versionInfo": "2.1.3",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-280",
+      "name": "rustc_version",
+      "versionInfo": "0.4.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-281",
+      "name": "rustls",
+      "versionInfo": "0.23.43",
+      "licenseConcluded": "Apache-2.0 OR ISC OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-282",
+      "name": "rustls-pki-types",
+      "versionInfo": "1.15.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-283",
+      "name": "rustls-webpki",
+      "versionInfo": "0.103.13",
+      "licenseConcluded": "ISC",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-284",
+      "name": "rustversion",
+      "versionInfo": "1.0.23",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-285",
+      "name": "ryu",
+      "versionInfo": "1.0.23",
+      "licenseConcluded": "Apache-2.0 OR BSL-1.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-286",
+      "name": "same-file",
+      "versionInfo": "1.0.6",
+      "licenseConcluded": "Unlicense/MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-287",
+      "name": "schemars",
+      "versionInfo": "0.8.22",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-288",
+      "name": "schemars",
+      "versionInfo": "0.9.0",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-289",
+      "name": "schemars",
+      "versionInfo": "1.2.2",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-290",
+      "name": "schemars_derive",
+      "versionInfo": "0.8.22",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-291",
+      "name": "scopeguard",
+      "versionInfo": "1.2.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-292",
+      "name": "security-framework",
+      "versionInfo": "3.7.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-293",
+      "name": "security-framework-sys",
+      "versionInfo": "2.17.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-294",
+      "name": "selectors",
+      "versionInfo": "0.36.1",
+      "licenseConcluded": "MPL-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-295",
+      "name": "semver",
+      "versionInfo": "1.0.28",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-296",
+      "name": "serde",
+      "versionInfo": "1.0.229",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-297",
+      "name": "serde-untagged",
+      "versionInfo": "0.1.9",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-298",
+      "name": "serde_core",
+      "versionInfo": "1.0.229",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-299",
+      "name": "serde_derive",
+      "versionInfo": "1.0.229",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-300",
+      "name": "serde_derive_internals",
+      "versionInfo": "0.29.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-301",
+      "name": "serde_json",
+      "versionInfo": "1.0.151",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-302",
+      "name": "serde_repr",
+      "versionInfo": "0.1.21",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-303",
+      "name": "serde_spanned",
+      "versionInfo": "0.6.9",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-304",
+      "name": "serde_spanned",
+      "versionInfo": "1.1.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-305",
+      "name": "serde_urlencoded",
+      "versionInfo": "0.7.1",
+      "licenseConcluded": "MIT/Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-306",
+      "name": "serde_with",
+      "versionInfo": "3.21.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-307",
+      "name": "serde_with_macros",
+      "versionInfo": "3.21.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-308",
+      "name": "serialize-to-javascript",
+      "versionInfo": "0.1.2",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-309",
+      "name": "serialize-to-javascript-impl",
+      "versionInfo": "0.1.2",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-310",
+      "name": "servo_arc",
+      "versionInfo": "0.4.3",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-311",
+      "name": "sha1",
+      "versionInfo": "0.10.7",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-312",
+      "name": "sha2",
+      "versionInfo": "0.10.9",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-313",
+      "name": "shlex",
+      "versionInfo": "2.0.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-314",
+      "name": "simd-adler32",
+      "versionInfo": "0.3.10",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-315",
+      "name": "siphasher",
+      "versionInfo": "1.0.3",
+      "licenseConcluded": "MIT/Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-316",
+      "name": "sirius-desktop",
+      "versionInfo": "0.1.0",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-317",
+      "name": "slab",
+      "versionInfo": "0.4.12",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-318",
+      "name": "smallvec",
+      "versionInfo": "1.15.2",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-319",
+      "name": "socket2",
+      "versionInfo": "0.6.5",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-320",
+      "name": "softbuffer",
+      "versionInfo": "0.4.8",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-321",
+      "name": "soup3",
+      "versionInfo": "0.5.0",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-322",
+      "name": "soup3-sys",
+      "versionInfo": "0.5.0",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-323",
+      "name": "stable_deref_trait",
+      "versionInfo": "1.2.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-324",
+      "name": "string_cache",
+      "versionInfo": "0.9.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-325",
+      "name": "string_cache_codegen",
+      "versionInfo": "0.6.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-326",
+      "name": "strsim",
+      "versionInfo": "0.11.1",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-327",
+      "name": "subtle",
+      "versionInfo": "2.6.1",
+      "licenseConcluded": "BSD-3-Clause",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-328",
+      "name": "swift-rs",
+      "versionInfo": "1.0.7",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-329",
+      "name": "syn",
+      "versionInfo": "1.0.109",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-330",
+      "name": "syn",
+      "versionInfo": "2.0.119",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-331",
+      "name": "syn",
+      "versionInfo": "3.0.3",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-332",
+      "name": "sync_wrapper",
+      "versionInfo": "1.0.2",
+      "licenseConcluded": "Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-333",
+      "name": "synstructure",
+      "versionInfo": "0.13.2",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-334",
+      "name": "system-deps",
+      "versionInfo": "6.2.2",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-335",
+      "name": "tao",
+      "versionInfo": "0.35.3",
+      "licenseConcluded": "Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-336",
+      "name": "tao-macros",
+      "versionInfo": "0.1.4",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-337",
+      "name": "target-lexicon",
+      "versionInfo": "0.12.16",
+      "licenseConcluded": "Apache-2.0 WITH LLVM-exception",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-338",
+      "name": "tauri",
+      "versionInfo": "2.11.5",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-339",
+      "name": "tauri-build",
+      "versionInfo": "2.6.3",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-340",
+      "name": "tauri-codegen",
+      "versionInfo": "2.6.3",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-341",
+      "name": "tauri-macros",
+      "versionInfo": "2.6.3",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-342",
+      "name": "tauri-plugin",
+      "versionInfo": "2.6.3",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-343",
+      "name": "tauri-plugin-dialog",
+      "versionInfo": "2.7.2",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-344",
+      "name": "tauri-plugin-fs",
+      "versionInfo": "2.5.1",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-345",
+      "name": "tauri-runtime",
+      "versionInfo": "2.11.3",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-346",
+      "name": "tauri-runtime-wry",
+      "versionInfo": "2.11.4",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-347",
+      "name": "tauri-utils",
+      "versionInfo": "2.9.3",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-348",
+      "name": "tauri-winres",
+      "versionInfo": "0.3.6",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-349",
+      "name": "tendril",
+      "versionInfo": "0.5.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-350",
+      "name": "thiserror",
+      "versionInfo": "1.0.69",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-351",
+      "name": "thiserror",
+      "versionInfo": "2.0.19",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-352",
+      "name": "thiserror-impl",
+      "versionInfo": "1.0.69",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-353",
+      "name": "thiserror-impl",
+      "versionInfo": "2.0.19",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-354",
+      "name": "time",
+      "versionInfo": "0.3.54",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-355",
+      "name": "time-core",
+      "versionInfo": "0.1.9",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-356",
+      "name": "time-macros",
+      "versionInfo": "0.2.32",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-357",
+      "name": "tinystr",
+      "versionInfo": "0.8.3",
+      "licenseConcluded": "Unicode-3.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-358",
+      "name": "tinyvec",
+      "versionInfo": "1.12.0",
+      "licenseConcluded": "Zlib OR Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-359",
+      "name": "tinyvec_macros",
+      "versionInfo": "0.1.1",
+      "licenseConcluded": "MIT OR Apache-2.0 OR Zlib",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-360",
+      "name": "tokio",
+      "versionInfo": "1.53.1",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-361",
+      "name": "tokio-macros",
+      "versionInfo": "2.7.2",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-362",
+      "name": "tokio-rustls",
+      "versionInfo": "0.26.4",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-363",
+      "name": "tokio-util",
+      "versionInfo": "0.7.19",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-364",
+      "name": "toml",
+      "versionInfo": "0.8.2",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-365",
+      "name": "toml",
+      "versionInfo": "0.9.12+spec-1.1.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-366",
+      "name": "toml",
+      "versionInfo": "1.1.4+spec-1.1.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-367",
+      "name": "toml_datetime",
+      "versionInfo": "0.6.3",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-368",
+      "name": "toml_datetime",
+      "versionInfo": "0.7.5+spec-1.1.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-369",
+      "name": "toml_datetime",
+      "versionInfo": "1.1.1+spec-1.1.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-370",
+      "name": "toml_edit",
+      "versionInfo": "0.19.15",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-371",
+      "name": "toml_edit",
+      "versionInfo": "0.20.2",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-372",
+      "name": "toml_edit",
+      "versionInfo": "0.25.13+spec-1.1.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-373",
+      "name": "toml_parser",
+      "versionInfo": "1.1.3+spec-1.1.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-374",
+      "name": "toml_writer",
+      "versionInfo": "1.1.2+spec-1.1.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-375",
+      "name": "tower",
+      "versionInfo": "0.5.3",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-376",
+      "name": "tower-http",
+      "versionInfo": "0.6.11",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-377",
+      "name": "tower-layer",
+      "versionInfo": "0.3.3",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-378",
+      "name": "tower-service",
+      "versionInfo": "0.3.3",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-379",
+      "name": "tracing",
+      "versionInfo": "0.1.44",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-380",
+      "name": "tracing-core",
+      "versionInfo": "0.1.36",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-381",
+      "name": "tray-icon",
+      "versionInfo": "0.24.2",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-382",
+      "name": "try-lock",
+      "versionInfo": "0.2.5",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-383",
+      "name": "typed-path",
+      "versionInfo": "0.12.3",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-384",
+      "name": "typeid",
+      "versionInfo": "1.0.3",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-385",
+      "name": "typenum",
+      "versionInfo": "1.20.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-386",
+      "name": "unic-char-property",
+      "versionInfo": "0.9.0",
+      "licenseConcluded": "MIT/Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-387",
+      "name": "unic-char-range",
+      "versionInfo": "0.9.0",
+      "licenseConcluded": "MIT/Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-388",
+      "name": "unic-common",
+      "versionInfo": "0.9.0",
+      "licenseConcluded": "MIT/Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-389",
+      "name": "unic-ucd-ident",
+      "versionInfo": "0.9.0",
+      "licenseConcluded": "MIT/Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-390",
+      "name": "unic-ucd-version",
+      "versionInfo": "0.9.0",
+      "licenseConcluded": "MIT/Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-391",
+      "name": "unicode-ident",
+      "versionInfo": "1.0.24",
+      "licenseConcluded": "(MIT OR Apache-2.0) AND Unicode-3.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-392",
+      "name": "unicode-segmentation",
+      "versionInfo": "1.13.3",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-393",
+      "name": "untrusted",
+      "versionInfo": "0.9.0",
+      "licenseConcluded": "ISC",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-394",
+      "name": "url",
+      "versionInfo": "2.5.8",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-395",
+      "name": "urlpattern",
+      "versionInfo": "0.3.0",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-396",
+      "name": "utf8_iter",
+      "versionInfo": "1.0.4",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-397",
+      "name": "uuid",
+      "versionInfo": "1.24.0",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-398",
+      "name": "vcpkg",
+      "versionInfo": "0.2.15",
+      "licenseConcluded": "MIT/Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-399",
+      "name": "version-compare",
+      "versionInfo": "0.2.1",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-400",
+      "name": "version_check",
+      "versionInfo": "0.9.5",
+      "licenseConcluded": "MIT/Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-401",
+      "name": "vswhom",
+      "versionInfo": "0.1.0",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-402",
+      "name": "vswhom-sys",
+      "versionInfo": "0.1.3",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-403",
+      "name": "walkdir",
+      "versionInfo": "2.5.0",
+      "licenseConcluded": "Unlicense/MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-404",
+      "name": "want",
+      "versionInfo": "0.3.1",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-405",
+      "name": "wasi",
+      "versionInfo": "0.11.1+wasi-snapshot-preview1",
+      "licenseConcluded": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-406",
+      "name": "wasip2",
+      "versionInfo": "1.0.4+wasi-0.2.12",
+      "licenseConcluded": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-407",
+      "name": "wasm-bindgen",
+      "versionInfo": "0.2.126",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-408",
+      "name": "wasm-bindgen-futures",
+      "versionInfo": "0.4.76",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-409",
+      "name": "wasm-bindgen-macro",
+      "versionInfo": "0.2.126",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-410",
+      "name": "wasm-bindgen-macro-support",
+      "versionInfo": "0.2.126",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-411",
+      "name": "wasm-bindgen-shared",
+      "versionInfo": "0.2.126",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-412",
+      "name": "wasm-streams",
+      "versionInfo": "0.5.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-413",
+      "name": "wayland-sys",
+      "versionInfo": "0.31.11",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-414",
+      "name": "web-sys",
+      "versionInfo": "0.3.103",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-415",
+      "name": "web-time",
+      "versionInfo": "1.1.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-416",
+      "name": "web_atoms",
+      "versionInfo": "0.2.5",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-417",
+      "name": "webkit2gtk",
+      "versionInfo": "2.0.2",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-418",
+      "name": "webkit2gtk-sys",
+      "versionInfo": "2.0.2",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-419",
+      "name": "webpki-roots",
+      "versionInfo": "1.0.9",
+      "licenseConcluded": "CDLA-Permissive-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-420",
+      "name": "webview2-com",
+      "versionInfo": "0.38.2",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-421",
+      "name": "webview2-com-macros",
+      "versionInfo": "0.8.1",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-422",
+      "name": "webview2-com-sys",
+      "versionInfo": "0.38.2",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-423",
+      "name": "winapi",
+      "versionInfo": "0.3.9",
+      "licenseConcluded": "MIT/Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-424",
+      "name": "winapi-i686-pc-windows-gnu",
+      "versionInfo": "0.4.0",
+      "licenseConcluded": "MIT/Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-425",
+      "name": "winapi-util",
+      "versionInfo": "0.1.11",
+      "licenseConcluded": "Unlicense OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-426",
+      "name": "winapi-x86_64-pc-windows-gnu",
+      "versionInfo": "0.4.0",
+      "licenseConcluded": "MIT/Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-427",
+      "name": "window-vibrancy",
+      "versionInfo": "0.6.0",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-428",
+      "name": "windows",
+      "versionInfo": "0.61.3",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-429",
+      "name": "windows-collections",
+      "versionInfo": "0.2.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-430",
+      "name": "windows-core",
+      "versionInfo": "0.61.2",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-431",
+      "name": "windows-core",
+      "versionInfo": "0.62.2",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-432",
+      "name": "windows-future",
+      "versionInfo": "0.2.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-433",
+      "name": "windows-implement",
+      "versionInfo": "0.60.2",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-434",
+      "name": "windows-interface",
+      "versionInfo": "0.59.3",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-435",
+      "name": "windows-link",
+      "versionInfo": "0.1.3",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-436",
+      "name": "windows-link",
+      "versionInfo": "0.2.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-437",
+      "name": "windows-numerics",
+      "versionInfo": "0.2.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-438",
+      "name": "windows-result",
+      "versionInfo": "0.3.4",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-439",
+      "name": "windows-result",
+      "versionInfo": "0.4.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-440",
+      "name": "windows-strings",
+      "versionInfo": "0.4.2",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-441",
+      "name": "windows-strings",
+      "versionInfo": "0.5.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-442",
+      "name": "windows-sys",
+      "versionInfo": "0.45.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-443",
+      "name": "windows-sys",
+      "versionInfo": "0.52.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-444",
+      "name": "windows-sys",
+      "versionInfo": "0.59.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-445",
+      "name": "windows-sys",
+      "versionInfo": "0.60.2",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-446",
+      "name": "windows-sys",
+      "versionInfo": "0.61.2",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-447",
+      "name": "windows-targets",
+      "versionInfo": "0.42.2",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-448",
+      "name": "windows-targets",
+      "versionInfo": "0.52.6",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-449",
+      "name": "windows-targets",
+      "versionInfo": "0.53.5",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-450",
+      "name": "windows-threading",
+      "versionInfo": "0.1.0",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-451",
+      "name": "windows-version",
+      "versionInfo": "0.1.7",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-452",
+      "name": "windows_aarch64_gnullvm",
+      "versionInfo": "0.42.2",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-453",
+      "name": "windows_aarch64_gnullvm",
+      "versionInfo": "0.52.6",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-454",
+      "name": "windows_aarch64_gnullvm",
+      "versionInfo": "0.53.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-455",
+      "name": "windows_aarch64_msvc",
+      "versionInfo": "0.42.2",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-456",
+      "name": "windows_aarch64_msvc",
+      "versionInfo": "0.52.6",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-457",
+      "name": "windows_aarch64_msvc",
+      "versionInfo": "0.53.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-458",
+      "name": "windows_i686_gnu",
+      "versionInfo": "0.42.2",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-459",
+      "name": "windows_i686_gnu",
+      "versionInfo": "0.52.6",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-460",
+      "name": "windows_i686_gnu",
+      "versionInfo": "0.53.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-461",
+      "name": "windows_i686_gnullvm",
+      "versionInfo": "0.52.6",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-462",
+      "name": "windows_i686_gnullvm",
+      "versionInfo": "0.53.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-463",
+      "name": "windows_i686_msvc",
+      "versionInfo": "0.42.2",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-464",
+      "name": "windows_i686_msvc",
+      "versionInfo": "0.52.6",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-465",
+      "name": "windows_i686_msvc",
+      "versionInfo": "0.53.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-466",
+      "name": "windows_x86_64_gnu",
+      "versionInfo": "0.42.2",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-467",
+      "name": "windows_x86_64_gnu",
+      "versionInfo": "0.52.6",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-468",
+      "name": "windows_x86_64_gnu",
+      "versionInfo": "0.53.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-469",
+      "name": "windows_x86_64_gnullvm",
+      "versionInfo": "0.42.2",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-470",
+      "name": "windows_x86_64_gnullvm",
+      "versionInfo": "0.52.6",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-471",
+      "name": "windows_x86_64_gnullvm",
+      "versionInfo": "0.53.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-472",
+      "name": "windows_x86_64_msvc",
+      "versionInfo": "0.42.2",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-473",
+      "name": "windows_x86_64_msvc",
+      "versionInfo": "0.52.6",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-474",
+      "name": "windows_x86_64_msvc",
+      "versionInfo": "0.53.1",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-475",
+      "name": "winnow",
+      "versionInfo": "0.5.40",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-476",
+      "name": "winnow",
+      "versionInfo": "0.7.15",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-477",
+      "name": "winnow",
+      "versionInfo": "1.0.4",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-478",
+      "name": "winreg",
+      "versionInfo": "0.55.0",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-479",
+      "name": "wit-bindgen",
+      "versionInfo": "0.57.1",
+      "licenseConcluded": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-480",
+      "name": "writeable",
+      "versionInfo": "0.6.3",
+      "licenseConcluded": "Unicode-3.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-481",
+      "name": "wry",
+      "versionInfo": "0.55.1",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-482",
+      "name": "x11",
+      "versionInfo": "2.21.0",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-483",
+      "name": "x11-dl",
+      "versionInfo": "2.21.0",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-484",
+      "name": "xml-rs",
+      "versionInfo": "0.8.28",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-485",
+      "name": "yoke",
+      "versionInfo": "0.8.3",
+      "licenseConcluded": "Unicode-3.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-486",
+      "name": "yoke-derive",
+      "versionInfo": "0.8.2",
+      "licenseConcluded": "Unicode-3.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-487",
+      "name": "zerofrom",
+      "versionInfo": "0.1.8",
+      "licenseConcluded": "Unicode-3.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-488",
+      "name": "zerofrom-derive",
+      "versionInfo": "0.1.7",
+      "licenseConcluded": "Unicode-3.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-489",
+      "name": "zeroize",
+      "versionInfo": "1.9.0",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-490",
+      "name": "zerotrie",
+      "versionInfo": "0.2.4",
+      "licenseConcluded": "Unicode-3.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-491",
+      "name": "zerovec",
+      "versionInfo": "0.11.6",
+      "licenseConcluded": "Unicode-3.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-492",
+      "name": "zerovec-derive",
+      "versionInfo": "0.11.3",
+      "licenseConcluded": "Unicode-3.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-493",
+      "name": "zip",
+      "versionInfo": "8.6.0",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-494",
+      "name": "zlib-rs",
+      "versionInfo": "0.6.7",
+      "licenseConcluded": "Zlib",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-495",
+      "name": "zmij",
+      "versionInfo": "1.0.23",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-496",
+      "name": "zopfli",
+      "versionInfo": "0.8.3",
+      "licenseConcluded": "Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-497",
+      "name": "zune-core",
+      "versionInfo": "0.5.3",
+      "licenseConcluded": "MIT OR Apache-2.0 OR Zlib",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-498",
+      "name": "zune-jpeg",
+      "versionInfo": "0.5.15",
+      "licenseConcluded": "MIT OR Apache-2.0 OR Zlib",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-499",
+      "name": "@tauri-apps/api",
+      "versionInfo": "2.11.1",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-500",
+      "name": "@tauri-apps/plugin-dialog",
+      "versionInfo": "2.7.2",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-501",
+      "name": "lucide-react",
+      "versionInfo": "1.39.0",
+      "licenseConcluded": "ISC",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-502",
+      "name": "react",
+      "versionInfo": "19.2.8",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-503",
+      "name": "react-dom",
+      "versionInfo": "19.2.8",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-504",
+      "name": "@tauri-apps/cli",
+      "versionInfo": "2.11.4",
+      "licenseConcluded": "Apache-2.0 OR MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-505",
+      "name": "@types/react",
+      "versionInfo": "19.2.17",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-506",
+      "name": "@types/react-dom",
+      "versionInfo": "19.2.3",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-507",
+      "name": "@vitejs/plugin-react",
+      "versionInfo": "4.7.0",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-508",
+      "name": "typescript",
+      "versionInfo": "5.8.3",
+      "licenseConcluded": "Apache-2.0",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-509",
+      "name": "vite",
+      "versionInfo": "7.3.6",
+      "licenseConcluded": "MIT",
+      "filesAnalyzed": false,
+      "supplier": "NOASSERTION"
+    }
+  ]
+}
