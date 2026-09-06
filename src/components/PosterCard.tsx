@@ -10,9 +10,11 @@ type PosterCardProps = {
   onPlay: (media: MediaItem) => void;
 };
 
-/** 海报卡片；缺图时使用品牌备援视觉，接入 scraper 后替换为真实 poster URL。 */
+/** 海报卡片；缺图时使用品牌备援视觉 + 逐片色调叠层，接入 scraper 后替换为真实 poster URL。 */
 export function PosterCard({ media, index, onOpen, onPlay }: PosterCardProps) {
   const style = {
+    "--poster-tone": media.posterTone,
+    "--poster-accent": media.posterAccent,
     "--reveal-delay": `${Math.min(index, 10) * 36}ms`,
   } as CSSProperties;
 
@@ -20,6 +22,7 @@ export function PosterCard({ media, index, onOpen, onPlay }: PosterCardProps) {
     <article className="poster-card" style={style}>
       <button className="poster-art" onClick={() => onOpen(media)}>
         <img className="poster-fallback" src={posterFallback} alt="" />
+        <span className="poster-tint" aria-hidden="true" />
         {media.kind === "series" && (
           <span className="collection-badge">剧集合集</span>
         )}

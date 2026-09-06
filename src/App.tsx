@@ -616,7 +616,7 @@ function ContinueWatchingShelf({
         {media.slice(0, 3).map((item) => (
           <button className="continue-card" key={item.id} onClick={() => onPlay(item)}>
             <span className="continue-frame">
-              <img src={WATCH_STILLS[item.id]} alt={`《${item.title}》播放画面`} />
+              <img src={WATCH_STILLS[item.id] ?? posterFallback} alt={`《${item.title}》播放画面`} />
               <span className="continue-play"><Icon name="play" size={20} /></span>
               <span className="continue-progress">
                 <span style={{ width: `${Math.max(item.progress, 0.04) * 100}%` }} />

@@ -130,6 +130,12 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 }
 .poster-art:hover { transform: translateY(-5px) scale(1.012); box-shadow: 0 12px 24px rgba(34,54,82,.18); }
 .poster-fallback { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+/* 逐片色调叠层：同一备援基底上产生每部作品的颜色身份 */
+.poster-tint {
+  position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(155deg, color-mix(in srgb, var(--poster-accent) 26%, transparent), color-mix(in srgb, var(--poster-tone) 52%, transparent) 78%);
+  mix-blend-mode: normal;
+}
 .poster-year { position: absolute; top: 14px; left: 14px; font: 12px ui-monospace,SFMono-Regular,monospace; letter-spacing: .12em; }
 .collection-badge { position:absolute; top:11px; right:11px; padding:3px 8px; border:1px solid rgba(255,255,255,.24); border-radius:6px; background:rgba(13,20,29,.28); color:#fff; font-size:12px; letter-spacing:.06em; backdrop-filter:blur(8px); }
 .poster-card:has(.collection-badge) .poster-art::before,.poster-card:has(.collection-badge) .poster-art::after { content:""; position:absolute; right:8px; bottom:-5px; left:8px; height:10px; border-radius:0 0 10px 10px; background:#14233c; z-index:-1; }
