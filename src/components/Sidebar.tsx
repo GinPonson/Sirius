@@ -18,20 +18,20 @@ const NAVIGATION: Array<{
   label: string;
   icon:
     | "cloud"
-    | "folder"
     | "tasks"
     | "sparkles"
     | "home"
     | "library"
     | "discover"
     | "book"
-    | "images";
+    | "images"
+    | "settings";
   group: "workspace" | "content";
 }> = [
   { id: "cloud-files", label: "网盘文件", icon: "cloud", group: "workspace" },
-  { id: "sources", label: "媒体来源", icon: "folder", group: "workspace" },
   { id: "tasks", label: "整理任务", icon: "tasks", group: "workspace" },
   { id: "ai-organize", label: "AI 整理", icon: "sparkles", group: "workspace" },
+  { id: "settings", label: "设置", icon: "settings", group: "workspace" },
   { id: "home", label: "首页", icon: "home", group: "content" },
   { id: "library", label: "媒体库", icon: "library", group: "content" },
   { id: "discover", label: "发现", icon: "discover", group: "content" },

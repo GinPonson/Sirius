@@ -75,7 +75,6 @@ function describeTargets(targets: Cloud115FileEntry[]): string {
 /** 115 网盘真实文件浏览页；批量移动/复制的目标策略由 Rust 侧统一校验。 */
 export function CloudFilesView({ account, onRequireLogin, onPlay }: CloudFilesViewProps) {
   const [path, setPath] = useState<FolderPick[]>([{ id: ROOT_ID, name: "115 网盘" }]);
-  const [rootFolders, setRootFolders] = useState<Cloud115FileEntry[]>([]);
   const [entries, setEntries] = useState<Cloud115FileEntry[]>([]);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<CloudFileFilter>("all");
@@ -116,9 +115,6 @@ export function CloudFilesView({ account, onRequireLogin, onPlay }: CloudFilesVi
           setEntries(page.entries);
           setTotal(page.total);
           setHasMore(page.hasMore);
-          if (currentFolderId === ROOT_ID && !query.trim()) {
-            setRootFolders(page.entries.filter((entry) => entry.kind === "folder"));
-          }
         })
         .catch((reason) => active && setError(`读取 115 文件失败：${String(reason)}`))
         .finally(() => active && setLoading(false));
@@ -235,13 +231,7 @@ export function CloudFilesView({ account, onRequireLogin, onPlay }: CloudFilesVi
     clearSelection();
   }
 
-  function navigateFromTree(entry: Cloud115FileEntry) {
-    if (entry.kind !== "folder") return;
-    setPath([{ id: ROOT_ID, name: "115 网盘" }, { id: entry.id, name: entry.name }]);
-    setQuery("");
-    setFilter("all");
-    clearSelection();
-  }
+
 
   async function loadMore() {
     const activeRequestKey = requestKey;
@@ -455,24 +445,8 @@ export function CloudFilesView({ account, onRequireLogin, onPlay }: CloudFilesVi
 
       {error && <div className="cloud-inline-error" role="alert">{error}</div>}
       {notice && <div className="cloud-action-notice" role="status"><Icon name="check" size={14} />{notice}<button aria-label="关闭提示" onClick={() => setNotice(null)}><Icon name="close" size={13} /></button></div>}
-      <div className="cloud-browser-shell">
-        <aside className="cloud-folder-tree" aria-label="网盘目录">
-          <button className={currentFolderId === ROOT_ID ? "tree-root active" : "tree-root"} onClick={() => navigateToPath(0)}>
-            <span><Icon name="cloud" size={16} />115 网盘</span>
-            <Icon name="chevron" size={14} />
-          </button>
-          <div className="tree-list">
-            {rootFolders.map((entry) => (
-              <button key={entry.id} className={path.some((item) => item.id === entry.id) ? "active" : ""} onClick={() => navigateFromTree(entry)}>
-                <Icon name="folder" size={15} />
-                <span>{entry.name}</span>
-                {entry.children !== null && <small>{entry.children}</small>}
-              </button>
-            ))}
-          </div>
-        </aside>
 
-        <div className="cloud-file-pane">
+      <div className="cloud-file-pane">
           <div className="cloud-files-toolbar">
             <nav className="file-breadcrumbs" aria-label="当前网盘路径">
               {path.map((item, index) => (
@@ -591,7 +565,7 @@ export function CloudFilesView({ account, onRequireLogin, onPlay }: CloudFilesVi
             )}
           </div>
           {hasMore && <button className="cloud-load-more" disabled={loadingMore} onClick={() => void loadMore()}>{loadingMore ? "正在加载…" : "加载更多"}</button>}
-        </div>
+        
       </div>
 
       {renameEntry && <div className="cloud-operation-backdrop" onPointerDown={(event) => event.target === event.currentTarget && !busyAction && setRenameEntry(null)}><form className="cloud-operation-dialog" onSubmit={(event) => { event.preventDefault(); void submitRename(); }}><strong>重命名</strong><span>为“{renameEntry.name}”输入新名称</span><input autoFocus value={renameValue} onChange={(event) => setRenameValue(event.currentTarget.value)} /><div><button type="button" className="secondary-action" disabled={busyAction} onClick={() => setRenameEntry(null)}>取消</button><button type="submit" className="primary-action" disabled={busyAction || !renameValue.trim()}>保存</button></div></form></div>}

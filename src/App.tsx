@@ -9,6 +9,10 @@ import { AlbumsView } from "./components/AlbumsView";
 import { AiOrganizeView } from "./components/AiOrganizeView";
 import { CloudFilesView } from "./components/CloudFilesView";
 import { ComicsView } from "./components/ComicsView";
+import {
+  AiOrganizationService,
+  type AiProviderSettingsView,
+} from "./services/aiServices";
 import { Cloud115AuthModal } from "./components/Cloud115AuthModal";
 import { LoginGate } from "./components/LoginGate";
 import { MediaDetail } from "./components/MediaDetail";
@@ -493,19 +497,14 @@ function App() {
           <AiOrganizeView />
         ) : section === "cloud-files" ? (
           <CloudFilesView account={cloudAccount} onRequireLogin={() => setForceGate(true)} onPlay={playCloudFile} />
-        ) : section === "sources" ? (
-          <SourcesView
-            scanning={scanning}
-            onScan={scanDirectory}
-            onManageCloud={() => navigateFromSidebar("cloud-files")}
-          />
         ) : (
           <SettingsView
             settings={appSettings}
             saving={savingSettings}
             onChange={updateAppSettings}
             onManageCloud={() => navigateFromSidebar("cloud-files")}
-            onManageLocal={() => navigateFromSidebar("sources")}
+            onScanLocal={scanDirectory}
+            scanning={scanning}
           />
         )}
       </main>
@@ -563,7 +562,6 @@ function sectionTitle(section: AppSection): string {
     comics: "漫画",
     albums: "相册",
     "cloud-files": "网盘文件",
-    sources: "媒体来源",
     tasks: "整理任务",
     "ai-organize": "AI 整理",
     settings: "设置",
@@ -842,68 +840,105 @@ function TasksView({
   );
 }
 
-function SourcesView({
-  scanning,
-  onScan,
-  onManageCloud,
-}: {
-  scanning: boolean;
-  onScan: () => void;
-  onManageCloud: () => void;
-}) {
+const aiOrganizationService = new AiOrganizationService();
+
+/** 设置页内的 AI 模型服务配置；API 密钥只写入 macOS 钥匙串，保存后不再显示。 */
+function AiProviderGroup() {
+  const [view, setView] = useState<AiProviderSettingsView | null>(null);
+  const [baseUrl, setBaseUrl] = useState("");
+  const [model, setModel] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    aiOrganizationService
+      .settings()
+      .then((value) => {
+        if (!active) return;
+        setView(value);
+        setBaseUrl(value.baseUrl);
+        setModel(value.model);
+      })
+      .catch((reason) => active && setError(`读取 AI 配置失败：${String(reason)}`));
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function saveProvider() {
+    setSaving(true);
+    setError(null);
+    try {
+      const next = await aiOrganizationService.updateProvider({
+        baseUrl,
+        model,
+        apiKey: apiKey.trim() ? apiKey.trim() : null,
+      });
+      setView(next);
+      setApiKey("");
+      setNotice("AI 配置已保存");
+    } catch (reason) {
+      setError(`保存 AI 配置失败：${String(reason)}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
-    <section className="page-section sources-view">
-      <div className="source-callout">
+    <div className="settings-group">
+      <h2>AI 模型服务</h2>
+      {error && <div className="cloud-inline-error" role="alert">{error}</div>}
+      {notice && <div className="cloud-action-notice" role="status"><Icon name="check" size={14} />{notice}<button aria-label="关闭提示" onClick={() => setNotice(null)}><Icon name="close" size={13} /></button></div>}
+      <div className="setting-row">
         <div>
-          <span className="context-label">内容入口</span>
-          <h2>管理影片所在的位置</h2>
-          <p>本地目录与网盘最终都会转换为统一媒体来源，供刮削、详情页和播放器使用。</p>
+          <strong>服务商地址</strong>
+          <p>OpenAI 兼容接口，例如 https://api.deepseek.com</p>
         </div>
-        <button className="primary-action" disabled={scanning} onClick={onScan}>
-          <Icon name="plus" size={17} />
-          {scanning ? "正在扫描…" : "添加本地目录"}
+        <input
+          className="ai-text-input"
+          value={baseUrl}
+          placeholder="https://api.deepseek.com"
+          onChange={(event) => setBaseUrl(event.currentTarget.value)}
+        />
+      </div>
+      <div className="setting-row">
+        <div>
+          <strong>模型</strong>
+          <p>用于 AI 整理的文件名分析</p>
+        </div>
+        <input
+          className="ai-text-input"
+          value={model}
+          placeholder="deepseek-chat"
+          onChange={(event) => setModel(event.currentTarget.value)}
+        />
+      </div>
+      <div className="setting-row">
+        <div>
+          <strong>API 密钥</strong>
+          <p>{view?.keyStored ? "已保存在 macOS 钥匙串" : "尚未保存密钥"}</p>
+        </div>
+        <input
+          className="ai-text-input"
+          type="password"
+          value={apiKey}
+          placeholder={view?.keyStored ? "留空保持现有密钥" : "sk-…"}
+          onChange={(event) => setApiKey(event.currentTarget.value)}
+        />
+      </div>
+      <div className="setting-row">
+        <div>
+          <strong>保存配置</strong>
+          <p>供「AI 整理」工作台使用</p>
+        </div>
+        <button className="primary-action" disabled={saving} onClick={() => void saveProvider()}>
+          {saving ? "正在保存…" : "保存"}
         </button>
       </div>
-
-      <div className="source-grid">
-        <article className="source-card">
-          <div className="source-card-head">
-            <span className="source-icon"><Icon name="cloud" size={18} /></span>
-            <span className="connection-state muted">按账号状态</span>
-          </div>
-          <h3>115 网盘</h3>
-          <p>云端媒体来源与播放地址解析入口。</p>
-          <dl>
-            <div><dt>协议</dt><dd>OpenAPI</dd></div>
-            <div><dt>登录</dt><dd>扫码授权</dd></div>
-          </dl>
-          <button className="text-action" onClick={onManageCloud}>管理来源 <Icon name="chevron" size={14} /></button>
-        </article>
-        <article className="source-card">
-          <div className="source-card-head">
-            <span className="source-icon local"><Icon name="folder" size={18} /></span>
-            <span className="connection-state muted">可添加</span>
-          </div>
-          <h3>本地目录</h3>
-          <p>扫描 Mac 上的电影和剧集文件。</p>
-          <dl>
-            <div><dt>格式</dt><dd>7 种</dd></div>
-            <div><dt>扫描</dt><dd>递归</dd></div>
-          </dl>
-          <button className="text-action" disabled={scanning} onClick={onScan}>
-            选择目录 <Icon name="chevron" size={14} />
-          </button>
-        </article>
-        <article className="source-card planned">
-          <div className="source-card-head">
-            <span className="source-icon"><Icon name="plus" size={18} /></span>
-            <span className="connection-state muted">后续扩展</span>
-          </div>
-          <h3>更多来源</h3>
-          <p>为 WebDAV、NAS 和其他网盘保留统一接入位置。</p>
-        </article>
-      </div>
-    </section>
+    </div>
   );
 }
 
@@ -912,13 +947,15 @@ function SettingsView({
   saving,
   onChange,
   onManageCloud,
-  onManageLocal,
+  onScanLocal,
+  scanning,
 }: {
   settings: AppSettings | null;
   saving: boolean;
   onChange: (settings: AppSettings) => Promise<void>;
   onManageCloud: () => void;
-  onManageLocal: () => void;
+  onScanLocal: () => void;
+  scanning: boolean;
 }) {
   /** 只在设置完成加载后提交，避免用前端默认值覆盖 SQLite 中的真实状态。 */
   function updateSetting(patch: Partial<AppSettings>) {
@@ -948,9 +985,12 @@ function SettingsView({
             <strong>本地目录</strong>
             <p>扫描 Mac 上的视频并创建媒体整理任务</p>
           </div>
-          <button className="secondary-action" onClick={onManageLocal}>管理目录</button>
+          <button className="secondary-action" disabled={scanning} onClick={onScanLocal}>
+            {scanning ? "正在扫描…" : "扫描目录"}
+          </button>
         </div>
       </div>
+      <AiProviderGroup />
       <div className="settings-group">
         <h2>刮削服务</h2>
         <div className="setting-row">

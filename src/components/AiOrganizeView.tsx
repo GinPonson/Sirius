@@ -4,7 +4,6 @@ import {
   type AiExecutionReport,
   type AiOrganizationPlan,
   type AiPlanItem,
-  type AiProviderSettingsView,
 } from "../services/aiServices";
 import { Cloud115Service, type Cloud115FileEntry } from "../services/mediaServices";
 import { Icon } from "./Icon";
@@ -30,13 +29,8 @@ function actionLabel(
   return <span>保持现状</span>;
 }
 
-/** AI 整理工作台：只读分析 → 计划预览 → 显式确认 → Rust 策略执行 → 结果报告。 */
+/** AI 整理工作台：只读分析 → 计划预览 → 显式确认 → Rust 策略执行 → 结果报告；模型配置在设置页。 */
 export function AiOrganizeView() {
-  const [settings, setSettings] = useState<AiProviderSettingsView | null>(null);
-  const [baseUrl, setBaseUrl] = useState("");
-  const [model, setModel] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [savingSettings, setSavingSettings] = useState(false);
   const [rootFolders, setRootFolders] = useState<Cloud115FileEntry[]>([]);
   const [folderId, setFolderId] = useState(ROOT_ID);
   const [analyzing, setAnalyzing] = useState(false);
@@ -51,14 +45,6 @@ export function AiOrganizeView() {
 
   useEffect(() => {
     let active = true;
-    aiService.settings()
-      .then((view) => {
-        if (!active) return;
-        setSettings(view);
-        setBaseUrl(view.baseUrl);
-        setModel(view.model);
-      })
-      .catch((reason) => active && setError(`读取 AI 配置失败：${String(reason)}`));
     cloud115.listFiles(ROOT_ID, "", 0, 100)
       .then((page) => {
         if (active) setRootFolders(page.entries.filter((entry) => entry.kind === "folder"));
@@ -68,25 +54,6 @@ export function AiOrganizeView() {
       active = false;
     };
   }, []);
-
-  async function saveProvider() {
-    setSavingSettings(true);
-    setError(null);
-    try {
-      const next = await aiService.updateProvider({
-        baseUrl,
-        model,
-        apiKey: apiKey.trim() ? apiKey.trim() : null,
-      });
-      setSettings(next);
-      setApiKey("");
-      setNotice("AI 配置已保存");
-    } catch (reason) {
-      setError(`保存 AI 配置失败：${String(reason)}`);
-    } finally {
-      setSavingSettings(false);
-    }
-  }
 
   async function runAnalysis() {
     setAnalyzing(true);
@@ -162,56 +129,6 @@ export function AiOrganizeView() {
       {error && <div className="cloud-inline-error" role="alert">{error}</div>}
 
       {notice && <div className="cloud-action-notice" role="status"><Icon name="check" size={14} />{notice}<button aria-label="关闭提示" onClick={() => setNotice(null)}><Icon name="close" size={13} /></button></div>}
-
-      <div className="settings-group">
-        <h2>模型服务</h2>
-        <div className="setting-row">
-          <div>
-            <strong>服务商地址</strong>
-            <p>OpenAI 兼容接口，例如 https://api.deepseek.com</p>
-          </div>
-          <input
-            className="ai-text-input"
-            value={baseUrl}
-            placeholder="https://api.deepseek.com"
-            onChange={(event) => setBaseUrl(event.currentTarget.value)}
-          />
-        </div>
-        <div className="setting-row">
-          <div>
-            <strong>模型</strong>
-            <p>用于文件名分析与整理建议</p>
-          </div>
-          <input
-            className="ai-text-input"
-            value={model}
-            placeholder="deepseek-chat"
-            onChange={(event) => setModel(event.currentTarget.value)}
-          />
-        </div>
-        <div className="setting-row">
-          <div>
-            <strong>API 密钥</strong>
-            <p>{settings?.keyStored ? "已保存在 macOS 钥匙串" : "尚未保存密钥"}</p>
-          </div>
-          <input
-            className="ai-text-input"
-            type="password"
-            value={apiKey}
-            placeholder={settings?.keyStored ? "留空保持现有密钥" : "sk-…"}
-            onChange={(event) => setApiKey(event.currentTarget.value)}
-          />
-        </div>
-        <div className="setting-row">
-          <div>
-            <strong>保存配置</strong>
-            <p>密钥保存后不会再次显示</p>
-          </div>
-          <button className="primary-action" disabled={savingSettings} onClick={() => void saveProvider()}>
-            {savingSettings ? "正在保存…" : "保存"}
-          </button>
-        </div>
-      </div>
 
       <div className="settings-group">
         <h2>分析范围</h2>

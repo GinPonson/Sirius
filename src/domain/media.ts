@@ -6,7 +6,6 @@ export type AppSection =
   | "comics"
   | "albums"
   | "cloud-files"
-  | "sources"
   | "tasks"
   | "ai-organize"
   | "settings";
