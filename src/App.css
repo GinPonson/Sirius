@@ -232,7 +232,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .cloud-app-switcher { position:relative; }
 .cloud-app-icon { display:grid; width:38px; height:38px; place-items:center; border:1px solid transparent; border-radius:11px; background:#eaf0ff; color:var(--primary); font-size:15px; font-weight:680; cursor:pointer; transition:border-color .16s ease,background .16s ease,transform .16s ease; }
 .cloud-app-icon:hover,.cloud-app-icon.active { border-color:#cbd8f3; background:#e1eaff; }
-.cloud-app-picker { position:absolute; top:46px; left:0; display:grid; width:180px; max-height:230px; overflow:auto; padding:5px; border:1px solid #dfe3e9; border-radius:10px; background:#fff; box-shadow:0 14px 34px rgba(37,49,69,.16); z-index:1; }
+.cloud-app-picker { position:absolute; top:46px; right:0; display:grid; width:180px; max-height:230px; overflow:auto; padding:5px; border:1px solid #dfe3e9; border-radius:10px; background:#fff; box-shadow:0 14px 34px rgba(37,49,69,.16); z-index:1; }
 .cloud-app-picker button { display:grid; grid-template-columns:minmax(0,1fr) 7px; min-height:31px; align-items:center; gap:8px; padding:0 9px; border:0; border-radius:7px; background:transparent; color:#656b74; font-size:var(--text-meta); text-align:left; cursor:pointer; }
 .cloud-app-picker button span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .cloud-app-picker button i { width:6px; height:6px; border-radius:50%; background:transparent; }
