@@ -72,4 +72,4 @@
 
 ## 后续阶段
 
-全部可自主完成的工作已交付。剩余两项**需用户在本机执行**：① release 包已预构建并核验（`src-tauri/target/release/bundle/macos/Sirius.app`），导出 `APPLE_API_KEY_PATH`/`APPLE_API_KEY_ID`/`APPLE_API_ISSUER` 后运行 `./scripts/sign-and-notarize.sh src-tauri/target/release/bundle/macos/Sirius.app` 完成签名、公证与装订；② 用授权 115 账号登录应用，按 `docs/manual-verification.md` 的 9 组核对清单执行远程流程验证并回填结果（凭据请勿经对话传递）。
+产品定位为**仅个人使用**（用户 2026-09-05 决策）：Developer ID 签名与公证不再执行（第 9 组核对清单跳过）；adhoc 签名的本地 release 包可直接使用。剩余唯一待办：用授权 115 账号登录应用，按 `docs/manual-verification.md` 第 1–8 组核对清单执行远程流程验证并回填结果（凭据请勿经对话传递）。

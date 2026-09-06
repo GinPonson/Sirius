@@ -597,3 +597,71 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 @media (prefers-reduced-motion: reduce) {
   *,*::before,*::after { scroll-behavior:auto!important; animation-duration:.01ms!important; animation-iteration-count:1!important; transition-duration:.01ms!important; }
 }
+
+/* ==== 视觉升级：编辑式壳层与微交互（2026-09-06） ==== */
+
+/* 视图进入：分区切换重新挂载时播放，弹簧曲线与全局动效物理一致 */
+.page-section { animation: view-enter .42s cubic-bezier(.16,1,.3,1) both; }
+@keyframes view-enter {
+  from { opacity:0; transform:translateY(14px); }
+  to { opacity:1; transform:translateY(0); }
+}
+
+/* 顶栏标题收紧字距，配窗口基线 */
+.topbar h1 { font-size:15px; font-weight:640; letter-spacing:-.01em; }
+
+/* 编辑式分区标题：内容模式的海报式页头 */
+.section-heading h2, .continue-heading h2 { font-size:clamp(26px,2.6vw,34px); font-weight:650; letter-spacing:-.03em; }
+.context-label { position:relative; padding-left:18px; }
+.context-label::before { content:""; position:absolute; left:0; top:50%; width:10px; height:1.5px; background:var(--primary); transform:translateY(-50%); }
+.comics-view .section-heading, .albums-view .section-heading { align-items:flex-end; }
+.comics-stats { color:#6a7180; font-size:13px; font-variant-numeric:tabular-nums; letter-spacing:.01em; }
+
+/* 品牌标识：实心渐变芯片 + 投影，登录首屏与侧栏同源 */
+.brand-mark { background:linear-gradient(135deg,#2458d7,#5b8def); color:#fff; box-shadow:0 4px 12px rgba(36,88,215,.35); }
+
+/* 侧栏活动指示条：左侧弹簧滑入，替代纯色块的单调感 */
+.nav-item { position:relative; }
+.nav-item::after { content:""; position:absolute; left:-16px; top:50%; width:3px; height:0; border-radius:0 2px 2px 0; background:var(--primary); transform:translateY(-50%); transition:height .28s cubic-bezier(.16,1,.3,1); }
+.nav-item.active::after { height:18px; }
+
+/* 文件行悬停：左缘强调条生长 + 冷调底色，数据区保持零位移 */
+.file-row { position:relative; }
+.file-row::before { content:""; position:absolute; left:0; top:50%; width:2.5px; height:0; border-radius:0 2px 2px 0; background:var(--primary); transform:translateY(-50%); transition:height .22s cubic-bezier(.16,1,.3,1); }
+.file-row:hover { background:#f2f5fa; }
+.file-row:hover::before { height:60%; }
+
+/* 按钮按压物理感：缩放回弹 + 主操作光影层次 */
+.primary-action, .secondary-action, .danger-action { transition:transform .16s cubic-bezier(.16,1,.3,1), box-shadow .2s ease, background .2s ease, border-color .2s ease; }
+.primary-action:active, .secondary-action:active, .danger-action:active { transform:scale(.97); }
+.primary-action { box-shadow:0 1px 2px rgba(36,88,215,.25); }
+.primary-action:hover { box-shadow:0 4px 14px rgba(36,88,215,.3); }
+
+/* 模式卡片聚焦光环（键盘可达性 + 视觉一致） */
+.comics-card:focus-visible, .albums-card:focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
+
+/* AI 计划行：动作语义色左缘条，执行差异一眼可辨 */
+.ai-plan-item { position:relative; padding-left:14px; }
+.ai-plan-item::before { content:""; position:absolute; left:0; top:50%; width:2.5px; height:0; border-radius:0 2px 2px 0; background:#c9cdd4; transform:translateY(-50%); transition:height .24s cubic-bezier(.16,1,.3,1); }
+.ai-plan-item.rename::before { background:#3d6ba8; }
+.ai-plan-item.move::before { background:#6f4e9c; }
+.ai-plan-item.delete::before { background:#a33d46; }
+.ai-plan-item:hover::before { height:56%; }
+
+/* 漫画卡片悬停浮起（与相册卡片同物理） */
+.comics-card { transition:box-shadow .28s cubic-bezier(.16,1,.3,1), transform .28s cubic-bezier(.16,1,.3,1); }
+.comics-card:hover { transform:translateY(-2px); }
+
+/* 对话框入场：弹簧缩放 + 渐显 */
+.cloud-operation-dialog { animation:dialog-in .32s cubic-bezier(.16,1,.3,1) both; }
+@keyframes dialog-in {
+  from { opacity:0; transform:translateY(10px) scale(.97); }
+  to { opacity:1; transform:translateY(0) scale(1); }
+}
+
+/* 操作条入场：自上滑入，与视图进入动效同源 */
+.file-batch-bar, .albums-actions, .upload-resume-bar { animation:bar-in .34s cubic-bezier(.16,1,.3,1) both; }
+@keyframes bar-in {
+  from { opacity:0; transform:translateY(-8px); }
+  to { opacity:1; transform:translateY(0); }
+}
