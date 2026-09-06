@@ -97,6 +97,12 @@ fn civil_from_days(days_since_epoch: i64) -> (i64, u32, u32) {
 }
 
 /// 只读识别一个目录：图片按 UTC 月份聚合成时间线，其他文件只计数；结果持久化到本机索引。
+/// 识别的总 list_files 请求预算（含首层）：BFS 逐层下探直到照片层或预算耗尽，
+/// 与每层 200 项上限共同构成大目录性能边界（最坏 12 次控制请求 ≈ 12 秒）。
+const SCAN_REQUEST_BUDGET: usize = 12;
+/// 每一层最多下探的文件夹数，防止单层海量目录吃光预算。
+const SUBFOLDERS_PER_LEVEL: usize = 8;
+
 pub async fn recognize_photos(
     provider: &Cloud115Provider,
     repository: &LibraryRepository,
@@ -112,12 +118,49 @@ pub async fn recognize_photos(
     if page.entries.is_empty() {
         return Err("该目录没有可识别的内容".to_string());
     }
-    let overview = group_photos(
-        &page.entries,
-        folder_id,
-        input.folder_name.trim(),
-        page.has_more,
-    );
+
+    // 手机备份把照片嵌套在「相册/设备/分类」等多层文件夹里：
+    // BFS 逐层下探（每层最多 8 个文件夹），直到照片层或请求预算耗尽。
+    let mut all_entries = page.entries.clone();
+    let mut truncated = page.has_more;
+    let mut budget = SCAN_REQUEST_BUDGET.saturating_sub(1);
+    let mut queue: std::collections::VecDeque<Cloud115FileEntry> = page
+        .entries
+        .iter()
+        .filter(|entry| entry.kind == "folder")
+        .take(SUBFOLDERS_PER_LEVEL)
+        .cloned()
+        .collect();
+    while budget > 0 {
+        let Some(next) = queue.pop_front() else {
+            break;
+        };
+        budget -= 1;
+        if let Ok(mut sub_page) = provider.list_files(&next.id, 0, SCAN_PAGE_LIMIT, "").await {
+            // 命中照片层后停止下探：更深的目录通常是应用私有结构。
+            let has_images = sub_page
+                .entries
+                .iter()
+                .any(|entry| IMAGE_EXTENSIONS.contains(&entry.extension.to_lowercase().as_str()));
+            truncated = truncated || sub_page.has_more;
+            if !has_images {
+                for entry in sub_page
+                    .entries
+                    .iter()
+                    .filter(|entry| entry.kind == "folder")
+                    .take(SUBFOLDERS_PER_LEVEL)
+                {
+                    queue.push_back(entry.clone());
+                }
+            }
+            all_entries.append(&mut sub_page.entries);
+        }
+    }
+    if all_entries.is_empty() {
+        return Err("该目录没有可识别的内容".to_string());
+    }
+
+    let overview = group_photos(&all_entries, folder_id, input.folder_name.trim(), truncated);
     // 幂等覆盖该目录的索引；索引行数由仓储层限制在最近 50 个目录。
     let payload =
         serde_json::to_string(&overview).map_err(|error| format!("序列化相册索引失败：{error}"))?;

@@ -301,7 +301,7 @@ export function AlbumsView() {
               <div className="empty-state">
                 <Icon name="images" size={24} />
                 <h2>还没有照片索引</h2>
-                <p>选择目录识别，或批量索引根目录；时间线按文件修改时间分月展示。</p>
+                <p>选择目录识别，或批量索引根目录；自动下探两层子目录（适配手机备份结构），时间线按文件时间分月展示。</p>
               </div>
             ) : (
               <div className="albums-timeline">
