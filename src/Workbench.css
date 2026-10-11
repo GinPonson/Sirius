@@ -2353,6 +2353,11 @@
 
   .comics-reader-scroll {
     padding: 12px 40px;
+  }
+}
+
+
+/* ============================================================================
    相册模式展示升级（时间线沉浸）：缩略图网格 + 三档密度、月份吸顶、
    年月柱图导航、专辑「更多」菜单与分类空状态（DESIGN.md §16 modes.albums）。
    仅追加相册区块；网格列数走容器查询 —— albums-body 上声明 container-type，
@@ -2590,6 +2595,80 @@
   top: calc(100% + 6px);
   right: 0;
   z-index: 5;
+  display: grid;
+  min-width: 168px;
+  padding: 5px;
+  border: 1px solid var(--frosted-border);
+  border-radius: var(--radius-md);
+  background: var(--surface-elevated);
+  box-shadow: var(--shadow-2);
+}
+
+.albums-more-menu button {
+  display: flex;
+  height: 32px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+  font-size: 12px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.albums-more-menu button:hover:not(:disabled) {
+  border: 0;
+  background: var(--surface-hover);
+  color: var(--fg);
+}
+
+.albums-more-menu button.danger {
+  color: var(--danger-ink);
+}
+
+.albums-more-menu button.danger:hover:not(:disabled) {
+  background: var(--danger-soft);
+}
+
+/* —— 分类空状态 —— */
+.albums-empty-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+/* —— 容器查询：置于区块末尾，匹配时按级联覆盖上方同权重的基底规则 ——
+   窄内容列：列宽下限抬到 40%，压缩档也不会出现不可辨识的小图 */
+@container albums-pane (max-width: 560px) {
+  .albums-photo-grid {
+    grid-template-columns: repeat(auto-fill, minmax(max(var(--albums-tile-min, 152px), 40%), 1fr));
+  }
+}
+
+/* 容器过窄时收起右侧柱图导航，时间线独占整列 */
+@container albums-pane (max-width: 720px) {
+  .albums-timeline-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .albums-month-nav {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .albums-photo-tile .albums-tile-meta,
+  .file-thumbnail.albums-tile-thumb > img,
+  .albums-month-nav rect {
+    transition: none;
+  }
+}
+
+/* ============================================================================
    WP H1 文件页交互 —— 视图切换 / 密度 / 排序 / 网格 / 空状态（2026-10-11）
    全部为文件页相关 class 的追加块；仅消费 Shell.css token，不引入新硬编码色。
    ========================================================================== */
@@ -2700,11 +2779,6 @@
   padding: 5px;
   border: 1px solid var(--frosted-border);
   border-radius: var(--radius-md);
-  background: var(--surface-elevated);
-  box-shadow: var(--shadow-2);
-}
-
-.albums-more-menu button {
   background: var(--surface);
   box-shadow: var(--shadow-3);
   animation: context-menu-in var(--duration-fast) var(--ease-standard) both;
@@ -2727,46 +2801,6 @@
   color: var(--fg);
   font-size: 12px;
   text-align: left;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.albums-more-menu button:hover:not(:disabled) {
-  border: 0;
-  background: var(--surface-hover);
-  color: var(--fg);
-}
-
-.albums-more-menu button.danger {
-  color: var(--danger-ink);
-}
-
-.albums-more-menu button.danger:hover:not(:disabled) {
-  background: var(--danger-soft);
-}
-
-/* —— 分类空状态 —— */
-.albums-empty-actions {
-  display: flex;
-  gap: 10px;
-  margin-top: 16px;
-}
-
-/* —— 容器查询：置于区块末尾，匹配时按级联覆盖上方同权重的基底规则 ——
-   窄内容列：列宽下限抬到 40%，压缩档也不会出现不可辨识的小图 */
-@container albums-pane (max-width: 560px) {
-  .albums-photo-grid {
-    grid-template-columns: repeat(auto-fill, minmax(max(var(--albums-tile-min, 152px), 40%), 1fr));
-  }
-}
-
-/* 容器过窄时收起右侧柱图导航，时间线独占整列 */
-@container albums-pane (max-width: 720px) {
-  .albums-timeline-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .albums-month-nav {
   cursor: pointer;
 }
 
@@ -3058,12 +3092,6 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .albums-photo-tile .albums-tile-meta,
-  .file-thumbnail.albums-tile-thumb > img,
-  .albums-month-nav rect {
-    transition: none;
-  }
 /* ---------------------------------------------------------------------------
    WP H1 追加：新建文件夹 / 回收站入口与面板 / 目标选择器最近使用
    -------------------------------------------------------------------------- */
