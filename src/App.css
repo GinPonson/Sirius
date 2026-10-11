@@ -79,6 +79,16 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .section-heading h2, .settings-group h2 { margin:5px 0 0; font-size:var(--text-section); font-weight:620; letter-spacing:-.02em; }
 
 .home-view { display: grid; gap: 52px; }
+
+/* 影视单入口的内部切换：继续观看/我的媒体/发现。三视图组件与数据逻辑不变，
+   只是把原来的三个侧栏入口降为视图级切换（下划线 tab，与库内筛选分段控件区分）。 */
+.video-mode-tabs { display: flex; align-items: baseline; gap: var(--space-5); margin-bottom: 26px; border-bottom: 1px solid var(--hairline); }
+.video-mode-tabs button { position: relative; padding: 2px 2px 10px; border: 0; background: transparent; color: var(--muted); font-size: 14px; font-weight: 500; letter-spacing: -.01em; cursor: pointer; transition: color var(--duration-fast) var(--ease-standard); }
+.video-mode-tabs button:hover { color: var(--fg); }
+.video-mode-tabs button.active { color: var(--fg); font-weight: 620; }
+.video-mode-tabs button::after { content: ""; position: absolute; right: 0; bottom: -1px; left: 0; height: 2px; border-radius: 1px; background: var(--primary); transform: scaleX(0); transform-origin: left; transition: transform var(--duration-panel) var(--ease-spring); }
+.video-mode-tabs button.active::after { transform: scaleX(1); }
+
 .continue-shelf { min-width:0; }
 .continue-heading { display:flex; align-items:center; gap:8px; margin-bottom:18px; }
 .continue-heading h2 { margin:0; font-size:var(--text-section); font-weight:630; letter-spacing:-.025em; }
@@ -271,8 +281,6 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .tree-list button small { color:var(--muted); font:var(--text-micro) ui-monospace,SFMono-Regular,monospace; }
 .tree-list button.active small { color:var(--primary-ink); }
 .cloud-file-pane { min-width:0; padding-left:22px; }
-.cloud-files-toolbar { display:flex; min-height:52px; align-items:center; justify-content:space-between; gap:20px; padding:8px 0; }
-.cloud-files-actions { display:flex; align-items:center; gap:10px; }
 .upload-resume-bar { display:flex; align-items:center; gap:12px; margin-bottom:10px; padding:8px 12px; border:1px solid color-mix(in srgb, var(--warn) 32%, var(--surface)); border-radius: var(--radius-md); background:color-mix(in srgb, var(--warn) 8%, var(--surface)); color:var(--warn-ink); }
 .upload-resume-bar > span { flex:0 0 auto; font-size:12px; font-weight:620; }
 .upload-resume-bar > div { display:flex; flex:1; flex-wrap:wrap; gap:8px; }
@@ -286,9 +294,6 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .file-breadcrumbs button { overflow:hidden; max-width:190px; padding:5px 7px; border:0; background:transparent; color:var(--muted); font-size:var(--text-body); line-height:1.35; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; }
 .file-breadcrumbs button:hover,.file-breadcrumbs button.active { color:var(--fg); }
 .file-breadcrumbs button.active { font-weight:610; }
-.file-search { display:grid; grid-template-columns:16px minmax(150px,218px); align-items:center; gap:7px; height:34px; padding:0 10px; border:1px solid var(--hairline-strong); border-radius:8px; background:var(--surface); color:var(--muted); transition:border-color var(--duration-fast) var(--ease-standard),box-shadow var(--duration-fast) var(--ease-standard); }
-.file-search:focus-within { border-color:var(--primary-ink); box-shadow:0 0 0 3px var(--primary-tint); }
-.file-search input { min-width:0; border:0; outline:0; background:transparent; color:var(--fg); font-size:var(--text-secondary); }
 .file-filter-row { display:flex; align-items:center; justify-content:space-between; padding:0 0 9px; }
 .file-filter-row > span { color:var(--muted); font-size:var(--text-meta); }
 .file-filter-row .segmented-control { padding:2px; border-radius: var(--radius-md); }

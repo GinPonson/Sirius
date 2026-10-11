@@ -19,7 +19,8 @@ import { Cloud115AuthModal } from "./components/Cloud115AuthModal";
 import { LoginGate } from "./components/LoginGate";
 import { MediaDetail } from "./components/MediaDetail";
 import { PosterCard } from "./components/PosterCard";
-import { Sidebar } from "./components/Sidebar";
+import { Sidebar, type SidebarNavId } from "./components/Sidebar";
+import { TopBar, type TopBarSearch, type TopBarSearchScope } from "./components/TopBar";
 import type {
   AppSection,
   LibraryTask,
@@ -48,6 +49,24 @@ const IDLE_SNAPSHOT: PlaybackSnapshot = {
   volume: 80,
   error: null,
 };
+
+/** 侧栏展开态持久化键；值 "0" 表示收起，缺省视为展开。 */
+const SIDEBAR_EXPANDED_KEY = "sirius-sidebar-expanded";
+
+/** 影视单入口的三个内部视图；沿用原首页/媒体库/发现的 section 与数据逻辑。 */
+const VIDEO_MODES: Array<{ id: AppSection; label: string }> = [
+  { id: "home", label: "继续观看" },
+  { id: "library", label: "我的媒体" },
+  { id: "discover", label: "发现" },
+];
+
+/** 影视入口的三个内部视图共用一段切换 UI 与侧栏高亮。 */
+function isVideoSection(section: AppSection): section is "home" | "library" | "discover" {
+  return section === "home" || section === "library" || section === "discover";
+}
+
+/** 轻量导航历史条目：主视图 + 媒体详情两级；详情按 id 回放时重新解析。 */
+type NavHistoryEntry = { section: AppSection; mediaId: string | null };
 
 const repository = new TauriMediaRepository();
 const sourceResolver = new LocalSourceResolver();
@@ -96,25 +115,48 @@ function App() {
   const [playingCloudFileId, setPlayingCloudFileId] = useState<string | null>(null);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
+  // 侧栏双态：收起为 80px 图标轨道，展开为图标配文字；用户选择持久化。
+  const [sidebarExpanded, setSidebarExpanded] = useState(() => {
+    try {
+      return window.localStorage.getItem(SIDEBAR_EXPANDED_KEY) !== "0";
+    } catch {
+      // 存储不可用（隐私模式等）时退回内存态默认展开，不影响本次会话。
+      return true;
+    }
+  });
   const lastProgressSaveAt = useRef(0);
-  const mediaSearchRef = useRef<HTMLInputElement>(null);
-  const mediaSearchVisible = !selectedMedia && (section === "home" || section === "library" || section === "discover");
+  // 顶栏文件搜索：查询词由应用壳持有并下发到网盘文件页，防抖仍留在该页。
+  const [fileQuery, setFileQuery] = useState("");
+  // 轻量历史栈：覆盖主视图切换与媒体详情进出，不追求完整浏览器式历史。
+  const [backStack, setBackStack] = useState<NavHistoryEntry[]>([]);
+  const [forwardStack, setForwardStack] = useState<NavHistoryEntry[]>([]);
   // 首次确认账号状态时决定默认分区；用户一旦手动导航便不再自动跳转。
   const defaultSectionResolved = useRef(false);
   // 记录最近一次由播放快照设置的错误，恢复成功后只清除该条，不误伤其他错误横幅。
   const lastPlaybackError = useRef<string | null>(null);
 
+  // 顶栏搜索范围：影视页检索媒体库，网盘文件页检索当前目录；
+  // 漫画/相册等尚无搜索能力的页面返回 null，顶栏不渲染搜索框。
+  const searchScope: TopBarSearchScope | null = isVideoSection(section)
+    ? "media"
+    : section === "cloud-files"
+      ? "files"
+      : null;
+  const topBarSearch: TopBarSearch | null =
+    searchScope === null || (searchScope === "media" && selectedMedia !== null)
+      ? null
+      : searchScope === "media"
+        ? { scope: "media", value: query, placeholder: "搜索影视库", onChange: setQuery }
+        : { scope: "files", value: fileQuery, placeholder: "搜索当前目录", onChange: setFileQuery };
+
   useEffect(() => {
-    if (!mediaSearchVisible) return;
-    function focusMediaSearch(event: KeyboardEvent) {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k" && mediaSearchRef.current) {
-        event.preventDefault();
-        mediaSearchRef.current.focus();
-      }
+    // 展开态变化即回写 localStorage；失败只影响下次启动的初始值。
+    try {
+      window.localStorage.setItem(SIDEBAR_EXPANDED_KEY, sidebarExpanded ? "1" : "0");
+    } catch {
+      // 存储不可用时保持内存态即可。
     }
-    window.addEventListener("keydown", focusMediaSearch);
-    return () => window.removeEventListener("keydown", focusMediaSearch);
-  }, [mediaSearchVisible]);
+  }, [sidebarExpanded]);
 
   useEffect(() => {
     let active = true;
@@ -421,9 +463,56 @@ function App() {
   // 登录首屏在未登录或会话失效时接管整窗；启动确认期间展示启动画面。
   const gateVisible = cloudAccount?.connected === false || forceGate;
 
-  function navigateFromSidebar(next: AppSection) {
+  /** 记录当前视图快照并清空前进栈；主视图切换与详情进入共用。 */
+  function pushHistory() {
+    const entry: NavHistoryEntry = { section, mediaId: selectedMedia?.id ?? null };
+    setBackStack((stack) => [...stack.slice(-49), entry]);
+    setForwardStack([]);
+  }
+
+  /** 主视图切换（侧栏/影视内切换/查看全部等）；离开网盘文件时清空目录搜索词。 */
+  function navigate(next: AppSection) {
+    if (next === section && selectedMedia === null) return;
+    pushHistory();
     setSection(next);
     setSelectedMedia(null);
+    if (next !== "cloud-files") setFileQuery("");
+  }
+
+  /** 打开媒体详情并记录历史，供顶栏后退返回列表。 */
+  function openMedia(item: MediaItem) {
+    if (selectedMedia?.id === item.id) return;
+    pushHistory();
+    setSelectedMedia(item);
+  }
+
+  /** 将历史条目落回界面；详情条目按 id 从当前媒体列表重新解析，缺失则回退为列表态。 */
+  function applyHistoryEntry(entry: NavHistoryEntry) {
+    setSection(entry.section);
+    setSelectedMedia(
+      entry.mediaId ? media.find((item) => item.id === entry.mediaId) ?? null : null,
+    );
+    if (entry.section !== "cloud-files") setFileQuery("");
+  }
+
+  /** 顶栏后退：回退到上一条视图/详情快照，当前快照进入前进栈。 */
+  function goBack() {
+    if (backStack.length === 0) return;
+    const entry = backStack[backStack.length - 1];
+    const currentEntry: NavHistoryEntry = { section, mediaId: selectedMedia?.id ?? null };
+    setBackStack((stack) => stack.slice(0, -1));
+    setForwardStack((stack) => [currentEntry, ...stack]);
+    applyHistoryEntry(entry);
+  }
+
+  /** 顶栏前进：重放前进栈顶快照，当前快照回到后退栈。 */
+  function goForward() {
+    if (forwardStack.length === 0) return;
+    const entry = forwardStack[0];
+    const currentEntry: NavHistoryEntry = { section, mediaId: selectedMedia?.id ?? null };
+    setBackStack((stack) => [...stack, currentEntry]);
+    setForwardStack((stack) => stack.slice(1));
+    applyHistoryEntry(entry);
   }
 
   /** 登录成功后进入文件工作区；退出或失效时回到登录首屏。 */
@@ -459,66 +548,36 @@ function App() {
   const accountName = cloudProfile?.userName || cloudAccount.userName || "115 用户";
 
   return (
-    <div className="app-frame">
+    <div className="app-frame" data-sidebar-expanded={sidebarExpanded ? "true" : "false"}>
       <Sidebar
-        active={section}
+        active={activeNavId(section)}
+        expanded={sidebarExpanded}
         taskCount={attentionTaskCount}
-        onNavigate={navigateFromSidebar}
+        onNavigate={(id) => navigate(id === "video" ? "home" : id)}
+        onToggleExpanded={() => setSidebarExpanded((value) => !value)}
       />
 
       <main className="app-content">
-        <header className="topbar shell-topbar" data-tauri-drag-region>
-          <div className="shell-heading" data-tauri-drag-region>
-            <span className="shell-app-name" data-tauri-drag-region>Sirius</span>
-            <span className="shell-title-divider" aria-hidden="true" />
-            <h1 data-tauri-drag-region>{selectedMedia ? selectedMedia.title : sectionTitle(section)}</h1>
-          </div>
-
-          {mediaSearchVisible && (
-            <div className="shell-media-search" role="search" aria-label="搜索媒体库">
-              <Icon name="search" size={16} />
-              <input
-                ref={mediaSearchRef}
-                value={query}
-                placeholder="搜索媒体库中的影片"
-                aria-label="搜索媒体库中的影片"
-                aria-keyshortcuts="Meta+K Control+K"
-                onChange={(event) => setQuery(event.currentTarget.value)}
-              />
-              {query ? (
-                <button type="button" aria-label="清除影片搜索" onClick={() => setQuery("")}>
-                  <Icon name="close" size={14} />
-                </button>
-              ) : <kbd aria-hidden="true">⌘ K</kbd>}
-            </div>
-          )}
-
-          <div className="shell-account-area">
-            {cloudProfile && storageUsage !== null && (
-              <div className="shell-storage" title={`已用 ${cloudProfile.usedFormatted}，总容量 ${cloudProfile.totalFormatted}`}>
-                <span>{cloudProfile.usedFormatted}<span> / {cloudProfile.totalFormatted}</span></span>
-                <div className="shell-storage-meter" role="meter" aria-label="115 网盘空间使用率" aria-valuenow={storageUsage} aria-valuemin={0} aria-valuemax={100}>
-                  <i style={{ width: `${storageUsage}%` }} />
-                </div>
-              </div>
-            )}
-            <button
-              type="button"
-              className="shell-account-button"
-              aria-label={`管理 115 账号：${accountName}`}
-              title="管理 115 账号"
-              onClick={() => setShowCloudAccount(true)}
-            >
-              <span className="shell-account-avatar">
-                {cloudProfile?.avatarUrl ? (
-                  <img src={cloudProfile.avatarUrl} alt="" referrerPolicy="no-referrer" />
-                ) : <Icon name="user" size={17} />}
-              </span>
-              <span className="shell-account-name">{accountName}</span>
-              <Icon name="chevron" size={12} />
-            </button>
-          </div>
-        </header>
+        <TopBar
+          title={selectedMedia ? selectedMedia.title : sectionTitle(section)}
+          canGoBack={backStack.length > 0}
+          canGoForward={forwardStack.length > 0}
+          onBack={goBack}
+          onForward={goForward}
+          search={topBarSearch}
+          accountName={accountName}
+          avatarUrl={cloudProfile?.avatarUrl ?? null}
+          storage={
+            cloudProfile && storageUsage !== null
+              ? {
+                  used: cloudProfile.usedFormatted,
+                  total: cloudProfile.totalFormatted,
+                  percent: storageUsage,
+                }
+              : null
+          }
+          onManageAccount={() => setShowCloudAccount(true)}
+        />
 
         {error && (
           <aside className="error-banner" role="alert">
@@ -534,28 +593,46 @@ function App() {
           <MediaDetail
             media={selectedMedia}
             busy={busyMediaId === selectedMedia.id}
-            onClose={() => setSelectedMedia(null)}
+            // 详情返回优先走历史栈；栈为空（理论不可达）时退回直接关闭。
+            onClose={() => (backStack.length > 0 ? goBack() : setSelectedMedia(null))}
             onPlay={playMedia}
           />
-        ) : section === "home" ? (
-          <HomeView
-            media={visibleMedia}
-            onNavigate={setSection}
-            onOpen={setSelectedMedia}
-            onPlay={playMedia}
-          />
-        ) : section === "library" ? (
-          <LibraryView
-            loading={loading}
-            media={visibleMedia}
-            filter={filter}
-            query={query}
-            onFilter={setFilter}
-            onOpen={setSelectedMedia}
-            onPlay={playMedia}
-          />
-        ) : section === "discover" ? (
-          <DiscoverView media={visibleMedia} onOpen={setSelectedMedia} onPlay={playMedia} />
+        ) : isVideoSection(section) ? (
+          <>
+            <div className="video-mode-tabs" role="group" aria-label="影视视图切换">
+              {VIDEO_MODES.map((mode) => (
+                <button
+                  key={mode.id}
+                  type="button"
+                  aria-current={section === mode.id ? "true" : undefined}
+                  className={section === mode.id ? "active" : ""}
+                  onClick={() => navigate(mode.id)}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
+            {section === "home" ? (
+              <HomeView
+                media={visibleMedia}
+                onNavigate={navigate}
+                onOpen={openMedia}
+                onPlay={playMedia}
+              />
+            ) : section === "library" ? (
+              <LibraryView
+                loading={loading}
+                media={visibleMedia}
+                filter={filter}
+                query={query}
+                onFilter={setFilter}
+                onOpen={openMedia}
+                onPlay={playMedia}
+              />
+            ) : (
+              <DiscoverView media={visibleMedia} onOpen={openMedia} onPlay={playMedia} />
+            )}
+          </>
         ) : section === "comics" ? (
           <ComicsView />
         ) : section === "albums" ? (
@@ -565,13 +642,19 @@ function App() {
         ) : section === "ai-organize" ? (
           <AiOrganizeView />
         ) : section === "cloud-files" ? (
-          <CloudFilesView account={cloudAccount} onRequireLogin={() => setForceGate(true)} onPlay={playCloudFile} />
+          <CloudFilesView
+            account={cloudAccount}
+            query={fileQuery}
+            onQueryChange={setFileQuery}
+            onRequireLogin={() => setForceGate(true)}
+            onPlay={playCloudFile}
+          />
         ) : (
           <SettingsView
             settings={appSettings}
             saving={savingSettings}
             onChange={updateAppSettings}
-            onManageCloud={() => navigateFromSidebar("cloud-files")}
+            onManageCloud={() => navigate("cloud-files")}
             onScanLocal={scanDirectory}
             scanning={scanning}
           />
@@ -623,11 +706,17 @@ function App() {
   );
 }
 
+/** 侧栏高亮归并：影视三个内部视图共用同一「影视」入口。 */
+function activeNavId(section: AppSection): SidebarNavId {
+  if (isVideoSection(section)) return "video";
+  return section;
+}
+
 function sectionTitle(section: AppSection): string {
   return {
-    home: "首页",
-    library: "媒体库",
-    discover: "发现",
+    home: "影视",
+    library: "影视",
+    discover: "影视",
     comics: "漫画",
     albums: "相册",
     "cloud-files": "网盘文件",
