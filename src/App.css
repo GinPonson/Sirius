@@ -522,8 +522,38 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .albums-actions button:hover:not(:disabled) { border-color:var(--hairline-strong); color:var(--primary-ink); }
 .albums-actions button.danger { border-color:color-mix(in srgb, var(--danger) 30%, var(--surface)); color:var(--danger-ink); }
 .albums-actions button.danger:hover:not(:disabled) { background:var(--danger-soft); }
-.albums-preview-note { position:absolute; bottom:14px; left:50%; transform:translateX(-50%); padding:4px 10px; border-radius: var(--radius-sm); background:rgba(8,12,18,.6); color:#c6d3ea; font-size:12px; }
-.albums-preview .comics-reader-stage { position:relative; }
+.albums-preview-note { position:absolute; bottom:14px; left:50%; transform:translateX(-50%); display:inline-flex; align-items:center; gap:10px; padding:4px 10px; border-radius: var(--radius-sm); background:rgba(8,12,18,.6); color:#c6d3ea; font-size:12px; white-space:nowrap; }
+.albums-preview-note button { display:inline-flex; height:22px; align-items:center; gap:4px; padding:0 8px; border:1px solid rgba(255,255,255,.3); border-radius:5px; background:rgba(255,255,255,.08); color:#fff; font-size:11px; cursor:pointer; }
+.albums-preview-note button:hover { background:rgba(255,255,255,.16); }
+
+/* 相册预览 —— 全屏深色舞台（对齐漫画阅读器材质）：缩放/平移/缩略图条（DESIGN.md §16 modes.albums） */
+.albums-preview { position:fixed; inset:0; z-index:25; display:grid; grid-template-rows:auto minmax(0,1fr) auto auto; background:#0b0f14; }
+.albums-preview-bar { display:flex; align-items:center; gap:14px; padding:10px 16px; border-bottom:1px solid rgba(255,255,255,.1); color:#dce5f7; }
+.albums-preview-bar strong { overflow:hidden; min-width:0; flex:1 1 auto; font-size:13px; font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
+.albums-preview-count { flex:0 0 auto; color:#9fb2d0; font-size:12px; font-variant-numeric:tabular-nums; }
+.albums-preview-tools { display:flex; flex:0 0 auto; align-items:center; gap:6px; }
+.albums-preview-tools button { display:inline-flex; min-width:28px; height:28px; align-items:center; justify-content:center; padding:0 8px; border:1px solid rgba(255,255,255,.18); border-radius:7px; background:rgba(255,255,255,.06); color:#dce5f7; font-size:12px; cursor:pointer; }
+.albums-preview-tools button:hover:not(:disabled) { background:rgba(255,255,255,.12); }
+.albums-preview-tools button.active { border-color:rgba(163,173,252,.55); background:rgba(89,105,237,.3); color:#fff; }
+.albums-preview-tools button:disabled { opacity:.4; cursor:default; }
+.albums-preview-zoom-label { min-width:52px; font-variant-numeric:tabular-nums; }
+.albums-preview-close { display:inline-flex; flex:0 0 auto; align-items:center; gap:6px; height:30px; padding:0 10px; border:1px solid rgba(255,255,255,.18); border-radius:8px; background:rgba(255,255,255,.06); color:#dce5f7; font-size:12px; cursor:pointer; }
+.albums-preview-close:hover { background:rgba(255,255,255,.12); }
+/* 外层负责相对定位（加载/失败提示挂靠），内层负责滚动；margin:auto 让放大后四边都可达 */
+.albums-preview-stage-wrap { position:relative; min-height:0; }
+.albums-preview-stage { display:flex; height:100%; min-height:0; overflow:auto; padding:16px; cursor:grab; }
+.albums-preview-stage.dragging { cursor:grabbing; }
+.albums-preview-stage img { display:block; max-width:100%; max-height:100%; margin:auto; border-radius:6px; background:#11161d; user-select:none; }
+.albums-preview-stage img.zoomed { max-width:none; max-height:none; }
+.albums-preview-fallback { display:grid; width:100%; height:100%; place-items:center; color:#5b6b84; }
+.albums-preview-strip { display:flex; gap:8px; align-items:center; overflow-x:auto; padding:10px 14px; border-top:1px solid rgba(255,255,255,.1); scrollbar-width:thin; scrollbar-color:rgba(255,255,255,.24) transparent; }
+.albums-preview-strip button { flex:0 0 auto; width:46px; height:46px; padding:0; border:2px solid transparent; border-radius:7px; background:rgba(255,255,255,.06); overflow:hidden; opacity:.62; cursor:pointer; transition:opacity var(--duration-fast) var(--ease-standard),border-color var(--duration-fast) var(--ease-standard); }
+.albums-preview-strip button:hover { opacity:1; }
+.albums-preview-strip button.active { border-color:var(--primary-lift); opacity:1; }
+.albums-preview-nav { display:flex; justify-content:center; gap:12px; padding:10px 16px 14px; }
+.albums-preview-nav button { height:36px; padding:0 20px; border:1px solid rgba(255,255,255,.18); border-radius: var(--radius-md); background:rgba(255,255,255,.06); color:#dce5f7; font-size:13px; cursor:pointer; }
+.albums-preview-nav button:hover:not(:disabled) { background:rgba(255,255,255,.12); }
+.albums-preview-nav button:disabled { opacity:.35; cursor:default; }
 
 /* 登录专属首屏 —— 非对称双区构图（DESIGN.md §12 entry-screen） */
 .boot-splash { position:fixed; inset:0; display:grid; place-items:center; background:var(--canvas); z-index:30; }
