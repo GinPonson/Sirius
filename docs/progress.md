@@ -72,6 +72,15 @@
 | 第三方许可材料随包分发 | 已完成 | `generate-sbom.mjs` 扩展生成 `src-tauri/THIRD-PARTY-LICENSES.md`（16 种许可证全文 + 510 个依赖逐包对照，SPDX 官方文本源，缓存至 scripts/.spdx-texts.json）；tauri.conf 新增 bundle resources 后重建 release，确认文件落入 `Contents/Resources/`；重建后复验：无 Homebrew 引用（PASS）+ 启动存活（PASS） | 2026-09-05 | 满足 AGENTS.md 第 9 节 "third-party license materials" 分发要求：涉及许可证 0BSD/Apache-2.0/BSL-1.0/CC0-1.0/CDLA-Permissive-2.0/ISC/LGPL-2.1(-or-later)/MIT/MIT-0/MPL-2.0/Unicode-3.0/Unlicense/Zlib/LLVM-exception；解析器支持 OR/AND/WITH 及旧式斜杠表达式；不可分发风险项（GPL 系）未出现 |
 | 编辑式壳层与微交互升级 | 已完成 | `npm run build` 通过；mock 模式（`?e2e-mock=1`）浏览器截图走查：网盘文件/漫画/相册/AI 四屏对比确认生效；emoji 扫描零命中（Lucide-only 规则持续满足） | 2026-09-06 | 纯 CSS 零逻辑变更：内容模式页头（品牌色短线 + clamp 26–34px 编辑式标题）；分区切换 view-enter 弹簧动效；对话框/操作条入场动效同源；文件行悬停左缘强调条生长（数据区零位移）；AI 计划行重命名/移动/删除语义色左缘条；品牌渐变芯片；侧栏活动指示条弹簧滑入；按钮按压回弹 + 主操作光影层次；漫画/相册卡片悬停浮起。新增 `src/dev-mock.ts` UI 冒烟测试基建（`?e2e-mock=1` 时模拟 Tauri IPC，打包不含真实数据）；修复登录身份选择菜单溢出 |
 
+## 2026-10-11 界面优化第一批：先决修复
+
+| 功能点 | 状态 | 验证 | 日期 | 说明 |
+| --- | --- | --- | --- | --- |
+| 文件页选择集口径修正 | 已完成 | `npm run build` 通过（2026-10-11）；人工验证见 manual-verification 第 1 组 | 2026-10-11 | 搜索词或类型筛选变化时同步清空选择（先于 250ms 防抖拉取）；批量移动/复制/删除统一以 entries ∩ selectedIds（selectedEntries memo）为口径，交集为空时禁用批量按钮 |
+| AI 执行报告计数补齐 | 已完成 | `cargo fmt/clippy(-D warnings)/test` 通过（41 项离线测试，新增 5 项）；`npm run build` 通过 | 2026-10-11 | execute_plan 全部失败路径（策略拒绝/目标准备/provider 调用）累计 report.failed，循环后 debug_assert 保证明细与汇总一致；同批修复 created_folders 恒为 0；新增 ExecutionProvider trait seam 支持离线测试（公开命令签名不变） |
+| 相册专辑筛选与大图竞态修复 | 已完成 | `npm run build` 通过（2026-10-11）；人工验证见 manual-verification 第 6 组 | 2026-10-11 | visibleMonths 按 albumFilter 逐张过滤（月份渲染/计数/预览源统一消费，空月份剔除）；原图请求改 requestSeqRef 序号守卫替换恒真的 fileId 比对，翻页同样推进序号 |
+| 媒体假展示清理 | 已完成 | `npm run build` 通过（2026-10-11）；grep 确认 0.04/「第 3 集」/DETAIL_STILLS 于 src/ 零残留 | 2026-10-11 | 无真实观看记录不渲染「最近观看」；进度条用真实 progress 且 0 时不渲染；数据层无集数字段，副标题只展示作品名；详情 hero 缺图回退品牌备援 poster-fallback.svg（DESIGN.md §14） |
+
 ## 后续阶段
 
 产品定位为**仅个人使用**（用户 2026-09-05 决策）：Developer ID 签名与公证不再执行（第 9 组核对清单跳过）；adhoc 签名的本地 release 包可直接使用。剩余唯一待办：用授权 115 账号登录应用，按 `docs/manual-verification.md` 第 1–8 组核对清单执行远程流程验证并回填结果（凭据请勿经对话传递）。
