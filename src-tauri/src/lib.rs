@@ -5,6 +5,7 @@ mod comics;
 mod library;
 mod media_info;
 mod playback;
+mod transfer;
 
 use ai::{
     AiExecutionReport, AiExecutionRequest, AiOrganizationPlan, AiProviderSettingsView,
@@ -25,9 +26,20 @@ use library::{
 };
 use playback::{PlaybackManager, PlaybackSnapshot, RemoteSourceResolver};
 use std::sync::Arc;
-use tauri::{window::WindowBuilder, AppHandle, Manager, State, Window};
+use tauri::{window::WindowBuilder, AppHandle, Emitter, Manager, State, Window};
+use transfer::TransferProgress;
 
 const VIDEO_WINDOW_LABEL: &str = "video";
+
+/// 把传输进度事件转发到 WebView；负载契约与 `src/services/events.ts` 保持一致。
+fn transfer_progress_callback(app: &AppHandle) -> transfer::ProgressCallback {
+    let app = app.clone();
+    Arc::new(move |progress: TransferProgress| {
+        if let Err(error) = app.emit(transfer::TRANSFER_PROGRESS_EVENT, progress) {
+            eprintln!("发送传输进度事件失败：{error}");
+        }
+    })
+}
 
 /// 返回 Sirius 支持选择的 115 开放平台应用身份。
 #[tauri::command]
@@ -114,6 +126,7 @@ async fn cloud115_download_source(
 }
 
 /// 将 115 文件下载到本地目录；存在 .sirius-part 临时文件时自动断点续传，成功后原子重命名。
+/// 下载进度经 transfer://progress 事件限频推送。
 #[tauri::command]
 async fn cloud115_download_file(
     pick_code: String,
@@ -121,9 +134,16 @@ async fn cloud115_download_file(
     file_name: String,
     expected_size_bytes: u64,
     provider: State<'_, Arc<Cloud115Provider>>,
+    app: AppHandle,
 ) -> Result<Cloud115DownloadResult, String> {
     provider
-        .download_file(&pick_code, &target_dir, &file_name, expected_size_bytes)
+        .download_file(
+            &pick_code,
+            &target_dir,
+            &file_name,
+            expected_size_bytes,
+            Some(transfer_progress_callback(&app)),
+        )
         .await
 }
 
@@ -183,15 +203,22 @@ async fn cloud115_copy_files(
 }
 
 /// 从磁盘流式上传本地文件到指定 115 目录：SHA1 与分块按需读取，≤20 MiB 单对象 PUT，更大文件 multipart。
+/// 上传进度经 transfer://progress 事件按阶段推送。
 #[tauri::command]
 async fn cloud115_upload_file(
     path: String,
     target_id: String,
     provider: State<'_, Arc<Cloud115Provider>>,
     repository: State<'_, Arc<LibraryRepository>>,
+    app: AppHandle,
 ) -> Result<Cloud115UploadResult, String> {
     provider
-        .upload_file_from_disk(repository.inner(), &path, &target_id)
+        .upload_file_from_disk(
+            repository.inner(),
+            &path,
+            &target_id,
+            Some(transfer_progress_callback(&app)),
+        )
         .await
 }
 
@@ -301,11 +328,13 @@ async fn cloud115_upload_sessions(
 }
 
 /// 从 SQLite 会话恢复 multipart；本地文件按需流式读取与校验，不再有 64 MiB 上限。
+/// 恢复进度同样经 transfer://progress 事件按阶段推送。
 #[tauri::command]
 async fn cloud115_resume_upload(
     session_id: String,
     provider: State<'_, Arc<Cloud115Provider>>,
     repository: State<'_, Arc<LibraryRepository>>,
+    app: AppHandle,
 ) -> Result<Cloud115UploadResult, String> {
     if session_id.trim().is_empty() {
         return Err("上传会话 ID 不能为空".to_string());
@@ -322,7 +351,11 @@ async fn cloud115_resume_upload(
     .await
     .map_err(|error| format!("上传会话查询线程异常终止：{error}"))??;
     provider
-        .resume_upload_session(repository.as_ref(), session)
+        .resume_upload_session(
+            repository.as_ref(),
+            session,
+            Some(transfer_progress_callback(&app)),
+        )
         .await
 }
 
