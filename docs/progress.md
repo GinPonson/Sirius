@@ -81,6 +81,14 @@
 | 相册专辑筛选与大图竞态修复 | 已完成 | `npm run build` 通过（2026-10-11）；人工验证见 manual-verification 第 6 组 | 2026-10-11 | visibleMonths 按 albumFilter 逐张过滤（月份渲染/计数/预览源统一消费，空月份剔除）；原图请求改 requestSeqRef 序号守卫替换恒真的 fileId 比对，翻页同样推进序号 |
 | 媒体假展示清理 | 已完成 | `npm run build` 通过（2026-10-11）；grep 确认 0.04/「第 3 集」/DETAIL_STILLS 于 src/ 零残留 | 2026-10-11 | 无真实观看记录不渲染「最近观看」；进度条用真实 progress 且 0 时不渲染；数据层无集数字段，副标题只展示作品名；详情 hero 缺图回退品牌备援 poster-fallback.svg（DESIGN.md §14） |
 
+## 2026-10-11 界面优化第二批：基础设施
+
+| 功能点 | 状态 | 验证 | 日期 | 说明 |
+| --- | --- | --- | --- | --- |
+| 传输进度事件通道 | 已完成 | `cargo fmt/clippy(-D warnings)/test` 通过（51 项离线测试，transfer 模块新增 9 项）；`npm run build` 通过；浏览器/真机验证见 manual-verification 第 2、3 组 | 2026-10-11 | 新增 `transfer.rs`：`transfer://progress` 事件（preparing/transferring/finalizing/done/failed，camelCase 契约）；上传分片级进度、末片后「正在确认文件」、下载 200ms/1MiB 限频带速度；前端 `events.ts` + `useTransferEvents` 单例 store，云盘视图按阶段展示 |
+| 设计 token 与玻璃基座 | 已完成 | `npm run build` 通过；grep 确认 #858b94/95/858C9B 归零；浅色/暗色基准截图 `docs/screenshots/wave-f-checkpoint-*.png` | 2026-10-11 | Shell.css `:root` 唯一 token 区（颜色/间距/圆角/阴影/动效/玻璃），App.css/Workbench.css 全量消费；muted #666e7d（白底 5.13:1）；`.glass-panel` 玻璃只给顶栏/侧栏/对话框/批量栏/播放条五个固定层并带 reduced-transparency 回退；`:root[data-theme="dark"]` 暗色全量 token；`.cloud-file-pane` 容器查询基座（不能挂 .app-content：contain 会破坏 fixed 后代定位，已注释说明） |
+| 浏览器冒烟夹具扩展 | 已完成 | `npm run build` 通过；Node 测试台 22 项断言通过；53/53 服务命令全覆盖 | 2026-10-11 | dev-mock 升级为有状态内存文件系统（移动/复制/删除/建目录/回收站真实变更列表）、复刻 Tauri v2 事件投递路径模拟 `transfer://progress`、上传预置中断会话、`?theme=dark` 暗色预览、未覆盖命令 console.warn |
+
 ## 后续阶段
 
 产品定位为**仅个人使用**（用户 2026-09-05 决策）：Developer ID 签名与公证不再执行（第 9 组核对清单跳过）；adhoc 签名的本地 release 包可直接使用。剩余唯一待办：用授权 115 账号登录应用，按 `docs/manual-verification.md` 第 1–8 组核对清单执行远程流程验证并回填结果（凭据请勿经对话传递）。
