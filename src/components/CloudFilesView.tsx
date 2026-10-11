@@ -128,6 +128,12 @@ export function CloudFilesView({ account, onRequireLogin, onPlay }: CloudFilesVi
     [entries, filter],
   );
 
+  /** 批量操作的统一取数口径：选择集与当前列表的交集，防止误操作不可见文件。 */
+  const selectedEntries = useMemo(
+    () => entries.filter((entry) => selectedIds.has(entry.id)),
+    [entries, selectedIds],
+  );
+
   /** 查询 SQLite 中未完成的 multipart 会话；仅在登录状态下有意义。 */
   function refreshUploadSessions() {
     if (!account?.connected) return;
@@ -209,7 +215,7 @@ export function CloudFilesView({ account, onRequireLogin, onPlay }: CloudFilesVi
     });
   }
 
-  /** 目标目录变化意味着选择上下文失效，立即清空避免误操作不可见文件。 */
+  /** 目录、搜索词或类型筛选变化意味着选择上下文失效，立即清空避免误操作不可见文件。 */
   function clearSelection() {
     setSelectedIds(new Set());
   }
@@ -400,7 +406,9 @@ export function CloudFilesView({ account, onRequireLogin, onPlay }: CloudFilesVi
   /** 提交批量移动或复制；同名冲突与非法目标由 Rust 策略拒绝。 */
   async function confirmPicker() {
     if (!picker) return;
-    const ids = [...selectedIds];
+    // 与批量删除同源取数：只提交当前列表中真实存在的选中项。
+    const ids = selectedEntries.map((entry) => entry.id);
+    if (ids.length === 0) return;
     const target = picker.path[picker.path.length - 1];
     setBusyAction(true);
     setError(null);
@@ -452,7 +460,7 @@ export function CloudFilesView({ account, onRequireLogin, onPlay }: CloudFilesVi
             <div className="cloud-files-actions">
               <label className="file-search">
                 <Icon name="search" size={15} />
-                <input aria-label="搜索当前目录" value={query} placeholder="搜索当前目录" onChange={(event) => setQuery(event.currentTarget.value)} />
+                <input aria-label="搜索当前目录" value={query} placeholder="搜索当前目录" onChange={(event) => { setQuery(event.currentTarget.value); clearSelection(); }} />
               </label>
             </div>
           </div>
@@ -490,7 +498,7 @@ export function CloudFilesView({ account, onRequireLogin, onPlay }: CloudFilesVi
             <div className="cloud-filter-options">
               <div className="segmented-control" aria-label="文件类型筛选">
                 {([ ["all", "全部"], ["folder", "文件夹"], ["video", "视频"], ["subtitle", "字幕"] ] as const).map(([value, label]) => (
-                  <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}</button>
+                  <button key={value} className={filter === value ? "active" : ""} onClick={() => { setFilter(value); clearSelection(); }}>{label}</button>
                 ))}
               </div>
               <span>{visibleEntries.length} / {total} 个项目</span>
@@ -501,11 +509,10 @@ export function CloudFilesView({ account, onRequireLogin, onPlay }: CloudFilesVi
             <div className="file-batch-bar" role="toolbar" aria-label="批量操作">
               <span>已选 {selectedIds.size} 项</span>
               <div>
-                <button disabled={busyAction} onClick={() => openPicker("move")}>移动</button>
-                <button disabled={busyAction} onClick={() => openPicker("copy")}>复制</button>
-                <button className="danger" disabled={busyAction} onClick={() => {
-                  const targets = entries.filter((entry) => selectedIds.has(entry.id));
-                  if (targets.length > 0) setDeleteTargets(targets);
+                <button disabled={busyAction || selectedEntries.length === 0} onClick={() => openPicker("move")}>移动</button>
+                <button disabled={busyAction || selectedEntries.length === 0} onClick={() => openPicker("copy")}>复制</button>
+                <button className="danger" disabled={busyAction || selectedEntries.length === 0} onClick={() => {
+                  if (selectedEntries.length > 0) setDeleteTargets(selectedEntries);
                 }}>删除</button>
                 <button disabled={busyAction} onClick={clearSelection}>取消选择</button>
               </div>
