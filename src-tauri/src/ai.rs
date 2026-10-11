@@ -140,6 +140,12 @@ pub fn stored_api_key() -> Result<bool, String> {
     Ok(load_api_key()?.is_some())
 }
 
+/// 读取已保存的 AI 密钥；未配置时返回带指引的错误。
+/// 密钥值只允许进入请求的 Authorization 头，调用方不得记录或回传给前端。
+pub fn require_api_key() -> Result<String, String> {
+    load_api_key()?.ok_or_else(|| "尚未保存 AI 服务商密钥，请先在 AI 整理页完成配置".to_string())
+}
+
 /// 保存服务商配置并按需覆盖密钥；SQLite 与钥匙串写入都在调用方的阻塞线程执行。
 pub fn persist_provider_settings(
     repository: &LibraryRepository,
@@ -174,8 +180,7 @@ pub async fn analyze_folder(
         return Err("请选择要分析的目录".to_string());
     }
     let settings = repository.ai_provider()?;
-    let api_key = load_api_key()?
-        .ok_or_else(|| "尚未保存 AI 服务商密钥，请先在 AI 整理页完成配置".to_string())?;
+    let api_key = require_api_key()?;
     // 目录快照是计划的事实来源；后续执行步骤必须重新校验，不信任本快照之外的状态。
     let page = provider
         .list_files(folder_id, 0, ANALYZE_PAGE_LIMIT, "")
