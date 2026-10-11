@@ -115,6 +115,8 @@
   --shell-rail-width: 80px;
   --shell-sidebar-expanded-width: 208px;
   --shell-header-height: 64px;
+  /* AI 对话面板停靠宽度（380–420px 规格中值）；气泡与内容列避让共用此值 */
+  --ai-panel-width: 400px;
 
   color: var(--fg);
   background: var(--bg);
@@ -451,7 +453,7 @@
   margin-left: var(--shell-sidebar-width);
   padding: calc(var(--shell-header-height) + var(--space-5)) var(--space-6) 96px;
   background: var(--bg);
-  transition: margin-left var(--duration-panel) var(--ease-spring);
+  transition: margin-left var(--duration-panel) var(--ease-spring), padding-right var(--duration-panel) var(--ease-spring);
 }
 
 .topbar.shell-topbar {

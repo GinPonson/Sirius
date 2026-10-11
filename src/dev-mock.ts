@@ -11,6 +11,8 @@
  *   通过 `window.__SIRIUS_MOCK_EMIT__(event, payload)` 可手动触发任意事件。
  * - 传输模拟：`cloud115_upload_file`/`cloud115_resume_upload`/`cloud115_download_file`
  *   会按契约发出 `transfer://progress` 事件序列（preparing → transferring → finalizing → done）。
+ * - AI 对话模拟：`ai_chat_*` 六命令（内存会话表），`ai_chat_send` 触发
+ *   `ai://chat-token` 流（2-4 字增量、80-150ms 间隔、终态恰好一次，支持停止）。
  * - 暗色预览：URL 带 `theme=dark` 时为根元素写入 `data-theme="dark"`。
  */
 
@@ -27,6 +29,10 @@ declare global {
     };
     /** 冒烟夹具专用：向已注册的 Tauri 事件监听投递一条事件，返回投递数量。 */
     __SIRIUS_MOCK_EMIT__: (event: string, payload: unknown) => number;
+    /** @tauri-apps/api/event 取消订阅所需的内部监听表（见 event.js _unlisten）。 */
+    __TAURI_EVENT_PLUGIN_INTERNALS__: {
+      unregisterListener: (event: string, eventId: number) => void;
+    };
   }
 }
 
@@ -798,6 +804,193 @@ function resolveOrCreateFolder(name: string, preferredParentId: string, created:
 }
 
 // ---------------------------------------------------------------------------
+// AI 对话演示数据（内存会话表 + ai://chat-token 流模拟）
+// ---------------------------------------------------------------------------
+
+const AI_CHAT_TOKEN_EVENT = "ai://chat-token";
+
+interface MockChatMessage {
+  id: string;
+  sessionId: string;
+  role: "user" | "assistant";
+  content: string;
+  contextJson: string | null;
+  createdAt: string;
+}
+
+interface MockChatSession {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: MockChatMessage[];
+}
+
+let chatSessionSeq = 0;
+let chatMessageSeq = 0;
+const chatSessions: MockChatSession[] = [];
+/** 正在流式回复的会话；与 Rust 侧 ChatStreamRegistry 的并发互斥语义一致。 */
+const activeChatSessions = new Set<string>();
+/** 用户请求停止的会话；流循环在每个增量前检查。 */
+const stoppedChatSessions = new Map<string, boolean>();
+
+const nextChatMessageId = () => `chatmsg-${(chatMessageSeq += 1)}`;
+
+function requireChatSession(sessionId: string): MockChatSession {
+  const session = chatSessions.find((current) => current.id === sessionId);
+  if (!session) fail(`会话不存在：${sessionId}`);
+  return session;
+}
+
+function formatSizeShort(bytes: number): string {
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(0)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${bytes} B`;
+}
+
+/** 与上下文相关的中文假回复：按意图分支，引用快照里的目录与选择。 */
+function buildChatReply(content: string, context: Record<string, unknown> | null): string {
+  const scope = str(context?.scope, "网盘");
+  const detail = str(context?.detail);
+  const place = detail ? `「${detail}」` : "";
+  const folderId = str(context?.folderId) || ROOT_ID;
+  const text = content.trim();
+
+  if (text.includes("较大") || text.includes("大文件")) {
+    const largest = childrenOf(folderId)
+      .filter((entry) => entry.kind !== "folder")
+      .sort((a, b) => b.sizeBytes - a.sizeBytes)
+      .slice(0, 3);
+    if (largest.length === 0) return `${scope}${place}里暂时没有找到较大的文件。`;
+    return [
+      `${scope}${place}中占用空间最大的文件是：`,
+      ...largest.map((entry, index) => `${index + 1}. ${entry.name}（${formatSizeShort(entry.sizeBytes)}）`),
+      "",
+      "如果需要归档或清理，可以让我生成整理计划，执行前由你确认。",
+    ].join("\n");
+  }
+
+  if (text.includes("解释") || text.includes("这个文件夹")) {
+    const entries = childrenOf(folderId);
+    if (entries.length === 0) return `${scope}${place}目前是空目录。`;
+    const folders = entries.filter((entry) => entry.kind === "folder");
+    const files = entries.filter((entry) => entry.kind !== "folder");
+    const videos = files.filter((entry) => entry.kind === "video");
+    const summaryParts = [
+      folders.length > 0 ? `${folders.length} 个子文件夹` : null,
+      videos.length > 0 ? `${videos.length} 个视频` : null,
+      files.length - videos.length > 0 ? `${files.length - videos.length} 个其他文件` : null,
+    ].filter((part): part is string => part !== null);
+    return [
+      `${scope}${place}共有 ${entries.length} 项：${summaryParts.join("、") || "暂无内容"}。`,
+      files.length > 0
+        ? `例如「${files[0].name}」，整体看${videos.length > 0 ? "是以影片为主的内容目录" : "以普通文件为主"}。`
+        : "目录结构清晰，适合按类型继续细分。",
+    ].join("\n");
+  }
+
+  if (text.includes("整理") && (text.includes("目录") || text.includes("文件夹"))) {
+    return [
+      `好的，我来协助整理${scope}${place}。建议的顺序是：`,
+      "1. 先把命名不规范的视频统一成「中文名 年份.扩展名」；",
+      "2. 再把字幕与同名影片配对，必要时按系列建立子文件夹。",
+      "",
+      "你可以点击「整理当前目录」生成计划卡，勾选要执行的建议后确认，所有修改都会先经你确认。",
+    ].join("\n");
+  }
+
+  if (text.includes("命名")) {
+    return [
+      "影视文件推荐「中文名 原文名 年份.扩展名」的格式，例如「降临 Arrival 2016.mkv」：",
+      "中文名便于检索与展示，年份避免同系列混淆，扩展名保持原始编码信息。",
+      "需要时我可以对当前目录生成一份重命名计划，由你逐项勾选后执行。",
+    ].join("\n");
+  }
+
+  return [
+    `收到。当前页面是${scope}${place}，我可以帮你整理目录、解释文件夹内容或查找较大的文件。`,
+    "涉及重命名、移动或删除的操作，我都会先生成计划，由你在界面中确认后才会执行。",
+  ].join("\n");
+}
+
+/** 流式回复：10-20 个 2-4 字增量（80-150ms 间隔）后恰好一次终态；停止时保留已生成部分。 */
+async function runChatTokenStream(
+  session: MockChatSession,
+  messageId: string,
+  content: string,
+  context: Record<string, unknown> | null,
+): Promise<void> {
+  const reply = buildChatReply(content, context);
+  const chunks: string[] = [];
+  let cursor = 0;
+  while (cursor < reply.length) {
+    const size = Math.min(reply.length - cursor, 2 + (hashOf(`${messageId}-${cursor}`) % 3));
+    chunks.push(reply.slice(cursor, cursor + size));
+    cursor += size;
+  }
+  await sleep(420);
+  let accumulated = "";
+  for (const chunk of chunks) {
+    if (stoppedChatSessions.get(session.id)) break;
+    accumulated += chunk;
+    emitMockEvent(AI_CHAT_TOKEN_EVENT, { sessionId: session.id, messageId, delta: chunk, done: false });
+    await sleep(80 + (hashOf(`${messageId}${accumulated.length}`) % 71));
+  }
+  const stopped = stoppedChatSessions.get(session.id) === true;
+  stoppedChatSessions.delete(session.id);
+  activeChatSessions.delete(session.id);
+  if (accumulated) {
+    session.messages.push({
+      id: messageId,
+      sessionId: session.id,
+      role: "assistant",
+      content: accumulated,
+      contextJson: null,
+      createdAt: formatStamp(now()),
+    });
+  }
+  session.updatedAt = formatStamp(now());
+  emitMockEvent(AI_CHAT_TOKEN_EVENT, {
+    sessionId: session.id,
+    messageId,
+    delta: "",
+    done: true,
+    ...(stopped ? { error: "已停止" } : {}),
+  });
+}
+
+/** 预置一段历史对话，便于验证历史渲染、会话切换与删除。 */
+function seedChatSession() {
+  const session: MockChatSession = {
+    id: `chatsession-${(chatSessionSeq += 1)}`,
+    title: "网盘整理咨询",
+    createdAt: formatStamp(now() - 86_400),
+    updatedAt: formatStamp(now() - 3_600),
+    messages: [],
+  };
+  session.messages.push({
+    id: nextChatMessageId(),
+    sessionId: session.id,
+    role: "user",
+    content: "如何规范命名影视文件",
+    contextJson: JSON.stringify({ page: "cloud-files", scope: "网盘文件", detail: "电影" }),
+    createdAt: formatStamp(now() - 3_660),
+  });
+  session.messages.push({
+    id: nextChatMessageId(),
+    sessionId: session.id,
+    role: "assistant",
+    content: buildChatReply("如何规范命名影视文件", { page: "cloud-files", scope: "网盘文件", detail: "电影" }),
+    contextJson: null,
+    createdAt: formatStamp(now() - 3_600),
+  });
+  chatSessions.push(session);
+}
+
+seedChatSession();
+
+// ---------------------------------------------------------------------------
 // 本机媒体库演示数据（library_list / library_search）
 // ---------------------------------------------------------------------------
 
@@ -1311,6 +1504,66 @@ const HANDLERS: Record<string, CmdHandler> = {
     return report;
   },
 
+  // ----- AI 对话（内存会话表 + ai://chat-token 流模拟） -----
+  ai_chat_create: (args) => {
+    const title = str(args.title).trim() || "新对话";
+    const session: MockChatSession = {
+      id: `chatsession-${(chatSessionSeq += 1)}`,
+      title,
+      createdAt: formatStamp(now()),
+      updatedAt: formatStamp(now()),
+      messages: [],
+    };
+    chatSessions.unshift(session);
+    return { id: session.id, title: session.title, createdAt: session.createdAt, updatedAt: session.updatedAt };
+  },
+  ai_chat_sessions_list: () =>
+    [...chatSessions]
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .map((session) => ({ id: session.id, title: session.title, createdAt: session.createdAt, updatedAt: session.updatedAt })),
+  ai_chat_history: (args) => {
+    const session = requireChatSession(str(args.sessionId));
+    return session.messages.map((message) => ({ ...message }));
+  },
+  ai_chat_send: (args) => {
+    const session = requireChatSession(str(args.sessionId));
+    if (activeChatSessions.has(session.id)) fail("同一会话正在回复中，请先停止当前回复");
+    const content = str(args.content).trim();
+    if (!content) fail("消息内容不能为空");
+    const context = (args.context ?? null) as Record<string, unknown> | null;
+    if (context && JSON.stringify(context).length > 32 * 1024) {
+      fail("页面上下文超过 32KiB 上限");
+    }
+    const userMessageId = `chatmsg-${(chatMessageSeq += 1)}`;
+    const messageId = `chatmsg-${(chatMessageSeq += 1)}`;
+    session.messages.push({
+      id: userMessageId,
+      sessionId: session.id,
+      role: "user",
+      content,
+      contextJson: context ? JSON.stringify(context) : null,
+      createdAt: formatStamp(now()),
+    });
+    session.updatedAt = formatStamp(now());
+    activeChatSessions.add(session.id);
+    void runChatTokenStream(session, messageId, content, context);
+    return { sessionId: session.id, messageId, userMessageId };
+  },
+  ai_chat_stop: (args) => {
+    const sessionId = str(args.sessionId);
+    if (!activeChatSessions.has(sessionId)) return false;
+    stoppedChatSessions.set(sessionId, true);
+    return true;
+  },
+  ai_chat_delete: (args) => {
+    const sessionId = str(args.sessionId);
+    if (activeChatSessions.has(sessionId)) fail("会话正在回复中，请先停止当前回复再删除");
+    const index = chatSessions.findIndex((session) => session.id === sessionId);
+    if (index < 0) fail(`会话不存在：${sessionId}`);
+    chatSessions.splice(index, 1);
+    return null;
+  },
+
   // ----- 相册（索引状态可累积、可移除） -----
   albums_recognize: (args) => {
     const input = (args.input ?? {}) as Record<string, unknown>;
@@ -1683,6 +1936,12 @@ window.__TAURI_INTERNALS__.runCallback = (id: number, data: unknown) => {
   }
 };
 window.__TAURI_INTERNALS__.unregisterCallback = unregisterCallback;
+// @tauri-apps/api/event 的 _unlisten 依赖该内部表；缺了它任何取消订阅都会抛错。
+window.__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+  unregisterListener: (event: string, eventId: number) => {
+    eventListeners.get(event)?.delete(eventId);
+  },
+};
 window.__SIRIUS_MOCK_EMIT__ = emitMockEvent;
 
 export {};

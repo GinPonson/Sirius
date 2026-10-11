@@ -7,7 +7,6 @@ export type AppSection =
   | "albums"
   | "cloud-files"
   | "tasks"
-  | "ai-organize"
   | "settings";
 
 /** 媒体类型；后续剧集可以继续扩展季、集模型。 */

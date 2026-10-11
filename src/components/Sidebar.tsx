@@ -1,10 +1,9 @@
 import { Icon } from "./Icon";
 
-/** 侧栏导航标识；影视三个内部视图（首页/媒体库/发现）归并为单一「影视」入口。 */
+/** 侧栏导航标识；AI 整理并入右下角对话面板，不再占用侧栏入口。 */
 export type SidebarNavId =
   | "cloud-files"
   | "tasks"
-  | "ai-organize"
   | "video"
   | "comics"
   | "albums"
@@ -22,12 +21,11 @@ type SidebarProps = {
 const NAVIGATION: Array<{
   id: Exclude<SidebarNavId, "settings">;
   label: string;
-  icon: "cloud" | "tasks" | "sparkles" | "play" | "book" | "images";
+  icon: "cloud" | "tasks" | "play" | "book" | "images";
   group: "workspace" | "content";
 }> = [
   { id: "cloud-files", label: "网盘文件", icon: "cloud", group: "workspace" },
   { id: "tasks", label: "整理任务", icon: "tasks", group: "workspace" },
-  { id: "ai-organize", label: "AI 整理", icon: "sparkles", group: "workspace" },
   { id: "video", label: "影视", icon: "play", group: "content" },
   { id: "comics", label: "漫画", icon: "book", group: "content" },
   { id: "albums", label: "相册", icon: "images", group: "content" },

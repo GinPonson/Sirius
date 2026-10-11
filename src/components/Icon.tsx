@@ -15,9 +15,12 @@ import {
   Pencil,
   Play,
   Plus,
+  RefreshCw,
   Search,
+  SendHorizontal,
   Settings,
   Sparkles,
+  Square,
   Star,
   Trash2,
   TriangleAlert,
@@ -52,7 +55,10 @@ export type IconName =
   | "download"
   | "sparkles"
   | "book"
-  | "images";
+  | "images"
+  | "send"
+  | "stop"
+  | "refresh";
 
 const ICONS: Record<IconName, LucideIcon> = {
   home: House,
@@ -80,6 +86,9 @@ const ICONS: Record<IconName, LucideIcon> = {
   sparkles: Sparkles,
   book: BookOpen,
   images: Images,
+  send: SendHorizontal,
+  stop: Square,
+  refresh: RefreshCw,
 };
 
 type IconProps = {
