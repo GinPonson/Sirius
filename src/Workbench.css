@@ -2590,6 +2590,111 @@
   top: calc(100% + 6px);
   right: 0;
   z-index: 5;
+   WP H1 文件页交互 —— 视图切换 / 密度 / 排序 / 网格 / 空状态（2026-10-11）
+   全部为文件页相关 class 的追加块；仅消费 Shell.css token，不引入新硬编码色。
+   ========================================================================== */
+
+/* 密度档位：舒适 50px 行 / 紧凑 38px 行；网格卡片同步收紧。 */
+.cloud-file-pane {
+  --file-row-min-height: 50px;
+  --file-grid-thumb: 64px;
+  --file-grid-pad: 10px;
+}
+
+.cloud-file-pane[data-density="compact"] {
+  --file-row-min-height: 38px;
+  --file-grid-thumb: 52px;
+  --file-grid-pad: 6px;
+}
+
+.cloud-file-pane[data-density="compact"] .file-row {
+  min-height: var(--file-row-min-height);
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.cloud-file-pane[data-density="compact"] .file-table-head {
+  min-height: 32px;
+}
+
+.cloud-file-pane[data-density="compact"] .file-name strong {
+  font-size: 12px;
+}
+
+/* 工具行扩展：视图切换与密度分段控件（28px 高，与类型筛选同节奏）。 */
+.cloud-view-toggle,
+.cloud-density-toggle {
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+}
+
+.cloud-view-toggle button,
+.cloud-density-toggle button {
+  display: grid;
+  width: 30px;
+  height: 24px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.cloud-density-toggle button {
+  width: auto;
+  padding: 0 9px;
+  font-size: 12px;
+}
+
+.cloud-view-toggle button.active,
+.cloud-density-toggle button.active {
+  background: var(--surface);
+  color: var(--primary-ink);
+  box-shadow: var(--shadow-1);
+}
+
+.cloud-filter-options {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+/* 排序控件：工具栏按钮打开统一菜单（FileContextMenu）；口径标注「已加载项」。 */
+.cloud-sort-control {
+  position: relative;
+}
+
+.cloud-sort-button {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cloud-sort-button:hover,
+.cloud-sort-button[aria-expanded="true"] {
+  background: var(--surface-hover);
+  color: var(--fg);
+}
+
+.cloud-sort-caret svg {
+  transform: rotate(90deg);
+}
+
+/* 统一浮层菜单：右键 / 行尾更多 / 排序共用；portal 到 body，视口锚定。 */
+.file-context-menu {
+  position: fixed;
+  z-index: 12;
   display: grid;
   min-width: 168px;
   padding: 5px;
@@ -2600,6 +2705,17 @@
 }
 
 .albums-more-menu button {
+  background: var(--surface);
+  box-shadow: var(--shadow-3);
+  animation: context-menu-in var(--duration-fast) var(--ease-standard) both;
+}
+
+@keyframes context-menu-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.file-context-menu button {
   display: flex;
   height: 32px;
   align-items: center;
@@ -2651,6 +2767,293 @@
   }
 
   .albums-month-nav {
+  cursor: pointer;
+}
+
+.file-context-menu button:hover:not(:disabled),
+.file-context-menu button:focus-visible:not(:disabled) {
+  background: var(--surface-hover);
+  outline: none;
+}
+
+.file-context-menu button:disabled {
+  cursor: default;
+  color: var(--fg-disabled);
+}
+
+.file-context-menu .file-context-menu-slot {
+  display: inline-grid;
+  width: 15px;
+  flex: 0 0 auto;
+  place-items: center;
+  color: var(--primary-ink);
+}
+
+.file-context-menu button.danger {
+  color: var(--danger-ink);
+}
+
+.file-context-menu button.danger:hover:not(:disabled) {
+  background: var(--danger-soft);
+}
+
+.file-context-menu-separator {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--hairline);
+}
+
+.file-context-menu-note {
+  margin: 5px 9px 3px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* 列头排序：可点表头 + 方向箭头（升序朝上 / 降序朝下）。 */
+.file-sort-header {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+
+.file-sort-header:hover,
+.file-sort-header.active {
+  color: var(--fg);
+}
+
+.file-sort-header .file-sort-arrow {
+  display: inline-grid;
+  place-items: center;
+  color: var(--primary-ink);
+}
+
+.file-sort-header .file-sort-arrow[data-order="asc"] svg {
+  transform: rotate(-90deg);
+}
+
+.file-sort-header .file-sort-arrow[data-order="desc"] svg {
+  transform: rotate(90deg);
+}
+
+/* ---------------------------------------------------------------------------
+   网格视图：容器查询自适应列数；卡片沿用 FileThumbnail 体系。
+   -------------------------------------------------------------------------- */
+.file-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 12px;
+  padding-top: 12px;
+}
+
+@container content-pane (min-width: 760px) {
+  .file-grid {
+    grid-template-columns: repeat(auto-fill, minmax(164px, 1fr));
+    gap: 14px;
+  }
+}
+
+@container content-pane (min-width: 1080px) {
+  .file-grid {
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 16px;
+  }
+}
+
+.file-grid-card {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: var(--file-grid-pad);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.file-grid-card:hover {
+  border-color: var(--hairline-strong);
+  background: var(--surface-hover);
+}
+
+.file-grid-card.selected,
+.file-grid-card.selected:hover {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.file-grid-thumb {
+  position: relative;
+  display: grid;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  place-items: center;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+}
+
+.file-grid-thumb .file-thumbnail {
+  width: var(--file-grid-thumb);
+  height: var(--file-grid-thumb);
+}
+
+.file-grid-thumb .file-thumbnail.has-image {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.file-grid-badge {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(8, 12, 18, 0.55);
+  color: #ffffff;
+}
+
+.file-grid-card > .file-grid-check {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+.file-grid-card:hover > .file-grid-check,
+.file-grid-card:focus-visible > .file-grid-check,
+.file-grid-card.selected > .file-grid-check {
+  opacity: 1;
+}
+
+.file-grid-name {
+  display: -webkit-box;
+  overflow: hidden;
+  margin-top: 8px;
+  width: 100%;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  word-break: break-all;
+}
+
+.file-grid-meta {
+  margin-top: 3px;
+  overflow: hidden;
+  width: 100%;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.file-grid-actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+.file-grid-card:hover .file-grid-actions,
+.file-grid-card:focus-within .file-grid-actions,
+.file-grid-actions:has(.file-action-menu) {
+  opacity: 1;
+}
+
+.file-grid-actions .file-more {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  box-shadow: var(--shadow-1);
+}
+
+.file-grid-actions .file-more:hover,
+.file-grid-actions .file-more[aria-expanded="true"] {
+  background: var(--primary-soft);
+  color: var(--primary-ink);
+}
+
+/* 网格卡片内的行内菜单保持旧形态（阶段 2 换成统一浮层菜单） */
+.file-grid-actions .file-action-menu {
+  top: 30px;
+  right: 0;
+}
+
+/* 列表超长文件名：中段省略 + 保留扩展名。 */
+.file-name strong.file-name-split {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+}
+
+.file-name strong.file-name-split .file-name-head {
+  overflow: hidden;
+  min-width: 3ch;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-name strong.file-name-split .file-name-tail {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* 空状态与骨架补充 */
+.file-empty-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.file-empty-action {
+  height: 32px;
+  font-size: 12px;
+}
+
+.cloud-file-grid-skeleton {
+  min-height: 240px;
+}
+
+.file-grid-skeleton-card {
+  display: block;
+  aspect-ratio: 3 / 4;
+  border-radius: var(--radius-md);
+  background: linear-gradient(100deg, var(--surface-sunken) 25%, var(--surface) 40%, var(--surface-sunken) 55%);
+  background-size: 220% 100%;
+  animation: shimmer 1.4s infinite;
+}
+
+@media (max-width: 980px) {
+  .cloud-density-toggle {
     display: none;
   }
 }
@@ -2661,4 +3064,179 @@
   .albums-month-nav rect {
     transition: none;
   }
+/* ---------------------------------------------------------------------------
+   WP H1 追加：新建文件夹 / 回收站入口与面板 / 目标选择器最近使用
+   -------------------------------------------------------------------------- */
+.cloud-toolbar-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.cloud-newfolder-action svg {
+  color: var(--primary-ink);
+}
+
+.cloud-recycle-button {
+  display: inline-flex;
+  height: 36px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
+}
+
+.cloud-recycle-button:hover {
+  background: var(--surface-sunken);
+  color: var(--fg);
+}
+
+.file-filter-row {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+/* 回收站面板：表头与行共用 file-table 基座，仅列宽按回收站语义调整。 */
+.recycle-header {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 14px;
+}
+
+.recycle-header strong {
+  color: var(--fg);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.recycle-header > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.recycle-table .file-table-head,
+.recycle-table .file-row {
+  grid-template-columns: 28px minmax(180px, 1fr) 88px 116px minmax(120px, 170px) 172px;
+}
+
+.recycle-origin {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recycle-row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.recycle-row-actions button {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.recycle-row-actions button:hover:not(:disabled) {
+  background: var(--primary-soft);
+  color: var(--primary-ink);
+}
+
+.recycle-row-actions button.danger {
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--surface));
+  color: var(--danger-ink);
+}
+
+.recycle-row-actions button.danger:hover:not(:disabled) {
+  background: var(--danger-soft);
+}
+
+/* 目标选择器：最近使用（一键直达）与明确的目标路径行。 */
+.picker-recent {
+  margin-top: 12px;
+}
+
+.picker-recent-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.picker-recent-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.picker-recent-list button {
+  display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
+  height: 30px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px 0 7px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  color: var(--fg);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.picker-recent-list button:hover {
+  border-color: var(--primary);
+  color: var(--primary-ink);
+}
+
+.picker-recent-list button > span:not(.picker-folder-icon) {
+  overflow: hidden;
+  flex: 0 1 auto;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-recent-list button small {
+  overflow: hidden;
+  max-width: 150px;
+  flex: 0 1 auto;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-target-line {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
+}
+
+.picker-target-line strong {
+  color: var(--fg);
+  font-weight: 600;
 }
