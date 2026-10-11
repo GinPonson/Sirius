@@ -281,8 +281,6 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .tree-list button small { color:var(--muted); font:var(--text-micro) ui-monospace,SFMono-Regular,monospace; }
 .tree-list button.active small { color:var(--primary-ink); }
 .cloud-file-pane { min-width:0; padding-left:22px; }
-.cloud-files-toolbar { display:flex; min-height:52px; align-items:center; justify-content:space-between; gap:20px; padding:8px 0; }
-.cloud-files-actions { display:flex; align-items:center; gap:10px; }
 .upload-resume-bar { display:flex; align-items:center; gap:12px; margin-bottom:10px; padding:8px 12px; border:1px solid color-mix(in srgb, var(--warn) 32%, var(--surface)); border-radius: var(--radius-md); background:color-mix(in srgb, var(--warn) 8%, var(--surface)); color:var(--warn-ink); }
 .upload-resume-bar > span { flex:0 0 auto; font-size:12px; font-weight:620; }
 .upload-resume-bar > div { display:flex; flex:1; flex-wrap:wrap; gap:8px; }
@@ -296,9 +294,6 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .file-breadcrumbs button { overflow:hidden; max-width:190px; padding:5px 7px; border:0; background:transparent; color:var(--muted); font-size:var(--text-body); line-height:1.35; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; }
 .file-breadcrumbs button:hover,.file-breadcrumbs button.active { color:var(--fg); }
 .file-breadcrumbs button.active { font-weight:610; }
-.file-search { display:grid; grid-template-columns:16px minmax(150px,218px); align-items:center; gap:7px; height:34px; padding:0 10px; border:1px solid var(--hairline-strong); border-radius:8px; background:var(--surface); color:var(--muted); transition:border-color var(--duration-fast) var(--ease-standard),box-shadow var(--duration-fast) var(--ease-standard); }
-.file-search:focus-within { border-color:var(--primary-ink); box-shadow:0 0 0 3px var(--primary-tint); }
-.file-search input { min-width:0; border:0; outline:0; background:transparent; color:var(--fg); font-size:var(--text-secondary); }
 .file-filter-row { display:flex; align-items:center; justify-content:space-between; padding:0 0 9px; }
 .file-filter-row > span { color:var(--muted); font-size:var(--text-meta); }
 .file-filter-row .segmented-control { padding:2px; border-radius: var(--radius-md); }

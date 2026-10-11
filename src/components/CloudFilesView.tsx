@@ -24,6 +24,9 @@ type FolderPicker = {
 
 type CloudFilesViewProps = {
   account: Cloud115AccountStatus | null;
+  /** 顶栏下发的当前目录搜索词；防抖与取数仍由本组件负责。 */
+  query: string;
+  onQueryChange: (value: string) => void;
   onRequireLogin: () => void;
   onPlay: (entry: Cloud115FileEntry) => Promise<void>;
 };
@@ -93,10 +96,9 @@ function formatTransferBytes(bytes: number): string {
 }
 
 /** 115 网盘真实文件浏览页；批量移动/复制的目标策略由 Rust 侧统一校验。 */
-export function CloudFilesView({ account, onRequireLogin, onPlay }: CloudFilesViewProps) {
+export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, onPlay }: CloudFilesViewProps) {
   const [path, setPath] = useState<FolderPick[]>([{ id: ROOT_ID, name: "115 网盘" }]);
   const [entries, setEntries] = useState<Cloud115FileEntry[]>([]);
-  const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<CloudFileFilter>("all");
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -154,6 +156,11 @@ export function CloudFilesView({ account, onRequireLogin, onPlay }: CloudFilesVi
       window.clearTimeout(timeout);
     };
   }, [account?.connected, currentFolderId, query, reloadNonce]);
+
+  // 搜索词由顶栏下发：口径变化立即清空选择，避免批量操作作用于即将不可见的文件。
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [query]);
 
   const visibleEntries = useMemo(
     () => entries.filter((entry) => filter === "all" || entry.kind === filter),
@@ -255,14 +262,15 @@ export function CloudFilesView({ account, onRequireLogin, onPlay }: CloudFilesVi
   function openFolder(entry: Cloud115FileEntry) {
     if (entry.kind !== "folder") return;
     setPath((current) => [...current, { id: entry.id, name: entry.name }]);
-    setQuery("");
+    // 目录搜索范围限定当前目录：进入下级时同步清空顶栏搜索框。
+    onQueryChange("");
     setFilter("all");
     clearSelection();
   }
 
   function navigateToPath(index: number) {
     setPath((current) => current.slice(0, index + 1));
-    setQuery("");
+    onQueryChange("");
     setFilter("all");
     clearSelection();
   }
@@ -479,24 +487,6 @@ export function CloudFilesView({ account, onRequireLogin, onPlay }: CloudFilesVi
       {notice && <div className="cloud-action-notice" role="status"><Icon name="check" size={14} />{notice}<button aria-label="关闭提示" onClick={() => setNotice(null)}><Icon name="close" size={13} /></button></div>}
 
       <div className="cloud-file-pane">
-          <div className="cloud-files-toolbar">
-            <button
-              className="primary-action cloud-upload-action"
-              disabled={uploading !== null}
-              title={uploading ? uploadStageLabel(uploading, activeUpload) : "上传文件到当前目录"}
-              onClick={() => void startUpload()}
-            >
-              <Icon name="upload" size={16} />
-              {uploading ? uploadStageLabel(uploading, activeUpload) : "上传文件"}
-            </button>
-            <div className="cloud-files-actions">
-              <label className="file-search">
-                <Icon name="search" size={15} />
-                <input aria-label="搜索当前目录" value={query} placeholder="搜索当前目录" onChange={(event) => { setQuery(event.currentTarget.value); clearSelection(); }} />
-              </label>
-            </div>
-          </div>
-
           {activeDownload && (
             <div
               className="cloud-transfer-progress"
@@ -537,6 +527,7 @@ export function CloudFilesView({ account, onRequireLogin, onPlay }: CloudFilesVi
             </div>
           )}
 
+          {/* 搜索已上移顶栏；工具区保持「路径/筛选行 → 列头 → 内容」稳定节奏。 */}
           <div className="file-filter-row">
             <nav className="file-breadcrumbs" aria-label="当前网盘路径">
               {path.map((item, index) => (
@@ -554,6 +545,15 @@ export function CloudFilesView({ account, onRequireLogin, onPlay }: CloudFilesVi
               </div>
               <span>{visibleEntries.length} / {total} 个项目</span>
             </div>
+            <button
+              className="primary-action cloud-upload-action"
+              disabled={uploading !== null}
+              title={uploading ? uploadStageLabel(uploading, activeUpload) : "上传文件到当前目录"}
+              onClick={() => void startUpload()}
+            >
+              <Icon name="upload" size={16} />
+              {uploading ? uploadStageLabel(uploading, activeUpload) : "上传文件"}
+            </button>
           </div>
 
           {selectedIds.size > 0 && (
