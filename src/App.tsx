@@ -649,11 +649,14 @@ function HomeView({
 
   return (
     <section className="page-section home-view">
-      <ContinueWatchingShelf
-        media={continueWatching.length > 0 ? continueWatching : media.slice(0, 4)}
-        onPlay={onPlay}
-        onMore={() => onNavigate("library")}
-      />
+      {/* 无真实观看记录时不渲染该区块，不使用其他影片回填。 */}
+      {continueWatching.length > 0 && (
+        <ContinueWatchingShelf
+          media={continueWatching}
+          onPlay={onPlay}
+          onMore={() => onNavigate("library")}
+        />
+      )}
       <MediaShelf
         title="最近入库"
         media={media.slice(0, 6)}
@@ -685,12 +688,15 @@ function ContinueWatchingShelf({
             <span className="continue-frame">
               <img src={WATCH_STILLS[item.id] ?? posterFallback} alt={`《${item.title}》播放画面`} />
               <span className="continue-play"><Icon name="play" size={20} /></span>
-              <span className="continue-progress">
-                <span style={{ width: `${Math.max(item.progress, 0.04) * 100}%` }} />
-              </span>
+              {item.progress > 0 && (
+                <span className="continue-progress">
+                  <span style={{ width: `${item.progress * 100}%` }} />
+                </span>
+              )}
             </span>
             <span className="continue-title">
-              {item.kind === "series" ? `${item.title} · 第 3 集` : item.title}
+              {/* 数据层尚无真实集数信息，副标题只展示作品名。 */}
+              {item.title}
             </span>
           </button>
         ))}
