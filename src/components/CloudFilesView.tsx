@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Cloud115Service,
   MediaInfoService,
@@ -12,6 +12,7 @@ import { registerViewPageContext, notifyPageContextChanged, type AiPageContext }
 import { Icon } from "./Icon";
 import { FileTypeIcon } from "./FileTypeIcon";
 import { FileThumbnail } from "./FileThumbnail";
+import { FileContextMenu, type FileMenuItem } from "./FileContextMenu";
 import { getFilePresentation } from "../domain/fileTypes";
 
 type CloudFileFilter = "all" | "folder" | "video" | "subtitle";
@@ -21,6 +22,8 @@ type FolderPicker = {
   path: FolderPick[];
   entries: Cloud115FileEntry[];
   loading: boolean;
+  /** 本次移动/复制的目标条目；批量栏来自选择集，单条菜单来自该行。 */
+  ids: string[];
 };
 
 type CloudFilesViewProps = {
@@ -32,10 +35,81 @@ type CloudFilesViewProps = {
   onPlay: (entry: Cloud115FileEntry) => Promise<void>;
 };
 
+/** 文件页视图模式：列表 / 网格；选择持久化 localStorage。 */
+type ViewMode = "list" | "grid";
+/** 显示密度：舒适（行高 50px）/ 紧凑（行高 38px），列表与网格共用。 */
+type Density = "comfortable" | "compact";
+/** 排序字段与方向；只作用于已加载项（分页语义）。 */
+type SortField = "name" | "size" | "modifiedAt";
+type SortOrder = "asc" | "desc";
+type SortState = { field: SortField; order: SortOrder };
+
+/** 统一浮层菜单的打开状态：entry 为空表示页级菜单（排序），否则是单条目菜单。 */
+type PaneMenu = {
+  entry: Cloud115FileEntry | null;
+  x: number;
+  y: number;
+  /** 关闭后焦点送回触发位置：行元素、更多按钮或排序按钮。 */
+  restoreTo: HTMLElement | null;
+};
+
+/** 目录级 UI 记忆：返回该目录时恢复滚动位置与排序；视图模式是全局持久化，天然恢复。 */
+type DirUiMemory = { scrollTop: number; sort: SortState };
+
 const ROOT_ID = "0";
 const PAGE_LIMIT = 100;
 const cloud115 = new Cloud115Service();
 const mediaInfoService = new MediaInfoService();
+
+const VIEW_MODE_KEY = "sirius-files-view";
+const DENSITY_KEY = "sirius-files-density";
+const DEFAULT_SORT: SortState = { field: "name", order: "asc" };
+const SORT_FIELD_LABELS: Record<SortField, string> = { name: "文件名", size: "大小", modifiedAt: "修改时间" };
+
+function readStoredViewMode(): ViewMode {
+  try {
+    return window.localStorage.getItem(VIEW_MODE_KEY) === "grid" ? "grid" : "list";
+  } catch {
+    // 存储不可用（隐私模式等）时退回内存默认，不影响本次会话。
+    return "list";
+  }
+}
+
+function readStoredDensity(): Density {
+  try {
+    return window.localStorage.getItem(DENSITY_KEY) === "compact" ? "compact" : "comfortable";
+  } catch {
+    return "comfortable";
+  }
+}
+
+/** 已加载项的客户端排序：目录始终在前；同值回退文件名，保证顺序稳定。 */
+function compareEntries(a: Cloud115FileEntry, b: Cloud115FileEntry, sort: SortState): number {
+  const folderBias = (entry: Cloud115FileEntry) => (entry.kind === "folder" ? 0 : 1);
+  const byFolder = folderBias(a) - folderBias(b);
+  if (byFolder !== 0) return byFolder;
+  const byName = a.name.localeCompare(b.name, "zh-Hans-CN");
+  if (sort.field === "size") {
+    const bySize = a.sizeBytes - b.sizeBytes;
+    return bySize !== 0 ? bySize * (sort.order === "asc" ? 1 : -1) : byName;
+  }
+  if (sort.field === "modifiedAt") {
+    const byTime = a.modifiedAt - b.modifiedAt;
+    return byTime !== 0 ? byTime * (sort.order === "asc" ? 1 : -1) : byName;
+  }
+  return byName * (sort.order === "asc" ? 1 : -1);
+}
+
+/** 超长文件名拆为「中段可省略 + 固定扩展名」两段；目录名与短名不拆。 */
+function splitLongName(name: string): { head: string; tail: string } | null {
+  if (name.length <= 26) return null;
+  const dot = name.lastIndexOf(".");
+  if (dot <= 0) return { head: name, tail: "" };
+  return { head: name.slice(0, dot), tail: name.slice(dot) };
+}
+
+/** 空状态分类：读取中 / 目录为空 / 搜索或筛选无结果 / 读取失败 / 回收站为空。 */
+type FileEmptyKind = "directory-empty" | "no-results" | "load-error" | "recycle-empty";
 
 /** 将秒数格式化为 h:mm:ss 的紧凑时长。 */
 function formatDuration(seconds: number): string {
@@ -106,7 +180,6 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [playingId, setPlayingId] = useState<string | null>(null);
-  const [actionEntry, setActionEntry] = useState<Cloud115FileEntry | null>(null);
   const [renameEntry, setRenameEntry] = useState<Cloud115FileEntry | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteTargets, setDeleteTargets] = useState<Cloud115FileEntry[]>([]);
@@ -119,6 +192,15 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
   const [uploadSessions, setUploadSessions] = useState<Cloud115UploadSession[]>([]);
   const [dismissedSessions, setDismissedSessions] = useState<Set<string>>(new Set());
   const [resumingId, setResumingId] = useState<string | null>(null);
+  // 视图状态机：视图模式与密度全局持久化；排序随目录记忆（内存态）。
+  const [viewMode, setViewMode] = useState<ViewMode>(readStoredViewMode);
+  const [density, setDensity] = useState<Density>(readStoredDensity);
+  const [sort, setSort] = useState<SortState>(DEFAULT_SORT);
+  // 统一浮层菜单（右键 / 行尾更多 / 排序）。
+  const [paneMenu, setPaneMenu] = useState<PaneMenu | null>(null);
+  // 键盘选择矩阵：Shift 连选锚点 + 当前行焦点（行内 roving tabindex）。
+  const anchorIdRef = useRef<string | null>(null);
+  const [activeRowId, setActiveRowId] = useState<string | null>(null);
   // 批量操作完成后手动触发列表重载；常规浏览仍走目录/搜索依赖。
   const [reloadNonce, setReloadNonce] = useState(0);
   // 传输进度事件由全局单例 store 推送；此处仅做最小阶段展示。
@@ -136,11 +218,19 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
   const requestKeyRef = useRef(requestKey);
   requestKeyRef.current = requestKey;
 
+  /** 视图切换后的滚动恢复：网格与列表高度不同，切换后按原滚动量回位。 */
+  const pendingViewScrollRef = useRef<number | null>(null);
+  /** 返回目录时的滚动恢复目标。 */
+  const pendingDirScrollRef = useRef<number | null>(null);
+  /** 目录级排序与滚动记忆；跨目录往返保留，不持久化历史栈。 */
+  const dirUiMemoryRef = useRef(new Map<string, DirUiMemory>());
+
   useEffect(() => {
     if (!account?.connected) return;
     let active = true;
     setLoading(true);
     setLoadingMore(false);
+    setEntries([]);
     const timeout = window.setTimeout(() => {
       cloud115.listFiles(currentFolderId, query.trim(), 0, PAGE_LIMIT)
         .then((page) => {
@@ -149,7 +239,11 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
           setTotal(page.total);
           setHasMore(page.hasMore);
         })
-        .catch((reason) => active && setError(`读取 115 文件失败：${String(reason)}`))
+        .catch((reason) => {
+          if (!active) return;
+          setEntries([]);
+          setError(`读取 115 文件失败：${String(reason)}`);
+        })
         .finally(() => active && setLoading(false));
     }, query.trim() ? 250 : 0);
     return () => {
@@ -163,9 +257,41 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
     setSelectedIds(new Set());
   }, [query]);
 
+  // 视图与密度选择即时回写 localStorage；失败只影响下次启动的初始值。
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(VIEW_MODE_KEY, viewMode);
+    } catch {
+      // 存储不可用时保持内存态即可。
+    }
+  }, [viewMode]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(DENSITY_KEY, density);
+    } catch {
+      // 同上。
+    }
+  }, [density]);
+
+  useLayoutEffect(() => {
+    if (pendingViewScrollRef.current === null) return;
+    window.scrollTo({ top: pendingViewScrollRef.current });
+    pendingViewScrollRef.current = null;
+  }, [viewMode, loading]);
+
+  // 返回目录：数据落地后恢复离开时的滚动位置（超出的部分由浏览器收敛）。
+  useLayoutEffect(() => {
+    if (loading || pendingDirScrollRef.current === null) return;
+    window.scrollTo({ top: pendingDirScrollRef.current });
+    pendingDirScrollRef.current = null;
+  }, [loading, entries]);
+
   const visibleEntries = useMemo(
-    () => entries.filter((entry) => filter === "all" || entry.kind === filter),
-    [entries, filter],
+    () => entries
+      .filter((entry) => filter === "all" || entry.kind === filter)
+      .sort((a, b) => compareEntries(a, b, sort)),
+    [entries, filter, sort],
   );
 
   /** 批量操作的统一取数口径：选择集与当前列表的交集，防止误操作不可见文件。 */
@@ -282,10 +408,73 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
   /** 目录、搜索词或类型筛选变化意味着选择上下文失效，立即清空避免误操作不可见文件。 */
   function clearSelection() {
     setSelectedIds(new Set());
+    anchorIdRef.current = null;
+    setActiveRowId(null);
+  }
+
+  /** 单选一行并记录 Shift 连选锚点。 */
+  function selectOnly(entry: Cloud115FileEntry) {
+    setSelectedIds(new Set([entry.id]));
+    anchorIdRef.current = entry.id;
+    setActiveRowId(entry.id);
+  }
+
+  /** ⌘/Ctrl 单击：增选或取消；锚点跟随最近点击项。 */
+  function toggleSelectWithAnchor(entry: Cloud115FileEntry) {
+    toggleSelected(entry.id);
+    anchorIdRef.current = entry.id;
+    setActiveRowId(entry.id);
+  }
+
+  /** Shift 连选：以最近点击项为锚，在当前展示顺序内扩展区间选择。 */
+  function selectRangeTo(entry: Cloud115FileEntry) {
+    const ids = visibleEntries.map((item) => item.id);
+    const anchorId = anchorIdRef.current;
+    const startIndex = anchorId !== null ? ids.indexOf(anchorId) : -1;
+    const endIndex = ids.indexOf(entry.id);
+    if (startIndex < 0 || endIndex < 0) {
+      selectOnly(entry);
+      return;
+    }
+    const [lo, hi] = startIndex <= endIndex ? [startIndex, endIndex] : [endIndex, startIndex];
+    setSelectedIds(new Set(ids.slice(lo, hi + 1)));
+    setActiveRowId(entry.id);
+  }
+
+  /** 切换视图：保留选中、排序与滚动位置；选择持久化由 viewMode 的 effect 完成。 */
+  function switchViewMode(next: ViewMode) {
+    if (next === viewMode) return;
+    pendingViewScrollRef.current = window.scrollY;
+    setViewMode(next);
+  }
+
+  /** 行的主打开动作：文件夹进入、视频播放；其余类型没有内置查看器，不做假预览，交给更多菜单。 */
+  function openEntryPrimary(entry: Cloud115FileEntry, rowElement?: HTMLElement | null) {
+    if (entry.kind === "folder") {
+      openFolder(entry);
+      return;
+    }
+    if (entry.kind === "video") {
+      void playEntry(entry);
+      return;
+    }
+    if (rowElement) {
+      const rect = rowElement.getBoundingClientRect();
+      openPaneMenu(entry, rect.left + rect.width / 2, rect.bottom + 4, rowElement);
+    }
+  }
+
+  /** 离开目录前记录该目录的滚动与排序，供返回时恢复。 */
+  function rememberCurrentDirUi(folderId: string) {
+    dirUiMemoryRef.current.set(folderId, { scrollTop: window.scrollY, sort });
   }
 
   function openFolder(entry: Cloud115FileEntry) {
     if (entry.kind !== "folder") return;
+    rememberCurrentDirUi(currentFolderId);
+    const memory = dirUiMemoryRef.current.get(entry.id) ?? null;
+    pendingDirScrollRef.current = memory ? memory.scrollTop : 0;
+    setSort(memory?.sort ?? DEFAULT_SORT);
     setPath((current) => [...current, { id: entry.id, name: entry.name }]);
     // 目录搜索范围限定当前目录：进入下级时同步清空顶栏搜索框。
     onQueryChange("");
@@ -294,13 +483,17 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
   }
 
   function navigateToPath(index: number) {
+    if (index === path.length - 1) return;
+    rememberCurrentDirUi(currentFolderId);
+    const target = path[index];
+    const memory = dirUiMemoryRef.current.get(target.id) ?? null;
+    pendingDirScrollRef.current = memory ? memory.scrollTop : 0;
+    setSort(memory?.sort ?? DEFAULT_SORT);
     setPath((current) => current.slice(0, index + 1));
     onQueryChange("");
     setFilter("all");
     clearSelection();
   }
-
-
 
   async function loadMore() {
     const activeRequestKey = requestKey;
@@ -343,7 +536,6 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
     try {
       await cloud115.updateFile(entry.id, { starred: true });
       setNotice(`已收藏“${entry.name}”`);
-      setActionEntry(null);
     } catch (reason) {
       setError(`收藏“${entry.name}”失败：${String(reason)}`);
     } finally {
@@ -386,7 +578,6 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
         info.audioCodec !== null ? `音频 ${info.audioCodec}` : null,
       ].filter((value) => value !== null);
       setNotice(`“${entry.name}”：${parts.length > 0 ? parts.join(" · ") : "暂无可用的媒体信息"}`);
-      setActionEntry(null);
     } catch (reason) {
       setError(`读取“${entry.name}”媒体信息失败：${String(reason)}`);
     } finally {
@@ -405,7 +596,6 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
       setNotice(result.resumedBytes > 0
         ? `“${result.fileName}”已续传完成，保存到 ${result.savedPath}`
         : `“${result.fileName}”已下载到 ${result.savedPath}`);
-      setActionEntry(null);
     } catch (reason) {
       setError(`下载“${entry.name}”失败：${String(reason)}`);
     } finally {
@@ -435,10 +625,11 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
     }
   }
 
-  /** 打开目标文件夹选择器，从根目录开始浏览。 */
-  function openPicker(mode: "move" | "copy") {
-    if (selectedIds.size === 0) return;
-    const initial: FolderPicker = { mode, path: [{ id: ROOT_ID, name: "115 网盘" }], entries: [], loading: true };
+  /** 打开目标文件夹选择器；条目来自批量选择集或菜单单条，目标冲突由 Rust 校验。 */
+  function openPicker(mode: "move" | "copy", entryIds?: string[]) {
+    const ids = entryIds ?? selectedEntries.map((entry) => entry.id);
+    if (ids.length === 0) return;
+    const initial: FolderPicker = { mode, path: [{ id: ROOT_ID, name: "115 网盘" }], entries: [], loading: true, ids };
     setPicker(initial);
     void loadPickerFolders(initial.path[0].id);
   }
@@ -471,8 +662,8 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
   /** 提交批量移动或复制；同名冲突与非法目标由 Rust 策略拒绝。 */
   async function confirmPicker() {
     if (!picker) return;
-    // 与批量删除同源取数：只提交当前列表中真实存在的选中项。
-    const ids = selectedEntries.map((entry) => entry.id);
+    // 与批量删除同源口径：只提交打开选择器时确认存在的条目。
+    const ids = picker.ids;
     if (ids.length === 0) return;
     const target = picker.path[picker.path.length - 1];
     setBusyAction(true);
@@ -496,6 +687,187 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // 统一浮层菜单：右键、行尾更多、排序共用；关闭时把焦点送回触发位置。
+  // ---------------------------------------------------------------------------
+
+  function openPaneMenu(entry: Cloud115FileEntry | null, x: number, y: number, restoreTo: HTMLElement | null) {
+    setPaneMenu({ entry, x, y, restoreTo });
+  }
+
+  function closePaneMenu() {
+    const restoreTo = paneMenu?.restoreTo ?? null;
+    setPaneMenu(null);
+    if (restoreTo) {
+      window.requestAnimationFrame(() => {
+        // 重命名等对话框承接焦点时不抢占；仅在菜单直接关闭时送回触发位置。
+        if (document.activeElement === document.body && document.contains(restoreTo)) {
+          restoreTo.focus({ preventScroll: true });
+        }
+      });
+    }
+  }
+
+  /** 单条目菜单：按类型显隐；说明与行为一一对应，不发明能力。 */
+  function buildFileMenuItems(entry: Cloud115FileEntry): FileMenuItem[] {
+    const close = () => closePaneMenu();
+    const items: FileMenuItem[] = [];
+    if (entry.kind === "folder") {
+      items.push({ id: "open", label: "打开", icon: "chevron", hint: "进入此文件夹", onSelect: () => { close(); openFolder(entry); } });
+    } else if (entry.kind === "video") {
+      items.push({ id: "play", label: "播放", icon: "play", hint: "用内置播放器播放", onSelect: () => { close(); void playEntry(entry); } });
+    }
+    if (entry.kind !== "folder") {
+      items.push({ id: "download", label: "下载", icon: "download", onSelect: () => { close(); void downloadEntry(entry); } });
+    }
+    if (entry.kind === "video") {
+      items.push({ id: "media-info", label: "媒体信息", icon: "play", hint: "读取时长与编码信息", onSelect: () => { close(); void scrapeMediaInfo(entry); } });
+    }
+    items.push(
+      { kind: "separator", id: "sep-organize" },
+      { id: "favorite", label: "收藏", icon: "star", disabled: busyAction, onSelect: () => { close(); void favoriteEntry(entry); } },
+      { id: "rename", label: "重命名", icon: "edit", disabled: busyAction, onSelect: () => { close(); setRenameEntry(entry); setRenameValue(entry.name); } },
+      { id: "move", label: "移动…", icon: "chevron", disabled: busyAction, hint: "移动到其他文件夹", onSelect: () => { close(); openPicker("move", [entry.id]); } },
+      { id: "copy", label: "复制…", icon: "more", disabled: busyAction, hint: "复制到其他文件夹", onSelect: () => { close(); openPicker("copy", [entry.id]); } },
+      { kind: "separator", id: "sep-danger" },
+      { id: "delete", label: "删除", icon: "trash", danger: true, disabled: busyAction, hint: "移入回收站，可还原", onSelect: () => { close(); setDeleteTargets([entry]); } },
+    );
+    return items;
+  }
+
+  /** 排序菜单：与列头共用同一状态；口径注明只作用于已加载项。 */
+  function buildSortMenuItems(): FileMenuItem[] {
+    const close = () => closePaneMenu();
+    return [
+      ...(Object.keys(SORT_FIELD_LABELS) as SortField[]).map((field): FileMenuItem => ({
+        id: `sort-field-${field}`,
+        label: SORT_FIELD_LABELS[field],
+        checked: sort.field === field,
+        onSelect: () => { close(); setSort((current) => ({ ...current, field })); },
+      })),
+      { kind: "separator", id: "sort-order-sep" },
+      { id: "sort-order-asc", label: "升序", checked: sort.order === "asc", onSelect: () => { close(); setSort((current) => ({ ...current, order: "asc" })); } },
+      { id: "sort-order-desc", label: "降序", checked: sort.order === "desc", onSelect: () => { close(); setSort((current) => ({ ...current, order: "desc" })); } },
+    ];
+  }
+
+  /** 切换排序字段：同字段再点翻转方向，新字段默认升序；作用范围是已加载项。 */
+  function toggleSortField(field: SortField) {
+    setSort((current) => current.field === field
+      ? { ...current, order: current.order === "asc" ? "desc" : "asc" }
+      : { field, order: "asc" });
+  }
+
+  // ---------------------------------------------------------------------------
+  // 行级选择与键盘：列表行与网格卡片共用同一套处理器。
+  // ---------------------------------------------------------------------------
+
+  /** 行单击选择：⌘/Ctrl 增选取消、Shift 连选、普通单击单选；行内控件不参与。 */
+  function handleRowPointerSelect(entry: Cloud115FileEntry, event: React.MouseEvent<HTMLElement>) {
+    const target = event.target as HTMLElement;
+    if (target.closest("input,button")) return;
+    if (event.metaKey || event.ctrlKey) {
+      toggleSelectWithAnchor(entry);
+    } else if (event.shiftKey) {
+      selectRangeTo(entry);
+    } else {
+      selectOnly(entry);
+    }
+  }
+
+  /** 点击行与卡片之外的空白处：取消选择。 */
+  function handleContainerBlankClick(event: React.MouseEvent<HTMLElement>) {
+    const target = event.target as HTMLElement;
+    if (target.closest("[data-entry-id]") || target.closest(".file-table-head")) return;
+    clearSelection();
+  }
+
+  /**
+   * 行级键盘矩阵（列表行与网格卡片共用）：
+   * 方向键/Home/End 移动焦点与选择（Shift 扩展连选），Enter/空格执行主打开动作，
+   * Esc 清理临时选择，⌘/Ctrl+A 全选可见项，菜单键/Shift+F10 打开右键菜单。
+   */
+  function handleRowKeyDown(entry: Cloud115FileEntry, event: React.KeyboardEvent<HTMLElement>) {
+    const row = event.currentTarget;
+    const container = row.parentElement;
+    if (!container) return;
+    const rows = Array.from(container.querySelectorAll<HTMLElement>("[data-entry-id]"));
+    const index = rows.indexOf(row);
+    const focusAndSelect = (nextIndex: number, extend: boolean) => {
+      const nextRow = rows[nextIndex];
+      const nextId = nextRow?.dataset.entryId;
+      const nextEntry = nextId ? entries.find((item) => item.id === nextId) : undefined;
+      if (!nextRow || !nextEntry) return;
+      nextRow.focus();
+      if (extend) {
+        selectRangeTo(nextEntry);
+      } else {
+        selectOnly(nextEntry);
+      }
+    };
+    if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      const nextIndex = event.key === "ArrowDown" ? Math.min(index + 1, rows.length - 1)
+        : event.key === "ArrowUp" ? Math.max(index - 1, 0)
+          : event.key === "Home" ? 0 : rows.length - 1;
+      focusAndSelect(nextIndex, event.shiftKey);
+      return;
+    }
+    if ((event.key === "Enter" || event.key === " ") && event.target === row) {
+      event.preventDefault();
+      openEntryPrimary(entry, row);
+      return;
+    }
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      clearSelection();
+      return;
+    }
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "a") {
+      event.preventDefault();
+      setSelectedIds(new Set(visibleEntries.map((item) => item.id)));
+      return;
+    }
+    if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+      event.preventDefault();
+      const rect = row.getBoundingClientRect();
+      openPaneMenu(entry, rect.left + rect.width / 2, rect.bottom + 4, row);
+    }
+  }
+
+  /** 更多操作按钮：与右键共用同一菜单组件。 */
+  function toggleRowMenu(entry: Cloud115FileEntry, button: HTMLElement) {
+    if (paneMenu?.entry?.id === entry.id) {
+      closePaneMenu();
+      return;
+    }
+    const rect = button.getBoundingClientRect();
+    openPaneMenu(entry, rect.right, rect.bottom + 4, button);
+  }
+
+  /** 面板级 Escape：清理临时选择状态；菜单与行内的 Esc 由各自处理器收容。 */
+  function handlePaneKeyDown(event: React.KeyboardEvent<HTMLElement>) {
+    if (event.key !== "Escape") return;
+    const target = event.target as HTMLElement;
+    // 输入框内不劫持 Esc；行级清理由行键盘处理器完成（那里会 stopPropagation）。
+    if (target.closest("input, textarea")) return;
+    if (selectedIds.size > 0) {
+      event.stopPropagation();
+      clearSelection();
+    }
+  }
+
+  /** 空状态分类：按「读取失败 → 搜索 → 筛选 → 真空目录」的优先级归类，文案不发明数据。 */
+  const emptyKind: FileEmptyKind | null = loading || visibleEntries.length > 0 ? null
+    : entries.length === 0 && error ? "load-error"
+      : query.trim() || filter !== "all" ? "no-results"
+        : "directory-empty";
+
+  /** 计数口径说明：明确「已加载」边界，排序与批量操作都不作用于未加载分页。 */
+  const loadedCountLabel = filter === "all"
+    ? `已加载 ${entries.length} / ${total} 项`
+    : `已加载 ${entries.length} / ${total} 项 · 筛选命中 ${visibleEntries.length} 项`;
+
   if (!account?.connected) {
     return (
       <section className="page-section cloud-auth-state">
@@ -506,12 +878,15 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
     );
   }
 
+  const thumbSize = density === "compact" ? 26 : 32;
+  const gridThumbSize = density === "compact" ? 52 : 64;
+
   return (
     <section className="page-section cloud-files-view">
       {error && <div className="cloud-inline-error" role="alert">{error}</div>}
       {notice && <div className="cloud-action-notice" role="status"><Icon name="check" size={14} />{notice}<button aria-label="关闭提示" onClick={() => setNotice(null)}><Icon name="close" size={13} /></button></div>}
 
-      <div className="cloud-file-pane">
+      <div className="cloud-file-pane" data-density={density} data-view={viewMode} onKeyDown={handlePaneKeyDown}>
           {activeDownload && (
             <div
               className="cloud-transfer-progress"
@@ -563,12 +938,51 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
               ))}
             </nav>
             <div className="cloud-filter-options">
-              <div className="segmented-control" aria-label="文件类型筛选">
-                {([ ["all", "全部"], ["folder", "文件夹"], ["video", "视频"], ["subtitle", "字幕"] ] as const).map(([value, label]) => (
-                  <button key={value} className={filter === value ? "active" : ""} onClick={() => { setFilter(value); clearSelection(); }}>{label}</button>
-                ))}
+              <div className="segmented-control cloud-view-toggle" role="group" aria-label="视图切换">
+                <button
+                  className={viewMode === "list" ? "active" : ""}
+                  aria-pressed={viewMode === "list"}
+                  title="列表视图"
+                  aria-label="列表视图"
+                  onClick={() => switchViewMode("list")}
+                >
+                  <Icon name="tasks" size={15} />
+                </button>
+                <button
+                  className={viewMode === "grid" ? "active" : ""}
+                  aria-pressed={viewMode === "grid"}
+                  title="网格视图"
+                  aria-label="网格视图"
+                  onClick={() => switchViewMode("grid")}
+                >
+                  <Icon name="library" size={15} />
+                </button>
               </div>
-              <span>{visibleEntries.length} / {total} 个项目</span>
+              <div className="segmented-control cloud-density-toggle" role="group" aria-label="显示密度">
+                <button className={density === "comfortable" ? "active" : ""} aria-pressed={density === "comfortable"} onClick={() => setDensity("comfortable")}>舒适</button>
+                <button className={density === "compact" ? "active" : ""} aria-pressed={density === "compact"} onClick={() => setDensity("compact")}>紧凑</button>
+              </div>
+              <div className="cloud-sort-control">
+                <button
+                  className="cloud-sort-button"
+                  aria-haspopup="menu"
+                  aria-expanded={paneMenu !== null && paneMenu.entry === null}
+                  title={`按已加载的 ${entries.length} 项排序`}
+                  onClick={(event) => {
+                    const button = event.currentTarget;
+                    if (paneMenu !== null && paneMenu.entry === null) {
+                      closePaneMenu();
+                      return;
+                    }
+                    const rect = button.getBoundingClientRect();
+                    openPaneMenu(null, rect.right, rect.bottom + 4, button);
+                  }}
+                >
+                  排序：{SORT_FIELD_LABELS[sort.field]} {sort.order === "asc" ? "升序" : "降序"}
+                  <span className="cloud-sort-caret" aria-hidden="true"><Icon name="chevron" size={12} /></span>
+                </button>
+              </div>
+              <span>{loadedCountLabel}</span>
             </div>
             <button
               className="primary-action cloud-upload-action"
@@ -595,58 +1009,219 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
             </div>
           )}
 
-          <div className="file-table" role="table" aria-label="网盘文件">
-            <div className="file-table-head" role="row">
-              <input
-                type="checkbox"
-                className="file-check"
-                aria-label="选择全部可见文件"
-                checked={allVisibleSelected}
-                onChange={toggleAllVisible}
-              />
-              <span role="columnheader">名称</span><span role="columnheader">类型</span><span role="columnheader">大小</span><span role="columnheader">修改时间</span><span aria-hidden="true" />
-            </div>
-            {loading ? <FileRowsSkeleton /> : visibleEntries.length > 0 ? visibleEntries.map((entry) => (
-              <div className={`file-row${selectedIds.has(entry.id) ? " selected" : ""}`} role="row" key={entry.id}>
+          {viewMode === "list" ? (
+            <div className="file-table" role="table" aria-label="网盘文件" onClick={handleContainerBlankClick}>
+              <div className="file-table-head" role="row">
                 <input
                   type="checkbox"
                   className="file-check"
-                  aria-label={`选择 ${entry.name}`}
-                  checked={selectedIds.has(entry.id)}
-                  onChange={() => toggleSelected(entry.id)}
+                  aria-label="选择全部可见文件"
+                  checked={allVisibleSelected}
+                  onChange={toggleAllVisible}
                 />
-                <button className="file-name" onClick={() => openFolder(entry)} aria-disabled={entry.kind !== "folder"}>
-                  <FileThumbnail
-                    kind={getFilePresentation(entry).kind}
-                    src={entry.kind === "folder" ? null : entry.thumbUrl}
-                    size={32}
-                  />
-                  <span><strong title={entry.name}>{entry.name}</strong>{entry.children !== null && <small>{entry.children} 个项目</small>}</span>
+                <button
+                  role="columnheader"
+                  className={`file-sort-header${sort.field === "name" ? " active" : ""}`}
+                  aria-sort={sort.field === "name" ? (sort.order === "asc" ? "ascending" : "descending") : "none"}
+                  onClick={() => toggleSortField("name")}
+                >
+                  名称{sort.field === "name" && <span className="file-sort-arrow" data-order={sort.order} aria-hidden="true"><Icon name="chevron" size={12} /></span>}
                 </button>
-                <span className="file-kind-label">{getFilePresentation(entry).label}</span>
-                <span className="file-size">{formatBytes(entry.sizeBytes)}</span>
-                <time>{formatModifiedAt(entry.modifiedAt)}</time>
-                <div className="file-row-actions">
-                  {entry.kind === "video" && <button className="file-play" disabled={playingId === entry.id} onClick={() => void playEntry(entry)}><Icon name="play" size={14} />{playingId === entry.id ? "解析中" : "播放"}</button>}
-                  {entry.kind === "folder" && <button className="file-open" onClick={() => openFolder(entry)} aria-label={`打开${entry.name}`}><Icon name="chevron" size={16} /></button>}
-                  <button className="file-more" aria-label={`${entry.name}的更多操作`} aria-expanded={actionEntry?.id === entry.id} onClick={() => setActionEntry((current) => current?.id === entry.id ? null : entry)}><Icon name="more" size={16} /></button>
-                  {actionEntry?.id === entry.id && (
-                    <div className="file-action-menu">
-                      <button disabled={busyAction} onClick={() => void favoriteEntry(entry)}><Icon name="star" size={14} />收藏</button>
-                      {entry.kind === "video" && <button disabled={busyAction} onClick={() => void scrapeMediaInfo(entry)}><Icon name="play" size={14} />媒体信息</button>}
-                      <button disabled={busyAction} onClick={() => { setRenameEntry(entry); setRenameValue(entry.name); setActionEntry(null); }}><Icon name="edit" size={14} />重命名</button>
-                      {entry.kind !== "folder" && <button disabled={busyAction} onClick={() => void downloadEntry(entry)}><Icon name="download" size={14} />下载</button>}
-                      <button className="danger" disabled={busyAction} onClick={() => { setDeleteTargets([entry]); setActionEntry(null); }}><Icon name="trash" size={14} />删除</button>
-                    </div>
-                  )}
-                </div>
+                <span role="columnheader">类型</span>
+                <button
+                  role="columnheader"
+                  className={`file-sort-header${sort.field === "size" ? " active" : ""}`}
+                  aria-sort={sort.field === "size" ? (sort.order === "asc" ? "ascending" : "descending") : "none"}
+                  onClick={() => toggleSortField("size")}
+                >
+                  大小{sort.field === "size" && <span className="file-sort-arrow" data-order={sort.order} aria-hidden="true"><Icon name="chevron" size={12} /></span>}
+                </button>
+                <button
+                  role="columnheader"
+                  className={`file-sort-header${sort.field === "modifiedAt" ? " active" : ""}`}
+                  aria-sort={sort.field === "modifiedAt" ? (sort.order === "asc" ? "ascending" : "descending") : "none"}
+                  onClick={() => toggleSortField("modifiedAt")}
+                >
+                  修改时间{sort.field === "modifiedAt" && <span className="file-sort-arrow" data-order={sort.order} aria-hidden="true"><Icon name="chevron" size={12} /></span>}
+                </button>
+                <span aria-hidden="true" />
               </div>
-            )) : (
-              <div className="file-empty"><Icon name="search" size={22} /><strong>当前目录没有匹配文件</strong><span>清除搜索词或切换文件类型后再试。</span></div>
-            )}
-          </div>
-          {hasMore && <button className="cloud-load-more" disabled={loadingMore} onClick={() => void loadMore()}>{loadingMore ? "正在加载…" : "加载更多"}</button>}
-        
+              {loading ? <FileRowsSkeleton /> : visibleEntries.length > 0 ? visibleEntries.map((entry, index) => {
+                const presentation = getFilePresentation(entry);
+                const longName = entry.kind === "folder" ? null : splitLongName(entry.name);
+                const selected = selectedIds.has(entry.id);
+                return (
+                  <div
+                    className={`file-row${selected ? " selected" : ""}`}
+                    role="row"
+                    aria-selected={selected}
+                    key={entry.id}
+                    data-entry-id={entry.id}
+                    tabIndex={activeRowId === entry.id || (activeRowId === null && index === 0) ? 0 : -1}
+                    onClick={(event) => handleRowPointerSelect(entry, event)}
+                    onDoubleClick={(event) => openEntryPrimary(entry, event.currentTarget)}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      openPaneMenu(entry, event.clientX, event.clientY, event.currentTarget);
+                    }}
+                    onKeyDown={(event) => handleRowKeyDown(entry, event)}
+                    onFocus={(event) => {
+                      if (event.target === event.currentTarget) setActiveRowId(entry.id);
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      className="file-check"
+                      aria-label={`选择 ${entry.name}`}
+                      checked={selected}
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={() => toggleSelectWithAnchor(entry)}
+                    />
+                    <button
+                      className="file-name"
+                      aria-disabled={entry.kind !== "folder" && entry.kind !== "video"}
+                      title={entry.kind === "folder" ? "打开文件夹" : entry.kind === "video" ? "播放视频" : undefined}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (entry.kind !== "folder" && entry.kind !== "video") return;
+                        selectOnly(entry);
+                        const row = event.currentTarget.closest<HTMLElement>("[data-entry-id]");
+                        openEntryPrimary(entry, row);
+                      }}
+                    >
+                      <FileThumbnail
+                        kind={presentation.kind}
+                        src={entry.kind === "folder" ? null : entry.thumbUrl}
+                        size={thumbSize}
+                      />
+                      <span>
+                        {longName ? (
+                          <strong className="file-name-split" title={entry.name}>
+                            <span className="file-name-head">{longName.head}</span>
+                            {longName.tail && <span className="file-name-tail">{longName.tail}</span>}
+                          </strong>
+                        ) : (
+                          <strong title={entry.name}>{entry.name}</strong>
+                        )}
+                        {entry.children !== null && <small>{entry.children} 个项目</small>}
+                      </span>
+                    </button>
+                    <span className="file-kind-label">{presentation.label}</span>
+                    <span className="file-size">{formatBytes(entry.sizeBytes)}</span>
+                    <time>{formatModifiedAt(entry.modifiedAt)}</time>
+                    <div className="file-row-actions">
+                      {entry.kind === "video" && <button className="file-play" disabled={playingId === entry.id} onClick={(event) => { event.stopPropagation(); void playEntry(entry); }}><Icon name="play" size={14} />{playingId === entry.id ? "解析中" : "播放"}</button>}
+                      {entry.kind === "folder" && <button className="file-open" onClick={(event) => { event.stopPropagation(); openFolder(entry); }} aria-label={`打开${entry.name}`}><Icon name="chevron" size={16} /></button>}
+                      <button
+                        className="file-more"
+                        aria-label={`${entry.name}的更多操作`}
+                        aria-haspopup="menu"
+                        aria-expanded={paneMenu?.entry?.id === entry.id}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggleRowMenu(entry, event.currentTarget);
+                        }}
+                      >
+                        <Icon name="more" size={16} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              }) : emptyKind && (
+                <FileEmptyState
+                  kind={emptyKind}
+                  errorText={error}
+                  hasQuery={query.trim() !== ""}
+                  hasFilter={filter !== "all"}
+                  onClearQuery={() => onQueryChange("")}
+                  onClearFilter={() => setFilter("all")}
+                  onRetry={() => {
+                    setError(null);
+                    setReloadNonce((nonce) => nonce + 1);
+                  }}
+                />
+              )}
+            </div>
+          ) : (
+            <div className="file-grid" role="listbox" aria-multiselectable="true" aria-label="网盘文件网格" onClick={handleContainerBlankClick}>
+              {loading ? <FileGridSkeleton compact={density === "compact"} /> : visibleEntries.length > 0 ? visibleEntries.map((entry, index) => {
+                const presentation = getFilePresentation(entry);
+                const selected = selectedIds.has(entry.id);
+                return (
+                  <div
+                    key={entry.id}
+                    role="option"
+                    aria-selected={selected}
+                    className={`file-grid-card${selected ? " selected" : ""}`}
+                    data-entry-id={entry.id}
+                    tabIndex={activeRowId === entry.id || (activeRowId === null && index === 0) ? 0 : -1}
+                    onClick={(event) => handleRowPointerSelect(entry, event)}
+                    onDoubleClick={(event) => openEntryPrimary(entry, event.currentTarget)}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      openPaneMenu(entry, event.clientX, event.clientY, event.currentTarget);
+                    }}
+                    onKeyDown={(event) => handleRowKeyDown(entry, event)}
+                    onFocus={(event) => {
+                      if (event.target === event.currentTarget) setActiveRowId(entry.id);
+                    }}
+                  >
+                    <span className="file-grid-thumb">
+                      <FileThumbnail
+                        kind={presentation.kind}
+                        src={entry.kind === "folder" ? null : entry.thumbUrl}
+                        size={gridThumbSize}
+                      />
+                      {entry.kind === "video" && <span className="file-grid-badge" aria-hidden="true"><Icon name="play" size={12} /></span>}
+                    </span>
+                    <input
+                      type="checkbox"
+                      className="file-check file-grid-check"
+                      aria-label={`选择 ${entry.name}`}
+                      checked={selected}
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={() => toggleSelectWithAnchor(entry)}
+                    />
+                    <span className="file-grid-name" title={entry.name}>{entry.name}</span>
+                    <span className="file-grid-meta">
+                      {entry.kind === "folder"
+                        ? `${presentation.label}${entry.children !== null ? ` · ${entry.children} 个项目` : ""}`
+                        : `${presentation.label} · ${formatBytes(entry.sizeBytes)}`}
+                    </span>
+                    <div className="file-grid-actions">
+                      <button
+                        className="file-more"
+                        aria-label={`${entry.name}的更多操作`}
+                        aria-haspopup="menu"
+                        aria-expanded={paneMenu?.entry?.id === entry.id}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggleRowMenu(entry, event.currentTarget);
+                        }}
+                      >
+                        <Icon name="more" size={15} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              }) : emptyKind && (
+                <FileEmptyState
+                  kind={emptyKind}
+                  errorText={error}
+                  hasQuery={query.trim() !== ""}
+                  hasFilter={filter !== "all"}
+                  onClearQuery={() => onQueryChange("")}
+                  onClearFilter={() => setFilter("all")}
+                  onRetry={() => {
+                    setError(null);
+                    setReloadNonce((nonce) => nonce + 1);
+                  }}
+                />
+              )}
+            </div>
+          )}
+          {hasMore && viewMode === "list" && <button className="cloud-load-more" disabled={loadingMore} onClick={() => void loadMore()}>{loadingMore ? "正在加载…" : "加载更多"}</button>}
+
       </div>
 
       <div className="cloud-status-strip">
@@ -655,13 +1230,24 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
         <button onClick={onRequireLogin}>管理账号</button>
       </div>
 
+      {paneMenu && (
+        <FileContextMenu
+          x={paneMenu.x}
+          y={paneMenu.y}
+          items={paneMenu.entry ? buildFileMenuItems(paneMenu.entry) : buildSortMenuItems()}
+          note={paneMenu.entry ? undefined : `仅对已加载的 ${entries.length} 项生效`}
+          label={paneMenu.entry ? `${paneMenu.entry.name}的操作菜单` : "排序方式"}
+          onClose={closePaneMenu}
+        />
+      )}
+
       {renameEntry && <div className="cloud-operation-backdrop" onPointerDown={(event) => event.target === event.currentTarget && !busyAction && setRenameEntry(null)}><form className="cloud-operation-dialog" onSubmit={(event) => { event.preventDefault(); void submitRename(); }}><strong>重命名</strong><span>为“{renameEntry.name}”输入新名称</span><input autoFocus value={renameValue} onChange={(event) => setRenameValue(event.currentTarget.value)} /><div><button type="button" className="secondary-action" disabled={busyAction} onClick={() => setRenameEntry(null)}>取消</button><button type="submit" className="primary-action" disabled={busyAction || !renameValue.trim()}>保存</button></div></form></div>}
       {deleteTargets.length > 0 && <div className="cloud-operation-backdrop" onPointerDown={(event) => event.target === event.currentTarget && !busyAction && setDeleteTargets([])}><section className="cloud-operation-dialog"><strong>{deleteTargets.length === 1 ? "移入回收站？" : `移入回收站 ${deleteTargets.length} 项？`}</strong><span>{describeTargets(deleteTargets)}将从当前目录移除，可稍后在回收站恢复。</span><div><button className="secondary-action" disabled={busyAction} onClick={() => setDeleteTargets([])}>取消</button><button className="danger-action" disabled={busyAction} onClick={() => void confirmDelete()}>{busyAction ? "正在删除" : "删除"}</button></div></section></div>}
       {picker && (
         <div className="cloud-operation-backdrop" onPointerDown={(event) => event.target === event.currentTarget && !busyAction && setPicker(null)}>
           <section className="cloud-operation-dialog picker-dialog">
             <strong>{picker.mode === "move" ? "移动到…" : "复制到…"}</strong>
-            <span>已选 {selectedIds.size} 项；目标文件夹由 115 校验同名冲突。</span>
+            <span>已选 {picker.ids.length} 项；目标文件夹由 115 校验同名冲突。</span>
             <nav className="file-breadcrumbs picker-breadcrumbs" aria-label="目标路径">
               {picker.path.map((item, index) => (
                 <span key={item.id}>
@@ -693,4 +1279,65 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
 /** 与真实列表行同尺寸的骨架，避免目录切换时页面跳动。 */
 function FileRowsSkeleton() {
   return <div className="cloud-file-skeleton" aria-label="正在读取文件">{Array.from({ length: 5 }, (_, index) => <span key={index} />)}</div>;
+}
+
+/** 网格视图的骨架：与卡片同形的占位块，切换视图时不跳动。 */
+function FileGridSkeleton({ compact }: { compact: boolean }) {
+  return (
+    <div className="file-grid cloud-file-grid-skeleton" aria-label="正在读取文件">
+      {Array.from({ length: compact ? 10 : 8 }, (_, index) => (
+        <span key={index} className="file-grid-skeleton-card" data-compact={compact ? "true" : undefined} />
+      ))}
+    </div>
+  );
+}
+
+/** 文件区空状态：读取失败 / 搜索或筛选无结果 / 目录为空 / 回收站为空，各配下一步动作。 */
+function FileEmptyState({
+  kind,
+  errorText,
+  hasQuery,
+  hasFilter,
+  onClearQuery,
+  onClearFilter,
+  onRetry,
+}: {
+  kind: FileEmptyKind;
+  errorText: string | null;
+  hasQuery: boolean;
+  hasFilter: boolean;
+  onClearQuery: () => void;
+  onClearFilter: () => void;
+  onRetry: () => void;
+}) {
+  if (kind === "load-error") {
+    return (
+      <div className="file-empty" role="status">
+        <Icon name="alert" size={22} />
+        <strong>文件列表读取失败</strong>
+        <span>{errorText ? `刚才的尝试没有成功：${errorText}` : "刚才的尝试没有成功，可以重试。"}</span>
+        <button className="secondary-action file-empty-action" onClick={onRetry}>重试</button>
+      </div>
+    );
+  }
+  if (kind === "no-results") {
+    return (
+      <div className="file-empty" role="status">
+        <Icon name="search" size={22} />
+        <strong>没有匹配的项目</strong>
+        <span>{hasQuery ? "当前目录中没有与搜索词匹配的文件" : "当前类型筛选下没有可显示的文件"}；排序只作用于已加载的条目。</span>
+        <div className="file-empty-actions">
+          {hasQuery && <button className="secondary-action file-empty-action" onClick={onClearQuery}>清除搜索</button>}
+          {hasFilter && <button className="secondary-action file-empty-action" onClick={onClearFilter}>清除类型筛选</button>}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="file-empty" role="status">
+      <Icon name="folder" size={22} />
+      <strong>此目录为空</strong>
+      <span>当前文件夹还没有加载到任何文件；可以用上传或新建文件夹充实它。</span>
+    </div>
+  );
 }
