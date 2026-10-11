@@ -20,7 +20,7 @@
 .app-content .section-heading h2,
 .app-content .continue-heading h2 {
   margin: 0;
-  color: #262b36;
+  color: var(--fg);
   font-size: 19px;
   font-weight: 600;
   letter-spacing: 0;
@@ -29,7 +29,7 @@
 
 .app-content .context-label {
   padding-left: 0;
-  color: #8b94a3;
+  color: var(--muted);
   font-family: inherit;
   font-size: 12px;
   letter-spacing: 0;
@@ -50,41 +50,41 @@
   height: 36px;
   gap: 7px;
   padding: 0 16px;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   font-size: 13px;
   font-weight: 500;
   white-space: nowrap;
   box-shadow: none;
-  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+  transition: background var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
 }
 
 .app-content .primary-action {
   border: 1px solid var(--primary);
   background: var(--primary);
-  color: #fff;
+  color:var(--on-primary);
 }
 
 .app-content .primary-action:hover:not(:disabled) {
-  border-color: #4a59d9;
-  background: #4a59d9;
+  border-color: var(--primary-hover);
+  background: var(--primary-hover);
   box-shadow: 0 2px 6px rgb(73 88 217 / 12%);
 }
 
 .app-content .secondary-action {
-  border: 1px solid #e3e7ee;
-  background: #fff;
-  color: #535c6d;
+  border: 1px solid var(--hairline-strong);
+  background: var(--surface);
+  color: var(--fg);
 }
 
 .app-content .secondary-action:hover:not(:disabled) {
-  border-color: #d3d9e7;
-  background: #f7f9fc;
-  color: #333c4e;
+  border-color: var(--hairline-strong);
+  background: var(--surface-sunken);
+  color: var(--fg);
 }
 
 .app-content .danger-action {
-  border: 1px solid #cf5361;
-  background: #cf5361;
+  border: 1px solid var(--danger);
+  background: var(--danger);
 }
 
 .app-content .primary-action:active,
@@ -98,21 +98,21 @@
   gap: 3px;
   padding: 3px;
   border-radius: 8px;
-  background: #f4f6fa;
+  background: var(--surface-sunken);
 }
 
 .app-content .segmented-control button {
   height: 30px;
   padding: 0 13px;
   border-radius: 6px;
-  color: #7d8595;
+  color: var(--muted);
   font-size: 12px;
 }
 
 .app-content .segmented-control button.active {
-  background: #fff;
-  color: var(--primary);
-  box-shadow: 0 1px 3px rgb(39 53 89 / 7%);
+  background: var(--surface);
+  color: var(--primary-ink);
+  box-shadow: var(--shadow-1);
 }
 
 /* File toolbar, breadcrumb, and table share one uninterrupted white canvas. */
@@ -147,18 +147,18 @@
 .file-search {
   grid-template-columns: 16px minmax(120px, 236px);
   height: 36px;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 0 12px;
   border-color: transparent;
-  border-radius: 7px;
-  background: #f5f7fa;
-  color: #9ca4b3;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  color: var(--muted);
 }
 
 .file-search:focus-within {
-  border-color: #c9d0f8;
-  background: #fff;
-  box-shadow: 0 0 0 3px rgb(89 105 237 / 7%);
+  border-color: var(--primary-ink);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px var(--primary-tint);
 }
 
 .file-search input {
@@ -166,7 +166,7 @@
 }
 
 .file-search input::placeholder {
-  color: #9da5b3;
+  color: var(--muted);
 }
 
 .file-filter-row {
@@ -178,18 +178,18 @@
 .file-breadcrumbs {
   flex: 1;
   flex-wrap: wrap;
-  row-gap: 4px;
+  row-gap: var(--space-1);
 }
 
 .file-breadcrumbs > span {
-  color: #b2b8c4;
+  color: var(--muted);
 }
 
 .file-breadcrumbs button {
   max-width: 200px;
   padding: 4px 7px;
   border-radius: 5px;
-  color: #8c94a4;
+  color: var(--muted);
   font-size: 13px;
 }
 
@@ -198,12 +198,12 @@
 }
 
 .file-breadcrumbs button.active {
-  color: #323a48;
+  color: var(--fg);
   font-weight: 500;
 }
 
 .file-breadcrumbs button:hover {
-  color: var(--primary);
+  color: var(--primary-ink);
 }
 
 .cloud-filter-options {
@@ -214,7 +214,7 @@
 }
 
 .cloud-filter-options > span {
-  color: #969ead;
+  color: var(--muted);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
@@ -232,8 +232,8 @@
 }
 
 .file-filter-row .segmented-control button.active {
-  background: #eef0ff;
-  color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary-ink);
   box-shadow: none;
 }
 
@@ -253,9 +253,9 @@
 .file-table-head {
   min-height: 38px;
   border-bottom: 0;
-  border-radius: 7px;
-  background: #f7f9fc;
-  color: #8c95a5;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  color: var(--muted);
   font-size: 12px;
   font-weight: 400;
   letter-spacing: 0;
@@ -270,7 +270,7 @@
   min-height: 50px;
   padding-top: 7px;
   padding-bottom: 7px;
-  border-bottom: 1px solid #f1f3f7;
+  border-bottom: 1px solid var(--hairline);
   animation: none;
 }
 
@@ -279,16 +279,16 @@
 }
 
 .file-row:hover {
-  background: #f7f9ff;
+  background: var(--surface-hover);
 }
 
 .file-row.selected,
 .file-row.selected:hover {
-  background: #f0f3ff;
+  background: var(--primary-soft);
 }
 
 .file-name {
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .file-name > span:last-child {
@@ -298,7 +298,7 @@
 }
 
 .file-name strong {
-  color: #404858;
+  color: var(--fg);
   font-size: 13px;
   font-weight: 400;
   line-height: 1.5;
@@ -306,14 +306,14 @@
 
 .file-name small {
   flex: 0 0 auto;
-  color: #a3aaba;
+  color: var(--muted);
   font-size: 11px;
 }
 
 .file-kind-label,
 .file-size,
 .file-row time {
-  color: #98a0af;
+  color: var(--muted);
   font-family: inherit;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
@@ -321,7 +321,7 @@
 
 .file-row-actions {
   opacity: 0;
-  transition: opacity 120ms ease;
+  transition: opacity var(--duration-fast) var(--ease-standard);
 }
 
 .file-row:hover .file-row-actions,
@@ -336,8 +336,8 @@
   gap: 3px;
   padding: 0 6px;
   border-color: transparent;
-  background: #eef0ff;
-  color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary-ink);
   font-weight: 400;
   white-space: nowrap;
 }
@@ -347,22 +347,22 @@
   flex: 0 0 28px;
   width: 28px;
   height: 28px;
-  color: #a3aabb;
+  color: var(--muted);
 }
 
 .file-more:hover,
 .file-more[aria-expanded="true"],
 .file-open:hover {
-  background: #eaf0fb;
-  color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary-ink);
 }
 
 .file-action-menu {
   top: 31px;
   width: 148px;
-  border-color: #e9edf4;
-  border-radius: 9px;
-  box-shadow: 0 6px 24px rgb(47 63 102 / 12%);
+  border-color: var(--frosted-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-2);
   z-index: 4;
 }
 
@@ -374,15 +374,15 @@
 .albums-actions {
   min-height: 40px;
   padding: 6px 12px;
-  border-color: #e0e5fc;
-  border-radius: 7px;
-  background: #f3f5ff;
+  border-color: var(--frosted-border);
+  border-radius: var(--radius-sm);
+  background: var(--primary-soft);
   animation: none;
 }
 
 .file-batch-bar > span,
 .albums-actions > span {
-  color: #6774ce;
+  color: var(--primary-ink);
   font-size: 12px;
   font-weight: 500;
 }
@@ -391,7 +391,7 @@
 .albums-actions button {
   height: 28px;
   padding: 0 11px;
-  border-color: #e0e5f2;
+  border-color: var(--hairline-strong);
   border-radius: 6px;
 }
 
@@ -401,8 +401,8 @@
   gap: 18px;
   margin-top: 22px;
   padding: 12px 0 0;
-  border-top: 1px solid #f0f2f6;
-  color: #a1a8b5;
+  border-top: 1px solid var(--hairline);
+  color: var(--muted);
 }
 
 .cloud-status-strip > span {
@@ -412,25 +412,25 @@
 .cloud-status-strip > span i {
   width: 5px;
   height: 5px;
-  background: #72c8aa;
+  background: var(--status-ready);
   box-shadow: none;
 }
 
 .cloud-status-strip button {
   margin-left: auto;
-  color: #929baa;
+  color: var(--muted);
   font-size: 11px;
 }
 
 .cloud-file-skeleton span {
   height: 50px;
-  border-color: #f1f3f7;
+  border-color: var(--hairline);
 }
 
 .upload-resume-bar {
-  border-color: #eee6d5;
-  border-radius: 7px;
-  background: #fffcf5;
+  border-color: color-mix(in srgb, var(--warn) 24%, var(--surface));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warn) 6%, var(--surface));
   animation: none;
 }
 
@@ -438,15 +438,15 @@
 .app-content .settings-group {
   margin-bottom: 22px;
   padding: 0 20px;
-  border: 1px solid #eaedf4;
-  border-radius: 9px;
-  background: #fff;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
 }
 
 .app-content .settings-group h2 {
   margin: 0;
   padding: 18px 0 10px;
-  color: #333c4c;
+  color: var(--fg);
   font-size: 15px;
   font-weight: 600;
   letter-spacing: 0;
@@ -455,7 +455,7 @@
 .app-content .setting-row {
   min-height: 70px;
   padding: 15px 0;
-  border-color: #f0f2f6;
+  border-color: var(--hairline);
 }
 
 .app-content .setting-row:last-child {
@@ -467,14 +467,14 @@
 }
 
 .app-content .setting-row strong {
-  color: #4d5667;
+  color: var(--fg);
   font-size: 13px;
   font-weight: 500;
 }
 
 .app-content .setting-row p {
   margin-top: 5px;
-  color: #98a0af;
+  color: var(--muted);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -483,30 +483,30 @@
 .comics-toolbar select,
 .app-content .ai-text-input {
   height: 36px;
-  border-color: #e3e7ef;
-  border-radius: 7px;
-  background: #fff;
-  color: #5a6373;
+  border-color: var(--hairline-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg);
   font-size: 12px;
 }
 
 .app-content .setting-value {
-  color: #929aaa;
+  color: var(--muted);
 }
 
 .ai-privacy-note {
   margin-bottom: 20px;
   padding: 13px 16px;
   border-radius: 8px;
-  background: #f6f8fc;
-  color: #8a93a4;
+  background: var(--surface-sunken);
+  color: var(--muted);
   font-size: 12px;
   line-height: 1.8;
 }
 
 .ai-plan-summary {
   padding: 8px 0 16px;
-  color: #828c9e;
+  color: var(--muted);
   font-size: 12px;
   line-height: 1.7;
 }
@@ -514,7 +514,7 @@
 .ai-plan-item {
   min-height: 62px;
   padding: 12px 8px;
-  border-color: #f0f2f7;
+  border-color: var(--hairline);
 }
 
 .ai-plan-item::before {
@@ -523,11 +523,11 @@
 
 .ai-plan-item:hover,
 .ai-plan-item.selected {
-  background: #f7f9ff;
+  background: var(--surface-hover);
 }
 
 .ai-plan-item p {
-  color: #939bad;
+  color: var(--muted);
   white-space: normal;
 }
 
@@ -553,7 +553,7 @@
 .comics-toolbar {
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .comics-toolbar select {
@@ -562,8 +562,8 @@
 
 .comics-stats {
   padding: 10px 0 16px;
-  border-bottom: 1px solid #edf0f6;
-  color: #919aaa;
+  border-bottom: 1px solid var(--hairline);
+  color: var(--muted);
   font-size: 12px;
   letter-spacing: 0;
 }
@@ -576,10 +576,10 @@
 
 .comics-card,
 .albums-card {
-  border-color: #e9edf4;
-  border-radius: 9px;
+  border-color: var(--hairline-strong);
+  border-radius: var(--radius-md);
   box-shadow: none;
-  transition: border-color 150ms ease, background 150ms ease;
+  transition: border-color var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard);
 }
 
 .comics-card:hover,
@@ -587,8 +587,8 @@
 .albums-card:hover,
 .albums-card.selected {
   transform: none;
-  border-color: #cfd6f4;
-  box-shadow: 0 3px 10px rgb(55 71 112 / 4%);
+  border-color: var(--hairline-strong);
+  box-shadow: var(--shadow-1);
 }
 
 .comics-card-head {
@@ -597,12 +597,12 @@
 }
 
 .comics-card-head:hover {
-  background: #fafbfe;
+  background: var(--surface-hover);
 }
 
 .comics-card-head strong,
 .albums-card strong {
-  color: #4b5567;
+  color: var(--fg);
   font-size: 13px;
   font-weight: 500;
 }
@@ -611,7 +611,7 @@
   width: 7px;
   height: 42px;
   border-radius: 3px;
-  background: #b8ccf1;
+  background: var(--primary-lift);
 }
 
 .comics-cover {
@@ -625,14 +625,14 @@
 .comics-volumes li {
   min-height: 39px;
   align-items: center;
-  border-color: #f0f2f7;
-  color: #758094;
+  border-color: var(--hairline);
+  color: var(--muted);
 }
 
 .comics-volume-actions button {
-  border-color: #e3e7fa;
-  background: #f6f7ff;
-  color: var(--primary);
+  border-color: var(--hairline-strong);
+  background: var(--primary-soft);
+  color: var(--primary-ink);
 }
 
 .albums-toolbar {
@@ -640,7 +640,7 @@
 }
 
 .albums-stats {
-  color: #969eac;
+  color: var(--muted);
 }
 
 .albums-timeline {
@@ -649,14 +649,14 @@
 
 .albums-month-head {
   padding: 10px 12px;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   border-bottom: 0;
-  background: #f7f9fc;
+  background: var(--surface-sunken);
 }
 
 .albums-month-head h3 {
   margin: 0;
-  color: #637087;
+  color: var(--muted);
   font-size: 13px;
   font-weight: 500;
 }
@@ -664,16 +664,16 @@
 .albums-photo-list li {
   min-height: 54px;
   padding: 0 12px;
-  border-color: #f1f3f7;
+  border-color: var(--hairline);
 }
 
 .albums-photo-row {
   min-height: 54px;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .albums-photo-row:hover {
-  background: #f7f9ff;
+  background: var(--surface-hover);
 }
 
 .albums-photo-name {
@@ -688,8 +688,8 @@
 }
 
 .albums-photo-icon {
-  background: #f0f4ff;
-  color: #97aee0;
+  background: var(--primary-soft);
+  color: var(--primary-ink);
 }
 
 .albums-grid {
@@ -709,37 +709,37 @@
 }
 
 .albums-cover-fallback {
-  background: #f1f5fc;
-  color: #a7bee0;
+  background: var(--surface-sunken);
+  color: var(--primary-ink);
 }
 
 .app-content .empty-state {
   min-height: 330px;
-  color: #bec8da;
+  color: var(--muted);
 }
 
 .app-content .empty-state h2 {
-  color: #747f93;
+  color: var(--muted);
   font-size: 15px;
   font-weight: 500;
 }
 
 .app-content .empty-state p {
   max-width: 60ch;
-  color: #a0a8b8;
+  color: var(--muted);
   line-height: 1.8;
 }
 
 .cloud-operation-backdrop {
-  background: rgb(38 48 69 / 20%);
-  backdrop-filter: blur(3px);
+  background: var(--scrim-bg);
+  backdrop-filter: var(--scrim-blur);
 }
 
 .cloud-operation-dialog {
   max-width: calc(100vw - 40px);
-  border-color: #edf0f7;
+  border-color: var(--frosted-border);
   border-radius: 10px;
-  box-shadow: 0 16px 54px rgb(35 46 80 / 16%);
+  box-shadow: var(--shadow-3);
   animation: none;
 }
 
@@ -812,5 +812,41 @@
   .settings-group * {
     animation: none;
     transition: none;
+  }
+}
+
+/* ============================================================================
+   玻璃回退：prefers-reduced-transparency 时固定层退实底、停用 blur。
+   置于级联末尾以覆盖三份文件中的玻璃成员；内容层本就无 backdrop-filter。
+   ========================================================================== */
+@media (prefers-reduced-transparency: reduce) {
+  .glass-panel,
+  .topbar.shell-topbar,
+  .app-sidebar,
+  .detail-sticky-header,
+  .cloud-account-modal,
+  .cloud-operation-dialog,
+  .now-playing,
+  .file-action-menu,
+  .cloud-app-picker {
+    background: var(--surface-elevated);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  /* 批量操作栏本就使用实底主色软底，仅停用 blur */
+  .file-batch-bar,
+  .albums-actions {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .cloud-account-backdrop,
+  .cloud-operation-backdrop,
+  .continue-play svg,
+  .collection-badge,
+  .episode-still > span svg {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 }
