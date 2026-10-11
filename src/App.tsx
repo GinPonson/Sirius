@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
+import "./Shell.css";
+import "./Workbench.css";
 import posterFallback from "./assets/brand/poster-fallback.svg";
 import arrivalStill from "./assets/watch-stills/arrival-desert.jpg";
 import perfectDaysStill from "./assets/watch-stills/perfect-days-street.jpg";
@@ -95,10 +97,24 @@ function App() {
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   const lastProgressSaveAt = useRef(0);
+  const mediaSearchRef = useRef<HTMLInputElement>(null);
+  const mediaSearchVisible = !selectedMedia && (section === "home" || section === "library" || section === "discover");
   // 首次确认账号状态时决定默认分区；用户一旦手动导航便不再自动跳转。
   const defaultSectionResolved = useRef(false);
   // 记录最近一次由播放快照设置的错误，恢复成功后只清除该条，不误伤其他错误横幅。
   const lastPlaybackError = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!mediaSearchVisible) return;
+    function focusMediaSearch(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k" && mediaSearchRef.current) {
+        event.preventDefault();
+        mediaSearchRef.current.focus();
+      }
+    }
+    window.addEventListener("keydown", focusMediaSearch);
+    return () => window.removeEventListener("keydown", focusMediaSearch);
+  }, [mediaSearchVisible]);
 
   useEffect(() => {
     let active = true;
@@ -433,23 +449,76 @@ function App() {
     return <LoginGate onAccountChange={updateCloudAccount} />;
   }
 
+  const storageUsage = cloudProfile
+    && Number.isFinite(cloudProfile.totalBytes)
+    && cloudProfile.totalBytes > 0
+    && Number.isFinite(cloudProfile.usedBytes)
+    && cloudProfile.usedBytes >= 0
+    ? Math.min(100, (cloudProfile.usedBytes / cloudProfile.totalBytes) * 100)
+    : null;
+  const accountName = cloudProfile?.userName || cloudAccount.userName || "115 用户";
+
   return (
     <div className="app-frame">
       <Sidebar
         active={section}
         taskCount={attentionTaskCount}
-        query={query}
-        onQueryChange={setQuery}
-        cloudAccount={cloudAccount}
-        cloudProfile={cloudProfile}
-        onAccountClick={() => setShowCloudAccount(true)}
         onNavigate={navigateFromSidebar}
       />
 
       <main className="app-content">
-        {!selectedMedia && <header className="topbar">
-          <h1>{sectionTitle(section)}</h1>
-        </header>}
+        <header className="topbar shell-topbar" data-tauri-drag-region>
+          <div className="shell-heading" data-tauri-drag-region>
+            <span className="shell-app-name" data-tauri-drag-region>Sirius</span>
+            <span className="shell-title-divider" aria-hidden="true" />
+            <h1 data-tauri-drag-region>{selectedMedia ? selectedMedia.title : sectionTitle(section)}</h1>
+          </div>
+
+          {mediaSearchVisible && (
+            <div className="shell-media-search" role="search" aria-label="搜索媒体库">
+              <Icon name="search" size={16} />
+              <input
+                ref={mediaSearchRef}
+                value={query}
+                placeholder="搜索媒体库中的影片"
+                aria-label="搜索媒体库中的影片"
+                aria-keyshortcuts="Meta+K Control+K"
+                onChange={(event) => setQuery(event.currentTarget.value)}
+              />
+              {query ? (
+                <button type="button" aria-label="清除影片搜索" onClick={() => setQuery("")}>
+                  <Icon name="close" size={14} />
+                </button>
+              ) : <kbd aria-hidden="true">⌘ K</kbd>}
+            </div>
+          )}
+
+          <div className="shell-account-area">
+            {cloudProfile && storageUsage !== null && (
+              <div className="shell-storage" title={`已用 ${cloudProfile.usedFormatted}，总容量 ${cloudProfile.totalFormatted}`}>
+                <span>{cloudProfile.usedFormatted}<span> / {cloudProfile.totalFormatted}</span></span>
+                <div className="shell-storage-meter" role="meter" aria-label="115 网盘空间使用率" aria-valuenow={storageUsage} aria-valuemin={0} aria-valuemax={100}>
+                  <i style={{ width: `${storageUsage}%` }} />
+                </div>
+              </div>
+            )}
+            <button
+              type="button"
+              className="shell-account-button"
+              aria-label={`管理 115 账号：${accountName}`}
+              title="管理 115 账号"
+              onClick={() => setShowCloudAccount(true)}
+            >
+              <span className="shell-account-avatar">
+                {cloudProfile?.avatarUrl ? (
+                  <img src={cloudProfile.avatarUrl} alt="" referrerPolicy="no-referrer" />
+                ) : <Icon name="user" size={17} />}
+              </span>
+              <span className="shell-account-name">{accountName}</span>
+              <Icon name="chevron" size={12} />
+            </button>
+          </div>
+        </header>
 
         {error && (
           <aside className="error-banner" role="alert">

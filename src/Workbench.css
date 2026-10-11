@@ -1,0 +1,847 @@
+/* Compact, shared workspace surfaces for the Quark-inspired desktop shell. */
+.app-content .page-section {
+  max-width: none;
+  animation: none;
+}
+
+.app-content .narrow-section {
+  width: 100%;
+  max-width: 1040px;
+  margin-left: 0;
+}
+
+.app-content .section-heading,
+.app-content .section-toolbar {
+  min-height: 36px;
+  gap: 20px;
+  margin-bottom: 24px;
+}
+
+.app-content .section-heading h2,
+.app-content .continue-heading h2 {
+  margin: 0;
+  color: #262b36;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.5;
+}
+
+.app-content .context-label {
+  padding-left: 0;
+  color: #8b94a3;
+  font-family: inherit;
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.app-content .context-label::before {
+  content: none;
+}
+
+.comics-view .section-heading .context-label,
+.albums-view .section-heading .context-label {
+  display: none;
+}
+
+.app-content .primary-action,
+.app-content .secondary-action,
+.app-content .danger-action {
+  height: 36px;
+  gap: 7px;
+  padding: 0 16px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  box-shadow: none;
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.app-content .primary-action {
+  border: 1px solid var(--primary);
+  background: var(--primary);
+  color: #fff;
+}
+
+.app-content .primary-action:hover:not(:disabled) {
+  border-color: #4a59d9;
+  background: #4a59d9;
+  box-shadow: 0 2px 6px rgb(73 88 217 / 12%);
+}
+
+.app-content .secondary-action {
+  border: 1px solid #e3e7ee;
+  background: #fff;
+  color: #535c6d;
+}
+
+.app-content .secondary-action:hover:not(:disabled) {
+  border-color: #d3d9e7;
+  background: #f7f9fc;
+  color: #333c4e;
+}
+
+.app-content .danger-action {
+  border: 1px solid #cf5361;
+  background: #cf5361;
+}
+
+.app-content .primary-action:active,
+.app-content .secondary-action:active,
+.app-content .danger-action:active,
+.cloud-files-view button:active {
+  transform: none;
+}
+
+.app-content .segmented-control {
+  gap: 3px;
+  padding: 3px;
+  border-radius: 8px;
+  background: #f4f6fa;
+}
+
+.app-content .segmented-control button {
+  height: 30px;
+  padding: 0 13px;
+  border-radius: 6px;
+  color: #7d8595;
+  font-size: 12px;
+}
+
+.app-content .segmented-control button.active {
+  background: #fff;
+  color: var(--primary);
+  box-shadow: 0 1px 3px rgb(39 53 89 / 7%);
+}
+
+/* File toolbar, breadcrumb, and table share one uninterrupted white canvas. */
+.cloud-files-view {
+  display: flex;
+  min-height: calc(100vh - 184px);
+  flex-direction: column;
+  margin-top: 0;
+}
+
+.cloud-file-pane {
+  flex: 1;
+  padding-left: 0;
+}
+
+.cloud-files-toolbar {
+  min-height: 36px;
+  gap: 20px;
+  margin-bottom: 20px;
+  padding: 0;
+}
+
+.cloud-upload-action {
+  min-width: 114px;
+}
+
+.cloud-files-actions {
+  min-width: 0;
+  margin-left: auto;
+}
+
+.file-search {
+  grid-template-columns: 16px minmax(120px, 236px);
+  height: 36px;
+  gap: 8px;
+  padding: 0 12px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: #f5f7fa;
+  color: #9ca4b3;
+}
+
+.file-search:focus-within {
+  border-color: #c9d0f8;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgb(89 105 237 / 7%);
+}
+
+.file-search input {
+  font-size: 12px;
+}
+
+.file-search input::placeholder {
+  color: #9da5b3;
+}
+
+.file-filter-row {
+  min-height: 42px;
+  gap: 20px;
+  padding: 0 0 12px;
+}
+
+.file-breadcrumbs {
+  flex: 1;
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+.file-breadcrumbs > span {
+  color: #b2b8c4;
+}
+
+.file-breadcrumbs button {
+  max-width: 200px;
+  padding: 4px 7px;
+  border-radius: 5px;
+  color: #8c94a4;
+  font-size: 13px;
+}
+
+.file-breadcrumbs > span:first-child button {
+  padding-left: 0;
+}
+
+.file-breadcrumbs button.active {
+  color: #323a48;
+  font-weight: 500;
+}
+
+.file-breadcrumbs button:hover {
+  color: var(--primary);
+}
+
+.cloud-filter-options {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 18px;
+}
+
+.cloud-filter-options > span {
+  color: #969ead;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.file-filter-row .segmented-control {
+  gap: 2px;
+  padding: 0;
+  background: transparent;
+}
+
+.file-filter-row .segmented-control button {
+  height: 28px;
+  padding: 0 10px;
+  font-weight: 400;
+}
+
+.file-filter-row .segmented-control button.active {
+  background: #eef0ff;
+  color: var(--primary);
+  box-shadow: none;
+}
+
+.file-table {
+  overflow: visible;
+  border-top: 0;
+}
+
+.file-table-head,
+.file-row {
+  grid-template-columns: 28px minmax(160px, 1fr) 64px 88px 120px 104px;
+  gap: 10px;
+  padding-right: 12px;
+  padding-left: 12px;
+}
+
+.file-table-head {
+  min-height: 38px;
+  border-bottom: 0;
+  border-radius: 7px;
+  background: #f7f9fc;
+  color: #8c95a5;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.file-check {
+  width: 15px;
+  height: 15px;
+}
+
+.file-row {
+  min-height: 50px;
+  padding-top: 7px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid #f1f3f7;
+  animation: none;
+}
+
+.file-row::before {
+  content: none;
+}
+
+.file-row:hover {
+  background: #f7f9ff;
+}
+
+.file-row.selected,
+.file-row.selected:hover {
+  background: #f0f3ff;
+}
+
+.file-name {
+  gap: 12px;
+}
+
+.file-name > span:last-child {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+
+.file-name strong {
+  color: #404858;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.file-name small {
+  flex: 0 0 auto;
+  color: #a3aaba;
+  font-size: 11px;
+}
+
+.file-kind-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  background: #eef3fa;
+  color: #83a1c5;
+}
+
+.file-kind-icon.folder {
+  background: transparent;
+  color: #7ab6e6;
+}
+
+.file-kind-icon.folder svg {
+  width: 29px;
+  height: 29px;
+  fill: #bfe1fb;
+  stroke: #7fb9e5;
+}
+
+.file-kind-icon.video {
+  background: #eff0ff;
+  color: #8c89d6;
+}
+
+.file-kind-icon.subtitle {
+  background: #eef6ff;
+  color: #7caddb;
+}
+
+.file-kind-icon.file {
+  background: #f2f5f8;
+  color: #94a4b7;
+}
+
+.file-kind-label,
+.file-size,
+.file-row time {
+  color: #98a0af;
+  font-family: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.file-row-actions {
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.file-row:hover .file-row-actions,
+.file-row:focus-within .file-row-actions,
+.file-row-actions:has(.file-action-menu) {
+  opacity: 1;
+}
+
+.file-play {
+  flex-shrink: 0;
+  height: 28px;
+  gap: 3px;
+  padding: 0 6px;
+  border-color: transparent;
+  background: #eef0ff;
+  color: var(--primary);
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.file-open,
+.file-more {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  color: #a3aabb;
+}
+
+.file-more:hover,
+.file-more[aria-expanded="true"],
+.file-open:hover {
+  background: #eaf0fb;
+  color: var(--primary);
+}
+
+.file-action-menu {
+  top: 31px;
+  width: 148px;
+  border-color: #e9edf4;
+  border-radius: 9px;
+  box-shadow: 0 6px 24px rgb(47 63 102 / 12%);
+  z-index: 4;
+}
+
+.file-action-menu button {
+  font-size: 12px;
+}
+
+.file-batch-bar,
+.albums-actions {
+  min-height: 40px;
+  padding: 6px 12px;
+  border-color: #e0e5fc;
+  border-radius: 7px;
+  background: #f3f5ff;
+  animation: none;
+}
+
+.file-batch-bar > span,
+.albums-actions > span {
+  color: #6774ce;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.file-batch-bar button,
+.albums-actions button {
+  height: 28px;
+  padding: 0 11px;
+  border-color: #e0e5f2;
+  border-radius: 6px;
+}
+
+.cloud-status-strip {
+  justify-content: flex-start;
+  min-height: 40px;
+  gap: 18px;
+  margin-top: 22px;
+  padding: 12px 0 0;
+  border-top: 1px solid #f0f2f6;
+  color: #a1a8b5;
+}
+
+.cloud-status-strip > span {
+  font-size: 11px;
+}
+
+.cloud-status-strip > span i {
+  width: 5px;
+  height: 5px;
+  background: #72c8aa;
+  box-shadow: none;
+}
+
+.cloud-status-strip button {
+  margin-left: auto;
+  color: #929baa;
+  font-size: 11px;
+}
+
+.cloud-file-skeleton span {
+  height: 50px;
+  border-color: #f1f3f7;
+}
+
+.upload-resume-bar {
+  border-color: #eee6d5;
+  border-radius: 7px;
+  background: #fffcf5;
+  animation: none;
+}
+
+/* Settings and AI share the same readable, modestly grouped controls. */
+.app-content .settings-group {
+  margin-bottom: 22px;
+  padding: 0 20px;
+  border: 1px solid #eaedf4;
+  border-radius: 9px;
+  background: #fff;
+}
+
+.app-content .settings-group h2 {
+  margin: 0;
+  padding: 18px 0 10px;
+  color: #333c4c;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.app-content .setting-row {
+  min-height: 70px;
+  padding: 15px 0;
+  border-color: #f0f2f6;
+}
+
+.app-content .setting-row:last-child {
+  border-bottom: 0;
+}
+
+.app-content .setting-row > div {
+  min-width: 0;
+}
+
+.app-content .setting-row strong {
+  color: #4d5667;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.app-content .setting-row p {
+  margin-top: 5px;
+  color: #98a0af;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.app-content .setting-row select,
+.comics-toolbar select,
+.app-content .ai-text-input {
+  height: 36px;
+  border-color: #e3e7ef;
+  border-radius: 7px;
+  background: #fff;
+  color: #5a6373;
+  font-size: 12px;
+}
+
+.app-content .setting-value {
+  color: #929aaa;
+}
+
+.ai-privacy-note {
+  margin-bottom: 20px;
+  padding: 13px 16px;
+  border-radius: 8px;
+  background: #f6f8fc;
+  color: #8a93a4;
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.ai-plan-summary {
+  padding: 8px 0 16px;
+  color: #828c9e;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.ai-plan-item {
+  min-height: 62px;
+  padding: 12px 8px;
+  border-color: #f0f2f7;
+}
+
+.ai-plan-item::before {
+  content: none;
+}
+
+.ai-plan-item:hover,
+.ai-plan-item.selected {
+  background: #f7f9ff;
+}
+
+.ai-plan-item p {
+  color: #939bad;
+  white-space: normal;
+}
+
+.ai-plan-file strong {
+  font-weight: 500;
+}
+
+.ai-plan-footer {
+  margin: 0;
+  padding: 16px 0;
+}
+
+.ai-report-group .ai-plan-list:last-child {
+  margin-bottom: 14px;
+}
+
+/* Reading and photo libraries keep their content; the chrome stays consistent. */
+.comics-view .section-heading,
+.albums-view .section-heading {
+  align-items: center;
+}
+
+.comics-toolbar {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.comics-toolbar select {
+  max-width: 220px;
+}
+
+.comics-stats {
+  padding: 10px 0 16px;
+  border-bottom: 1px solid #edf0f6;
+  color: #919aaa;
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.comics-grid {
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.comics-card,
+.albums-card {
+  border-color: #e9edf4;
+  border-radius: 9px;
+  box-shadow: none;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+
+.comics-card:hover,
+.comics-card.open,
+.albums-card:hover,
+.albums-card.selected {
+  transform: none;
+  border-color: #cfd6f4;
+  box-shadow: 0 3px 10px rgb(55 71 112 / 4%);
+}
+
+.comics-card-head {
+  min-height: 86px;
+  padding: 14px 16px;
+}
+
+.comics-card-head:hover {
+  background: #fafbfe;
+}
+
+.comics-card-head strong,
+.albums-card strong {
+  color: #4b5567;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.comics-spine {
+  width: 7px;
+  height: 42px;
+  border-radius: 3px;
+  background: #b8ccf1;
+}
+
+.comics-cover {
+  border-radius: 5px;
+}
+
+.comics-volumes {
+  padding: 0 16px 12px;
+}
+
+.comics-volumes li {
+  min-height: 39px;
+  align-items: center;
+  border-color: #f0f2f7;
+  color: #758094;
+}
+
+.comics-volume-actions button {
+  border-color: #e3e7fa;
+  background: #f6f7ff;
+  color: var(--primary);
+}
+
+.albums-toolbar {
+  margin-bottom: 20px;
+}
+
+.albums-stats {
+  color: #969eac;
+}
+
+.albums-timeline {
+  gap: 28px;
+}
+
+.albums-month-head {
+  padding: 10px 12px;
+  border-radius: 7px;
+  border-bottom: 0;
+  background: #f7f9fc;
+}
+
+.albums-month-head h3 {
+  margin: 0;
+  color: #637087;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.albums-photo-list li {
+  min-height: 54px;
+  padding: 0 12px;
+  border-color: #f1f3f7;
+}
+
+.albums-photo-row {
+  min-height: 54px;
+  gap: 12px;
+}
+
+.albums-photo-row:hover {
+  background: #f7f9ff;
+}
+
+.albums-photo-name {
+  font-weight: 400;
+}
+
+.albums-photo-icon,
+.albums-photo-thumb {
+  width: 34px;
+  height: 34px;
+  border-radius: 6px;
+}
+
+.albums-photo-icon {
+  background: #f0f4ff;
+  color: #97aee0;
+}
+
+.albums-grid {
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 20px;
+}
+
+.albums-card {
+  gap: 5px;
+  padding: 12px;
+}
+
+.albums-cover,
+.albums-cover-fallback {
+  margin-bottom: 9px;
+  border-radius: 6px;
+}
+
+.albums-cover-fallback {
+  background: #f1f5fc;
+  color: #a7bee0;
+}
+
+.app-content .empty-state {
+  min-height: 330px;
+  color: #bec8da;
+}
+
+.app-content .empty-state h2 {
+  color: #747f93;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.app-content .empty-state p {
+  max-width: 60ch;
+  color: #a0a8b8;
+  line-height: 1.8;
+}
+
+.cloud-operation-backdrop {
+  background: rgb(38 48 69 / 20%);
+  backdrop-filter: blur(3px);
+}
+
+.cloud-operation-dialog {
+  max-width: calc(100vw - 40px);
+  border-color: #edf0f7;
+  border-radius: 10px;
+  box-shadow: 0 16px 54px rgb(35 46 80 / 16%);
+  animation: none;
+}
+
+.cloud-operation-dialog.picker-dialog {
+  width: 460px;
+}
+
+.picker-folder-list button > svg:first-child {
+  fill: #c6e5fb;
+  color: #91c2e7;
+}
+
+.cloud-operation-dialog > .picker-folder-list {
+  display: grid;
+  justify-content: stretch;
+  gap: 0;
+}
+
+@media (max-width: 1100px) {
+  .comics-view .section-heading,
+  .albums-view .section-heading {
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+
+  .cloud-filter-options {
+    gap: 10px;
+  }
+
+  .file-name small {
+    display: none;
+  }
+}
+
+@media (max-width: 980px) {
+  .file-table-head,
+  .file-row {
+    grid-template-columns: 26px minmax(140px, 1fr) 84px 114px 104px;
+  }
+
+  .file-table-head > [role="columnheader"]:nth-child(3),
+  .file-kind-label {
+    display: none;
+  }
+
+  .cloud-filter-options > span {
+    display: none;
+  }
+
+  .app-content .ai-text-input {
+    width: 220px;
+  }
+}
+
+@media (hover: none) {
+  .file-row-actions {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cloud-files-view *,
+  .ai-organize-view *,
+  .comics-view *,
+  .albums-view *,
+  .settings-group * {
+    animation: none;
+    transition: none;
+  }
+}

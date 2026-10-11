@@ -4,7 +4,7 @@ name: Sirius
 description: |
   macOS 优先的 115 第三方客户端。115 文件管理是核心，视频播放、AI 文件整理、漫画和相册是建立在同一文件模型上的内容模式。
   本文件仅保存 machine-readable 视觉 token，遵循 Google Stitch DESIGN.md 规范（alpha, 2026-04）；产品、工程与安全规则统一以根目录 AGENTS.md 为准。
-  视觉定位：表现力外壳 + 精确文件工作台。品牌首屏、模式入口与内容详情允许编辑式排版、空间层次与连续动效；文件表格、批量选择与危险操作保持稳定、可预测、零装饰。
+  视觉定位：参考夸克网盘客户端的轻量桌面工作台。窄图标导航、浅蓝紫顶栏、白色内容区与蓝色主操作形成统一界面；文件表格、批量选择与危险操作保持稳定、可预测。
 
 # ============================================================================
 # §2 COLORS — single-accent philosophy (Apple)
@@ -16,19 +16,19 @@ description: |
 # ============================================================================
 colors:
   # --- Brand & primary (single accent philosophy) ---
-  primary: "#2458d7"
+  primary: "#5969ed"
   on-primary: "#ffffff"
   accent-fg: "#ffffff"
-  primary-soft: "#eaf0ff"
-  primary-tint: "rgba(36, 88, 215, 0.06)"
+  primary-soft: "#e9edff"
+  primary-tint: "rgba(89, 105, 237, 0.07)"
 
   # --- Foreground / text ---
-  fg: "#111114"
-  muted: "#6b6b70"
+  fg: "#303540"
+  muted: "#858c9b"
   fg-disabled: "#a8a8ad"
 
   # --- Surface ---
-  bg: "#fafafa"
+  bg: "#ffffff"
   surface: "#ffffff"
   surface-hover: "#f2f2f4"
   surface-active: "#e8e8ec"
@@ -36,7 +36,7 @@ colors:
   surface-stone: "#eeece7"
 
   # --- Borders / hairlines ---
-  hairline: "#edf0f4"
+  hairline: "#edf0f5"
   hairline-strong: "#a1a1a1"
 
   # --- Frosted surface (Apple-inspired, for floating panels only) ---
