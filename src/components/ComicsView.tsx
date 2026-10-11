@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { registerViewPageContext, notifyPageContextChanged, type AiPageContext } from "../domain/pageContext";
 import {
   ComicsService,
   type ComicSession,
@@ -319,6 +320,40 @@ export function ComicsView() {
     readerSeries && reader && hasNextVolume
       ? volumeLabel(readerSeries.volumes[reader.volumeIndex + 1].name, reader.volumeIndex + 1)
       : null;
+
+  // AI 对话面板的页面上下文：注册漫画当前系列、在读卷与页码；随渲染更新（仿 CloudFilesView）。
+  const pageContextRef = useRef<AiPageContext | null>(null);
+  pageContextRef.current = reader
+    ? {
+        page: "comics",
+        scope: "漫画",
+        detail: `${reader.session.seriesTitle} · ${volumeLabel(reader.volumeName, reader.volumeIndex)}`,
+        seriesTitle: reader.session.seriesTitle,
+        volumeName: reader.volumeName,
+        volumeNumber: reader.volumeIndex + 1,
+        seriesVolumeCount: readerSeries?.volumes.length ?? 0,
+        // 页码为 1 基，便于模型直接向用户复述「第 N 页 / 共 M 页」。
+        pageIndex: reader.pageIndex + 1,
+        pageCount: reader.session.pageCount,
+        loaded: `${reader.pageIndex + 1} / ${reader.session.pageCount}`,
+      }
+    : {
+        page: "comics",
+        scope: "漫画",
+        detail: openTitle ?? undefined,
+        seriesCount: sortedSeries.length,
+        openSeriesTitle: openTitle ?? undefined,
+      };
+
+  useEffect(() => {
+    registerViewPageContext(() => pageContextRef.current);
+    return () => registerViewPageContext(null);
+  }, []);
+
+  // 上下文随渲染更新（在读卷与页码、展开的系列）；通知 AI 面板刷新当前上下文标签。
+  useEffect(() => {
+    notifyPageContextChanged();
+  });
 
   return (
     <section className="page-section comics-view">
