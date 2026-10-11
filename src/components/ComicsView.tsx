@@ -11,6 +11,7 @@ import { Cloud115Service, type Cloud115FileEntry } from "../services/mediaServic
 import { FileThumbnail } from "./FileThumbnail";
 import { FileTypeIcon } from "./FileTypeIcon";
 import { Icon } from "./Icon";
+import { ComicsReader } from "./ComicsReader";
 
 const comicsService = new ComicsService();
 const cloud115 = new Cloud115Service();
@@ -137,6 +138,7 @@ export function ComicsView() {
   const [openFailure, setOpenFailure] = useState<OpenFailure | null>(null);
   const [reader, setReader] = useState<ReaderState | null>(null);
   const [readerError, setReaderError] = useState<string | null>(null);
+  const [loadingNextVolume, setLoadingNextVolume] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progressMap, setProgressMap] = useState<Record<string, VolumeProgress>>(loadProgressMap);
 
@@ -247,14 +249,11 @@ export function ComicsView() {
     }
   }
 
-  /** 翻页并保存进度；保存失败只提示，不阻断阅读。 */
-  function changePage(delta: number) {
+  /** 跳转到指定页并保存进度；进度条松手、页码输入与翻页按钮统一走这里。保存失败只提示，不阻断阅读。 */
+  function navigateReader(pageIndex: number) {
     setReader((current) => {
       if (!current) return current;
-      const nextIndex = Math.min(
-        Math.max(0, current.pageIndex + delta),
-        current.session.pageCount - 1,
-      );
+      const nextIndex = Math.min(Math.max(0, pageIndex), current.session.pageCount - 1);
       if (nextIndex === current.pageIndex) return current;
       comicsService
         .saveProgress(current.session.fileId, nextIndex, current.session.pageCount)
@@ -277,16 +276,24 @@ export function ComicsView() {
     setReaderError(null);
   }
 
-  useEffect(() => {
+  /** 加载系列内下一卷；切卷前先保存当前卷进度，续读页码由后端记录决定。 */
+  async function loadNextVolume() {
     if (!reader) return;
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "ArrowRight") changePage(1);
-      else if (event.key === "ArrowLeft") changePage(-1);
-      else if (event.key === "Escape") closeReader();
+    const group = sortedSeries.find((item) => item.title === reader.session.seriesTitle);
+    const nextIndex = reader.volumeIndex + 1;
+    const next = group?.volumes[nextIndex];
+    if (!group || !next) return;
+    setLoadingNextVolume(true);
+    try {
+      await comicsService
+        .saveProgress(reader.session.fileId, reader.pageIndex, reader.session.pageCount)
+        .then(() => recordProgress(reader.session, reader.pageIndex, reader.volumeName))
+        .catch(() => undefined);
+      await openReader(group.title, next, nextIndex);
+    } finally {
+      setLoadingNextVolume(false);
     }
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [reader]);
+  }
 
   /** 系列内最新在读的卷；用于书架卡片上的进度角标。 */
   function latestSeriesProgress(group: ComicsSeriesGroup) {
@@ -302,6 +309,16 @@ export function ComicsView() {
   }
 
   const busy = recognizing || indexing;
+
+  // 阅读器上下文：当前卷所在系列、是否有下一卷与下一卷标签；均基于自然排序后的卷序。
+  const readerSeries = reader
+    ? sortedSeries.find((item) => item.title === reader.session.seriesTitle)
+    : undefined;
+  const hasNextVolume = Boolean(readerSeries && reader && reader.volumeIndex < readerSeries.volumes.length - 1);
+  const nextVolumeLabel =
+    readerSeries && reader && hasNextVolume
+      ? volumeLabel(readerSeries.volumes[reader.volumeIndex + 1].name, reader.volumeIndex + 1)
+      : null;
 
   return (
     <section className="page-section comics-view">
@@ -476,37 +493,21 @@ export function ComicsView() {
         </div>
       )}
 
-      {reader && (
-        <div className="comics-reader" role="dialog" aria-modal="true" aria-label="漫画阅读器">
-          <header className="comics-reader-bar">
-            <strong>{reader.session.seriesTitle}</strong>
-            <span>
-              {reader.pageIndex + 1} / {reader.session.pageCount}
-            </span>
-            {readerError && <span className="comics-reader-error">{readerError}</span>}
-            <button onClick={closeReader}>
-              <Icon name="close" size={15} />
-              关闭
-            </button>
-          </header>
-          <div className="comics-reader-stage">
-            <img
-              src={resolveMediaSrc(reader.session.pages[reader.pageIndex])}
-              alt={`第 ${reader.pageIndex + 1} 页`}
-            />
-          </div>
-          <div className="comics-reader-nav">
-            <button disabled={reader.pageIndex === 0} onClick={() => changePage(-1)}>
-              上一页
-            </button>
-            <button
-              disabled={reader.pageIndex >= reader.session.pageCount - 1}
-              onClick={() => changePage(1)}
-            >
-              下一页
-            </button>
-          </div>
-        </div>
+      {reader && readerSeries && (
+        <ComicsReader
+          session={reader.session}
+          volumeName={reader.volumeName}
+          volumeNumberLabel={volumeLabel(reader.volumeName, reader.volumeIndex)}
+          volumeCount={readerSeries.volumes.length}
+          hasNextVolume={hasNextVolume}
+          nextVolumeLabel={nextVolumeLabel}
+          loadingNextVolume={loadingNextVolume}
+          progressError={readerError}
+          pageIndex={reader.pageIndex}
+          onNavigate={navigateReader}
+          onLoadNextVolume={() => void loadNextVolume()}
+          onClose={closeReader}
+        />
       )}
     </section>
   );
