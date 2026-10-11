@@ -104,13 +104,85 @@ function photoThumbDataUri(tone: string): string {
   );
 }
 
+/** 漫画假页：米白纸面 + 确定性分格框线 + 居中大页码，页码标注清晰，供阅读器自查翻页正确性。 */
 function comicPageDataUri(pageIndex: number, pageCount: number): string {
+  const page = pageIndex + 1;
+  // 分格布局按页码确定性变化：页序 1..8 在四种分格模板间循环，保证翻页可见。
+  const template = pageIndex % 4;
+  const pageTemplates: Array<Array<[number, number, number, number]>> = [
+    [
+      [56, 64, 488, 300],
+      [56, 392, 236, 300],
+      [308, 392, 236, 300],
+      [56, 720, 488, 80],
+    ],
+    [
+      [56, 64, 236, 220],
+      [308, 64, 236, 220],
+      [56, 312, 488, 380],
+      [56, 720, 488, 80],
+    ],
+    [
+      [56, 64, 488, 424],
+      [56, 516, 154, 284],
+      [226, 516, 154, 284],
+      [396, 516, 148, 284],
+    ],
+    [
+      [56, 64, 154, 736],
+      [238, 64, 306, 356],
+      [238, 448, 306, 352],
+      [56, 828, 488, 0],
+    ],
+  ];
+  const panels = pageTemplates[template] ?? [];
+  const rects = panels
+    .filter(([, , , height]) => height > 0)
+    .map(
+      ([x, y, width, height]) =>
+        `<rect x="${x}" y="${y}" width="${width}" height="${height}" fill="#ffffff" stroke="#c9c2b4" stroke-width="2"/>`,
+    )
+    .join("");
   return svgDataUri(
     `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="880" viewBox="0 0 600 880">` +
       `<rect width="600" height="880" fill="#efece5"/>` +
       `<rect x="28" y="28" width="544" height="824" fill="#fbfaf7"/>` +
-      `<text x="300" y="448" font-family="PingFang SC, sans-serif" font-size="26" fill="#6d675c" text-anchor="middle">` +
-      `第 ${pageIndex + 1} 页 / 共 ${pageCount} 页</text></svg>`,
+      rects +
+      `<text x="300" y="420" font-family="PingFang SC, sans-serif" font-size="88" font-weight="600" fill="#3a3630" text-anchor="middle">` +
+      `${page}</text>` +
+      `<text x="300" y="486" font-family="PingFang SC, sans-serif" font-size="24" fill="#6d675c" text-anchor="middle">` +
+      `第 ${page} 页 / 共 ${pageCount} 页</text>` +
+      `<text x="572" y="864" font-family="PingFang SC, sans-serif" font-size="14" fill="#9a9384" text-anchor="end">` +
+      `${page} / ${pageCount}</text></svg>`,
+  );
+}
+
+/** 漫画演示封面：2/3 海报比例、确定性三色调之一，竖排书名加卷号；仅供冒烟截图。 */
+const COMIC_COVER_TONES: Array<[string, string]> = [
+  ["#5969ed", "#2c3572"],
+  ["#b86c4a", "#5e3421"],
+  ["#4a8054", "#22402a"],
+];
+
+function comicCoverDataUri(title: string, volumeNumber: number): string {
+  const [top, bottom] = COMIC_COVER_TONES[hashOf(title) % COMIC_COVER_TONES.length];
+  const chars = [...title.slice(0, 6)];
+  const spine = chars
+    .map(
+      (char, index) =>
+        `<text x="52" y="${96 + index * 52}" font-family="PingFang SC, sans-serif" font-size="38" font-weight="600" fill="#ffffff">${char}</text>`,
+    )
+    .join("");
+  return svgDataUri(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="450" viewBox="0 0 300 450">` +
+      `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1.2">` +
+      `<stop offset="0" stop-color="${top}"/><stop offset="1" stop-color="${bottom}"/>` +
+      `</linearGradient></defs>` +
+      `<rect width="300" height="450" fill="url(#g)"/>` +
+      `<rect x="0" y="0" width="14" height="450" fill="rgba(255,255,255,0.22)"/>` +
+      spine +
+      `<text x="266" y="404" font-family="DM Sans, sans-serif" font-size="64" font-weight="700" fill="rgba(255,255,255,0.9)" text-anchor="end">${volumeNumber}</text>` +
+      `<text x="266" y="432" font-family="PingFang SC, sans-serif" font-size="15" fill="rgba(255,255,255,0.72)" text-anchor="end">SIRIUS 漫画</text></svg>`,
   );
 }
 
@@ -232,15 +304,17 @@ function seedFilesystem() {
     takenAt: 1_767_225_600,
     thumbUrl: photoThumbDataUri("#5c7a5e"),
   });
-  // 漫画
+  // 漫画：cbz/zip 可在线阅读（与 Rust READER_EXTENSIONS 一致）；cbr/7z 仅识别，验证不可读标记。
   makeEntry("c1", "d4", "一拳超人 第01卷.cbz", "file", { sizeBytes: 400 * MiB });
   makeEntry("c2", "d4", "一拳超人 第02卷.cbz", "file", { sizeBytes: 500 * MiB });
+  makeEntry("c3", "d4", "海贼王 第01卷.cbr", "file", { sizeBytes: 620 * MiB });
+  makeEntry("c4", "d4", "进击的巨人 第01卷.7z", "file", { sizeBytes: 560 * MiB });
 }
 
 seedFilesystem();
 
 const PHOTO_EXTENSIONS = new Set(["jpg", "jpeg", "png", "heic", "webp", "gif"]);
-const COMIC_EXTENSIONS = new Set(["cbz", "cbr", "zip", "rar"]);
+const COMIC_EXTENSIONS = new Set(["cbz", "cbr", "zip", "rar", "7z"]);
 const VIDEO_EXTENSIONS = new Set(["mkv", "mp4", "mov", "avi", "webm", "m4v", "ts", "flv"]);
 const SUBTITLE_EXTENSIONS = new Set(["srt", "ass", "ssa", "sup"]);
 
@@ -254,6 +328,43 @@ function kindForName(name: string): MockKind {
 
 const isPhoto = (entry: MockEntry) => entry.kind !== "folder" && PHOTO_EXTENSIONS.has(entry.extension.toLowerCase());
 const isComic = (entry: MockEntry) => entry.kind !== "folder" && COMIC_EXTENSIONS.has(entry.extension.toLowerCase());
+
+/** 漫画卷视图；coverPath 在真实链路是解压后生成的本地封面路径，这里用确定性演示封面替代。 */
+type MockComicVolume = {
+  fileId: string;
+  pickCode: string;
+  name: string;
+  sizeBytes: number;
+  coverPath: string;
+};
+
+/** 把压缩包条目按「书名 第N卷」聚合成系列；封面色调由书名散列决定，卷号按聚合顺序标注。 */
+function groupComicSeries(volumes: MockEntry[]): Array<{
+  title: string;
+  volumeCount: number;
+  totalBytes: number;
+  volumes: MockComicVolume[];
+}> {
+  const series = new Map<string, MockComicVolume[]>();
+  for (const volume of volumes) {
+    const title = volume.name.replace(/\.(cbz|cbr|zip|rar|7z)$/i, "").split(/\s+第/)[0] || volume.name;
+    const bucket = series.get(title) ?? [];
+    bucket.push({
+      fileId: volume.id,
+      pickCode: pickCodeOf(volume.id),
+      name: volume.name,
+      sizeBytes: volume.sizeBytes,
+      coverPath: comicCoverDataUri(title, bucket.length + 1),
+    });
+    series.set(title, bucket);
+  }
+  return [...series.entries()].map(([title, volumesInSeries]) => ({
+    title,
+    volumeCount: volumesInSeries.length,
+    totalBytes: volumesInSeries.reduce((sum, current) => sum + current.sizeBytes, 0),
+    volumes: volumesInSeries,
+  }));
+}
 
 function childrenOf(parentId: string): MockEntry[] {
   return [...FS.values()].filter((entry) => entry.parentId === parentId);
@@ -1661,46 +1772,24 @@ const HANDLERS: Record<string, CmdHandler> = {
     assertFolderId(folderId, "待识别目录");
     const entries = childrenOf(folderId);
     const volumes = entries.filter(isComic);
-    const series = new Map<string, Array<{ fileId: string; pickCode: string; name: string; sizeBytes: number; coverPath: null }>>();
-    for (const volume of volumes) {
-      const title = volume.name.replace(/\.(cbz|cbr|zip|rar)$/i, "").split(/\s+第/)[0] || volume.name;
-      const bucket = series.get(title) ?? [];
-      bucket.push({ fileId: volume.id, pickCode: pickCodeOf(volume.id), name: volume.name, sizeBytes: volume.sizeBytes, coverPath: null });
-      series.set(title, bucket);
-    }
     return {
       folderId,
       scannedCount: entries.length,
       truncated: false,
-      series: [...series.entries()].map(([title, volumesInSeries]) => ({
-        title,
-        volumeCount: volumesInSeries.length,
-        totalBytes: volumesInSeries.reduce((sum, current) => sum + current.sizeBytes, 0),
-        volumes: volumesInSeries,
-      })),
+      series: groupComicSeries(volumes),
       looseImageCount: entries.filter((entry) => isPhoto(entry)).length,
       skippedCount: entries.length - volumes.length,
     };
   },
   comics_index: () => {
-    const grouped = new Map<string, Array<{ fileId: string; pickCode: string; name: string; sizeBytes: number; coverPath: null }>>();
+    const volumes: MockEntry[] = [];
     for (const folderId of comicsIndexState.folderIds) {
-      for (const volume of childrenOf(folderId).filter(isComic)) {
-        const title = volume.name.replace(/\.(cbz|cbr|zip|rar)$/i, "").split(/\s+第/)[0] || volume.name;
-        const bucket = grouped.get(title) ?? [];
-        bucket.push({ fileId: volume.id, pickCode: pickCodeOf(volume.id), name: volume.name, sizeBytes: volume.sizeBytes, coverPath: null });
-        grouped.set(title, bucket);
-      }
+      volumes.push(...childrenOf(folderId).filter(isComic));
     }
     return {
       folderCount: comicsIndexState.folderIds.size,
       lastScannedAt: comicsIndexState.lastScannedAt,
-      series: [...grouped.entries()].map(([title, volumes]) => ({
-        title,
-        volumeCount: volumes.length,
-        totalBytes: volumes.reduce((sum, current) => sum + current.sizeBytes, 0),
-        volumes,
-      })),
+      series: groupComicSeries(volumes),
     };
   },
   comics_index_folders: (args) => {
@@ -1718,14 +1807,20 @@ const HANDLERS: Record<string, CmdHandler> = {
     const input = (args.input ?? {}) as Record<string, unknown>;
     const fileId = str(input.fileId);
     const fileName = str(input.fileName, "漫画卷.cbz");
-    const pageCount = 3;
+    // 与 Rust comics_open_volume 的能力口径一致：阅读器仅支持 CBZ/ZIP，
+    // 其余格式显式失败而不是返回假页，保证前端「不可读」标记有真实依据。
+    const extension = fileName.split(".").pop()?.toLowerCase() ?? "";
+    if (extension !== "cbz" && extension !== "zip") {
+      fail(`阅读器目前支持 CBZ/ZIP，暂不支持「.${extension}」格式`);
+    }
+    const pageCount = 6 + (hashOf(fileId) % 3);
     const saved = comicsReadProgress.get(fileId);
     return {
       fileId,
       seriesTitle: str(input.seriesTitle, fileName),
       pages: Array.from({ length: pageCount }, (_, index) => comicPageDataUri(index, pageCount)),
       pageCount,
-      resumePageIndex: saved ? Math.min(saved.pageIndex, pageCount - 1) : 1,
+      resumePageIndex: saved ? Math.min(Math.max(0, saved.pageIndex), pageCount - 1) : 0,
     };
   },
   comics_save_progress: (args) => {

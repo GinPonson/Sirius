@@ -1,20 +1,31 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { registerViewPageContext, notifyPageContextChanged, type AiPageContext } from "../domain/pageContext";
 import {
   ComicsService,
   type ComicSession,
   type ComicsIndexSummary,
+  type ComicsSeriesGroup,
   type ComicsVolume,
 } from "../services/comicsServices";
 import { Cloud115Service, type Cloud115FileEntry } from "../services/mediaServices";
 import { FileThumbnail } from "./FileThumbnail";
 import { FileTypeIcon } from "./FileTypeIcon";
 import { Icon } from "./Icon";
+import { ComicsReader } from "./ComicsReader";
 
 const comicsService = new ComicsService();
 const cloud115 = new Cloud115Service();
 
 const ROOT_ID = "0";
+
+/** 阅读器当前支持的格式；与 Rust 侧 READER_EXTENSIONS 保持一致，仅识别不可读的卷不提供假按钮。 */
+const READER_EXTENSIONS = new Set(["cbz", "zip"]);
+
+function isReaderSupported(name: string): boolean {
+  const extension = name.split(".").pop()?.toLowerCase() ?? "";
+  return READER_EXTENSIONS.has(extension);
+}
 
 /** 将字节数格式化为紧凑容量；与网盘文件页保持一致的展示规则。 */
 function formatBytes(bytes: number): string {
@@ -25,13 +36,96 @@ function formatBytes(bytes: number): string {
   return `${value >= 10 || unitIndex === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unitIndex]}`;
 }
 
-/** 阅读器当前支持的格式；与 Rust 侧 READER_EXTENSIONS 保持一致。 */
-function isReaderSupported(name: string): boolean {
-  const lowered = name.toLowerCase();
-  return lowered.endsWith(".cbz") || lowered.endsWith(".zip");
+/** 自然排序：数字段按数值比较，保证 第2卷 排在 第10卷 之前。 */
+function naturalCompare(a: string, b: string): number {
+  const aParts = a.split(/(\d+)/);
+  const bParts = b.split(/(\d+)/);
+  for (let index = 0; index < Math.max(aParts.length, bParts.length); index += 1) {
+    const left = aParts[index];
+    const right = bParts[index];
+    if (left === undefined) return -1;
+    if (right === undefined) return 1;
+    if (index % 2 === 1) {
+      const delta = Number(left) - Number(right);
+      if (delta !== 0) return delta;
+    } else if (left !== right) {
+      return left < right ? -1 : 1;
+    }
+  }
+  return 0;
 }
 
-type ReaderState = { session: ComicSession; pageIndex: number };
+/** 卷号展示：优先取文件名中的「第N卷」，否则按系列内顺序编号。 */
+function volumeLabel(name: string, position: number): string {
+  const match = name.match(/第\s*(\d+)\s*[卷话話回]/);
+  return match ? `第 ${Number(match[1])} 卷` : `第 ${position + 1} 卷`;
+}
+
+/** 页图/封面地址解析：data-URI 等自包含地址原样使用，本机缓存路径走 Tauri asset 协议。 */
+function resolveMediaSrc(path: string): string {
+  return /^(data|blob|https?):/.test(path) ? path : convertFileSrc(path);
+}
+
+// ---------------------------------------------------------------------------
+// 在读进度镜像：Rust 侧 comics_save_progress 是续读的唯一事实源；
+// 这里保存一份本机显示缓存（读写进度成功时同步写入），供书架卡片展示在读卷与页码。
+// ---------------------------------------------------------------------------
+
+type VolumeProgress = {
+  pageIndex: number;
+  pageCount: number;
+  volumeName: string;
+  updatedAt: number;
+};
+
+const PROGRESS_KEY = "sirius-comics-progress";
+/** 有界显示缓存：只保留最近 60 卷的进度记录。 */
+const PROGRESS_LIMIT = 60;
+
+function loadProgressMap(): Record<string, VolumeProgress> {
+  try {
+    const raw = window.localStorage.getItem(PROGRESS_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return {};
+    const map: Record<string, VolumeProgress> = {};
+    for (const [fileId, value] of Object.entries(parsed as Record<string, unknown>)) {
+      const record = value as Partial<VolumeProgress> | null;
+      if (
+        record &&
+        typeof record.pageIndex === "number" &&
+        typeof record.pageCount === "number" &&
+        typeof record.volumeName === "string" &&
+        record.pageCount > 0
+      ) {
+        map[fileId] = {
+          pageIndex: Math.max(0, Math.min(record.pageIndex, record.pageCount - 1)),
+          pageCount: record.pageCount,
+          volumeName: record.volumeName,
+          updatedAt: typeof record.updatedAt === "number" ? record.updatedAt : 0,
+        };
+      }
+    }
+    return map;
+  } catch {
+    // 存储不可用或数据损坏时按空缓存处理；续读仍以 Rust 侧记录为准。
+    return {};
+  }
+}
+
+function persistProgressMap(map: Record<string, VolumeProgress>): void {
+  try {
+    const entries = Object.entries(map)
+      .sort(([, a], [, b]) => b.updatedAt - a.updatedAt)
+      .slice(0, PROGRESS_LIMIT);
+    window.localStorage.setItem(PROGRESS_KEY, JSON.stringify(Object.fromEntries(entries)));
+  } catch {
+    // 存储不可用时保持内存态即可。
+  }
+}
+
+type ReaderState = { session: ComicSession; volumeIndex: number; volumeName: string; pageIndex: number };
+type OpenFailure = { groupTitle: string; volume: ComicsVolume; volumeIndex: number; message: string };
 
 /** 漫画模式：识别 → 持久化索引 → 书架封面 → 阅读器；索引、封面与进度只存在于本机。 */
 export function ComicsView() {
@@ -42,9 +136,12 @@ export function ComicsView() {
   const [shelf, setShelf] = useState<ComicsIndexSummary | null>(null);
   const [openTitle, setOpenTitle] = useState<string | null>(null);
   const [openingVolume, setOpeningVolume] = useState<string | null>(null);
+  const [openFailure, setOpenFailure] = useState<OpenFailure | null>(null);
   const [reader, setReader] = useState<ReaderState | null>(null);
   const [readerError, setReaderError] = useState<string | null>(null);
+  const [loadingNextVolume, setLoadingNextVolume] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [progressMap, setProgressMap] = useState<Record<string, VolumeProgress>>(loadProgressMap);
 
   useEffect(() => {
     let active = true;
@@ -60,6 +157,16 @@ export function ComicsView() {
       active = false;
     };
   }, []);
+
+  // 卷序按自然排序稳定展示；下一卷判定与展示共用同一顺序。
+  const sortedSeries = useMemo<ComicsSeriesGroup[]>(
+    () =>
+      (shelf?.series ?? []).map((group) => ({
+        ...group,
+        volumes: [...group.volumes].sort((a, b) => naturalCompare(a.name, b.name)),
+      })),
+    [shelf],
+  );
 
   async function loadIndex() {
     setShelf(await comicsService.index());
@@ -99,36 +206,59 @@ export function ComicsView() {
     }
   }
 
-  async function openReader(seriesTitle: string, volume: ComicsVolume) {
+  /** 保存进度并同步书架显示缓存；续读事实源始终是 Rust 侧记录。 */
+  function recordProgress(session: ComicSession, pageIndex: number, volumeName: string) {
+    setProgressMap((current) => {
+      const next = {
+        ...current,
+        [session.fileId]: {
+          pageIndex,
+          pageCount: session.pageCount,
+          volumeName,
+          updatedAt: Date.now(),
+        },
+      };
+      persistProgressMap(next);
+      return next;
+    });
+  }
+
+  async function openReader(groupTitle: string, volume: ComicsVolume, volumeIndex: number) {
     setOpeningVolume(volume.fileId);
-    setReaderError(null);
+    setError(null);
     try {
       const session = await comicsService.openVolume({
         fileId: volume.fileId,
         pickCode: volume.pickCode,
         fileName: volume.name,
-        seriesTitle,
+        seriesTitle: groupTitle,
         sizeBytes: volume.sizeBytes,
       });
-      setReader({ session, pageIndex: session.resumePageIndex });
+      setReader({ session, volumeIndex, volumeName: volume.name, pageIndex: session.resumePageIndex });
+      setReaderError(null);
+      // 打开成功后刷新书架：首次阅读会生成本机封面缓存，索引据此补齐封面路径。
+      void comicsService.index().then((summary) => setShelf(summary)).catch(() => undefined);
     } catch (reason) {
-      setError(`打开《${seriesTitle}》失败：${String(reason)}`);
+      setOpenFailure({
+        groupTitle,
+        volume,
+        volumeIndex,
+        message: String(reason),
+      });
     } finally {
       setOpeningVolume(null);
     }
   }
 
-  /** 翻页并保存进度；保存失败只提示，不阻断阅读。 */
-  function changePage(delta: number) {
+  /** 跳转到指定页并保存进度；进度条松手、页码输入与翻页按钮统一走这里。保存失败只提示，不阻断阅读。 */
+  function navigateReader(pageIndex: number) {
     setReader((current) => {
       if (!current) return current;
-      const nextIndex = Math.min(
-        Math.max(0, current.pageIndex + delta),
-        current.session.pageCount - 1,
-      );
+      const nextIndex = Math.min(Math.max(0, pageIndex), current.session.pageCount - 1);
       if (nextIndex === current.pageIndex) return current;
-      void comicsService
+      comicsService
         .saveProgress(current.session.fileId, nextIndex, current.session.pageCount)
+        .then(() => recordProgress(current.session, nextIndex, current.volumeName))
         .catch((reason) => setReaderError(`保存阅读进度失败：${String(reason)}`));
       return { ...current, pageIndex: nextIndex };
     });
@@ -137,8 +267,9 @@ export function ComicsView() {
   function closeReader() {
     setReader((current) => {
       if (current) {
-        void comicsService
+        comicsService
           .saveProgress(current.session.fileId, current.pageIndex, current.session.pageCount)
+          .then(() => recordProgress(current.session, current.pageIndex, current.volumeName))
           .catch((reason) => setError(`保存阅读进度失败：${String(reason)}`));
       }
       return null;
@@ -146,16 +277,83 @@ export function ComicsView() {
     setReaderError(null);
   }
 
-  useEffect(() => {
+  /** 加载系列内下一卷；切卷前先保存当前卷进度，续读页码由后端记录决定。 */
+  async function loadNextVolume() {
     if (!reader) return;
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "ArrowRight") changePage(1);
-      else if (event.key === "ArrowLeft") changePage(-1);
-      else if (event.key === "Escape") closeReader();
+    const group = sortedSeries.find((item) => item.title === reader.session.seriesTitle);
+    const nextIndex = reader.volumeIndex + 1;
+    const next = group?.volumes[nextIndex];
+    if (!group || !next) return;
+    setLoadingNextVolume(true);
+    try {
+      await comicsService
+        .saveProgress(reader.session.fileId, reader.pageIndex, reader.session.pageCount)
+        .then(() => recordProgress(reader.session, reader.pageIndex, reader.volumeName))
+        .catch(() => undefined);
+      await openReader(group.title, next, nextIndex);
+    } finally {
+      setLoadingNextVolume(false);
     }
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [reader]);
+  }
+
+  /** 系列内最新在读的卷；用于书架卡片上的进度角标。 */
+  function latestSeriesProgress(group: ComicsSeriesGroup) {
+    let best: { volume: ComicsVolume; volumeIndex: number; progress: VolumeProgress } | null = null;
+    for (let volumeIndex = 0; volumeIndex < group.volumes.length; volumeIndex += 1) {
+      const volume = group.volumes[volumeIndex];
+      const progress = progressMap[volume.fileId];
+      if (progress && (!best || progress.updatedAt > best.progress.updatedAt)) {
+        best = { volume, volumeIndex, progress };
+      }
+    }
+    return best;
+  }
+
+  const busy = recognizing || indexing;
+
+  // 阅读器上下文：当前卷所在系列、是否有下一卷与下一卷标签；均基于自然排序后的卷序。
+  const readerSeries = reader
+    ? sortedSeries.find((item) => item.title === reader.session.seriesTitle)
+    : undefined;
+  const hasNextVolume = Boolean(readerSeries && reader && reader.volumeIndex < readerSeries.volumes.length - 1);
+  const nextVolumeLabel =
+    readerSeries && reader && hasNextVolume
+      ? volumeLabel(readerSeries.volumes[reader.volumeIndex + 1].name, reader.volumeIndex + 1)
+      : null;
+
+  // AI 对话面板的页面上下文：注册漫画当前系列、在读卷与页码；随渲染更新（仿 CloudFilesView）。
+  const pageContextRef = useRef<AiPageContext | null>(null);
+  pageContextRef.current = reader
+    ? {
+        page: "comics",
+        scope: "漫画",
+        detail: `${reader.session.seriesTitle} · ${volumeLabel(reader.volumeName, reader.volumeIndex)}`,
+        seriesTitle: reader.session.seriesTitle,
+        volumeName: reader.volumeName,
+        volumeNumber: reader.volumeIndex + 1,
+        seriesVolumeCount: readerSeries?.volumes.length ?? 0,
+        // 页码为 1 基，便于模型直接向用户复述「第 N 页 / 共 M 页」。
+        pageIndex: reader.pageIndex + 1,
+        pageCount: reader.session.pageCount,
+        loaded: `${reader.pageIndex + 1} / ${reader.session.pageCount}`,
+      }
+    : {
+        page: "comics",
+        scope: "漫画",
+        detail: openTitle ?? undefined,
+        seriesCount: sortedSeries.length,
+        openSeriesTitle: openTitle ?? undefined,
+      };
+
+  useEffect(() => {
+    registerViewPageContext(() => pageContextRef.current);
+    return () => registerViewPageContext(null);
+  }, []);
+
+  // 上下文随渲染更新（在读卷与页码、展开的系列）；通知 AI 面板刷新当前上下文标签。
+  useEffect(() => {
+    notifyPageContextChanged();
+  });
 
   return (
     <section className="page-section comics-view">
@@ -175,13 +373,13 @@ export function ComicsView() {
               <option key={folder.id} value={folder.id}>{folder.name}</option>
             ))}
           </select>
-          <button className="primary-action" disabled={recognizing || indexing} onClick={() => void recognize()}>
+          <button className="primary-action" disabled={busy} onClick={() => void recognize()}>
             <Icon name="book" size={15} />
             {recognizing ? "正在识别…" : "识别目录"}
           </button>
           <button
             className="secondary-action"
-            disabled={recognizing || indexing}
+            disabled={busy}
             title="依次索引网盘根目录下的全部文件夹（单次上限 20 个）"
             onClick={() => void indexAllRoots()}
           >
@@ -195,69 +393,127 @@ export function ComicsView() {
       {shelf && (
         <>
           <p className="comics-stats">
-            已索引 {shelf.folderCount} 个目录 · {shelf.series.length} 个系列
-            {shelf.lastScannedAt ? ` · 最近扫描 ${shelf.lastScannedAt}` : ""}
+            {busy
+              ? recognizing
+                ? "正在识别所选目录…"
+                : "正在批量索引根目录…"
+              : `已索引 ${shelf.folderCount} 个目录 · ${sortedSeries.length} 个系列${shelf.lastScannedAt ? ` · 最近扫描 ${shelf.lastScannedAt}` : ""}`}
           </p>
-          {shelf.series.length === 0 ? (
-            <div className="empty-state">
-              <Icon name="book" size={24} />
-              <h2>还没有漫画索引</h2>
-              <p>选择目录识别，或批量索引根目录；支持 cbz / zip / cbr / rar / 7z 压缩包。</p>
-            </div>
+          {sortedSeries.length === 0 ? (
+            shelf.folderCount === 0 ? (
+              <div className="empty-state comics-empty">
+                <Icon name="book" size={24} />
+                <h2>还没有识别过任何目录</h2>
+                <p>在上方选择目录点击「识别目录」，或直接「批量索引根目录」；识别支持 cbz / zip / cbr / rar / 7z 压缩包。</p>
+              </div>
+            ) : (
+              <div className="empty-state comics-empty">
+                <Icon name="folder" size={24} />
+                <h2>已索引 {shelf.folderCount} 个目录，但没有找到压缩包漫画</h2>
+                <p>这些目录里没有 cbz / zip / cbr / rar / 7z 压缩包；请把漫画压缩包放入目录后重新识别。</p>
+              </div>
+            )
           ) : (
             <div className="comics-grid">
-              {shelf.series.map((group) => {
-                const cover = group.volumes.find((volume) => volume.coverPath)?.coverPath;
-                return (
+              {sortedSeries.flatMap((group) => {
+                const expanded = openTitle === group.title;
+                const cover = group.volumes.find((volume) => volume.coverPath)?.coverPath ?? null;
+                const reading = latestSeriesProgress(group);
+                return [
                   <article
                     key={group.title}
-                    className={openTitle === group.title ? "comics-card open" : "comics-card"}
+                    className={expanded ? "comics-card open" : "comics-card"}
                   >
                     <button
                       className="comics-card-head"
-                      aria-expanded={openTitle === group.title}
-                      onClick={() => setOpenTitle(openTitle === group.title ? null : group.title)}
+                      aria-expanded={expanded}
+                      onClick={() => {
+                        setOpenTitle(expanded ? null : group.title);
+                        setOpenFailure(null);
+                      }}
                     >
-                      <FileThumbnail
-                        src={cover ? convertFileSrc(cover) : null}
-                        kind="ebook"
-                        size={44}
-                        iconSize={40}
-                        className="comic-cover-thumbnail"
-                      />
-                      <div>
-                        <strong>{group.title}</strong>
-                        <small>
+                      <span className="comics-card-cover">
+                        <FileThumbnail
+                          src={cover ? resolveMediaSrc(cover) : null}
+                          kind="ebook"
+                          size={220}
+                          iconSize={56}
+                        />
+                        {reading && (
+                          <span className="comics-card-progress">
+                            在读 {volumeLabel(reading.volume.name, reading.volumeIndex)} ·{" "}
+                            {reading.progress.pageIndex + 1}/{reading.progress.pageCount}
+                          </span>
+                        )}
+                      </span>
+                      <span className="comics-card-body">
+                        <strong className="comics-card-title">{group.title}</strong>
+                        <small className="comics-card-meta">
                           {group.volumeCount} 卷 · {formatBytes(group.totalBytes)}
                         </small>
-                      </div>
-                      <Icon name="chevron" size={15} />
+                      </span>
+                      <span className="comics-card-chevron" aria-hidden="true">
+                        <Icon name="chevron" size={14} />
+                      </span>
                     </button>
-                    {openTitle === group.title && (
+                  </article>,
+                  expanded && (
+                    <section key={`${group.title}-panel`} className="comics-series-panel" aria-label={`《${group.title}》卷列表`}>
+                      {openFailure && openFailure.groupTitle === group.title && (
+                        <div className="comics-open-failure" role="alert">
+                          <Icon name="alert" size={16} />
+                          <div>
+                            <strong>打开《{openFailure.volume.name}》失败</strong>
+                            <p>{openFailure.message}</p>
+                          </div>
+                          <button
+                            className="comics-retry"
+                            disabled={openingVolume === openFailure.volume.fileId}
+                            onClick={() =>
+                              void openReader(openFailure.groupTitle, openFailure.volume, openFailure.volumeIndex)
+                            }
+                          >
+                            {openingVolume === openFailure.volume.fileId ? "正在重试…" : "重试"}
+                          </button>
+                        </div>
+                      )}
                       <ul className="comics-volumes">
-                        {group.volumes.map((volume) => (
-                          <li key={volume.fileId}>
-                            <span className="comics-volume-name">
-                              <FileTypeIcon kind="ebook" size={24} />
-                              <span>{volume.name}</span>
-                            </span>
-                            <div className="comics-volume-actions">
-                              <small>{formatBytes(volume.sizeBytes)}</small>
-                              {isReaderSupported(volume.name) && (
-                                <button
-                                  disabled={openingVolume === volume.fileId}
-                                  onClick={() => void openReader(group.title, volume)}
-                                >
-                                  {openingVolume === volume.fileId ? "准备中…" : "阅读"}
-                                </button>
-                              )}
-                            </div>
-                          </li>
-                        ))}
+                        {group.volumes.map((volume, volumeIndex) => {
+                          const supported = isReaderSupported(volume.name);
+                          const progress = progressMap[volume.fileId];
+                          return (
+                            <li key={volume.fileId} className={supported ? "" : "unsupported"}>
+                              <span className="comics-volume-name">
+                                <FileTypeIcon kind="ebook" size={24} />
+                                <span className="comics-volume-title">{volume.name}</span>
+                                {progress && (
+                                  <span className="comics-volume-progress">
+                                    在读 {progress.pageIndex + 1}/{progress.pageCount}
+                                  </span>
+                                )}
+                              </span>
+                              <div className="comics-volume-actions">
+                                <small>{formatBytes(volume.sizeBytes)}</small>
+                                {supported ? (
+                                  <button
+                                    disabled={openingVolume === volume.fileId}
+                                    onClick={() => void openReader(group.title, volume, volumeIndex)}
+                                  >
+                                    {openingVolume === volume.fileId ? "准备中…" : "阅读"}
+                                  </button>
+                                ) : (
+                                  <span className="comics-format-unsupported" title="阅读器目前支持 CBZ/ZIP，其余格式仅完成识别，暂不支持在线阅读">
+                                    暂不支持在线阅读
+                                  </span>
+                                )}
+                              </div>
+                            </li>
+                          );
+                        })}
                       </ul>
-                    )}
-                  </article>
-                );
+                    </section>
+                  ),
+                ];
               })}
             </div>
           )}
@@ -272,37 +528,21 @@ export function ComicsView() {
         </div>
       )}
 
-      {reader && (
-        <div className="comics-reader" role="dialog" aria-modal="true" aria-label="漫画阅读器">
-          <header className="comics-reader-bar">
-            <strong>{reader.session.seriesTitle}</strong>
-            <span>
-              {reader.pageIndex + 1} / {reader.session.pageCount}
-            </span>
-            {readerError && <span className="comics-reader-error">{readerError}</span>}
-            <button onClick={closeReader}>
-              <Icon name="close" size={15} />
-              关闭
-            </button>
-          </header>
-          <div className="comics-reader-stage">
-            <img
-              src={convertFileSrc(reader.session.pages[reader.pageIndex])}
-              alt={`第 ${reader.pageIndex + 1} 页`}
-            />
-          </div>
-          <div className="comics-reader-nav">
-            <button disabled={reader.pageIndex === 0} onClick={() => changePage(-1)}>
-              上一页
-            </button>
-            <button
-              disabled={reader.pageIndex >= reader.session.pageCount - 1}
-              onClick={() => changePage(1)}
-            >
-              下一页
-            </button>
-          </div>
-        </div>
+      {reader && readerSeries && (
+        <ComicsReader
+          session={reader.session}
+          volumeName={reader.volumeName}
+          volumeNumberLabel={volumeLabel(reader.volumeName, reader.volumeIndex)}
+          volumeCount={readerSeries.volumes.length}
+          hasNextVolume={hasNextVolume}
+          nextVolumeLabel={nextVolumeLabel}
+          loadingNextVolume={loadingNextVolume}
+          progressError={readerError}
+          pageIndex={reader.pageIndex}
+          onNavigate={navigateReader}
+          onLoadNextVolume={() => void loadNextVolume()}
+          onClose={closeReader}
+        />
       )}
     </section>
   );

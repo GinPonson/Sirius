@@ -1796,3 +1796,562 @@
     backdrop-filter: none;
   }
 }
+
+/* ============================================================================
+   WP H3 漫画书架与阅读器（DESIGN.md §16 modes.comics —— 书脊与阅读序列）
+   仅追加漫画相关区块，不改动共享区域；与 H1/H2 的并行改动保持级联隔离。
+   ========================================================================== */
+
+/* --- 书架：封面竖排的稳定卡片（固定 2/3 封面比例 + 两行标题，长标题不撑高整排） --- */
+.comics-grid {
+  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+  gap: 18px;
+  margin-top: 20px;
+}
+
+.comics-card {
+  overflow: hidden;
+  border-color: var(--hairline-strong);
+}
+
+.comics-card.open {
+  border-color: var(--hairline-strong);
+  box-shadow: var(--shadow-2);
+}
+
+.comics-card-head {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  width: 100%;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.comics-card-head:hover {
+  background: transparent;
+}
+
+.comics-card-head:hover .comics-card-cover {
+  background: var(--surface-active);
+}
+
+.comics-card-cover {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  overflow: hidden;
+  background: var(--surface-sunken);
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.comics-card-cover .file-thumbnail {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.comics-card-progress {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  left: 8px;
+  display: block;
+  overflow: hidden;
+  padding: 4px 9px;
+  border-radius: var(--radius-sm);
+  background: rgba(8, 12, 18, 0.72);
+  color: #ffffff;
+  font-size: 11px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.comics-card-chevron {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-pill);
+  background: rgba(8, 12, 18, 0.55);
+  color: #ffffff;
+  transition: transform var(--duration-fast) var(--ease-standard);
+}
+
+.comics-card.open .comics-card-chevron {
+  transform: rotate(90deg);
+}
+
+.comics-card-body {
+  display: grid;
+  gap: 5px;
+  padding: 11px 13px 13px;
+  background: var(--surface);
+}
+
+.comics-card-head:hover .comics-card-body {
+  background: var(--surface-hover);
+}
+
+/* 标题块固定两行高度：无论标题长短，整排卡片高度保持一致。 */
+.comics-card-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  min-height: 37px;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.42;
+}
+
+.comics-card-meta {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- 系列展开区：独占一整行（grid-column: 1/-1），不挤压同排卡片 --- */
+.comics-series-panel {
+  grid-column: 1 / -1;
+  padding: 6px 0 10px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+}
+
+.comics-open-failure {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 8px 12px 4px;
+  padding: 10px 14px;
+  border: 1px solid var(--danger-ink);
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  color: var(--danger-ink);
+  font-size: 12px;
+}
+
+.comics-open-failure strong {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 12px;
+}
+
+.comics-open-failure p {
+  margin: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+
+.comics-retry {
+  flex: 0 0 auto;
+  align-self: center;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--danger-ink);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--danger-ink);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.comics-retry:hover:not(:disabled) {
+  background: rgba(197, 48, 42, 0.08);
+}
+
+.comics-retry:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.comics-volumes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.comics-volumes li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 46px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--hairline);
+  color: var(--fg);
+  font-size: 12px;
+}
+
+.comics-volume-name {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.comics-volume-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.comics-volume-progress {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--primary-soft);
+  color: var(--primary-ink);
+  font-size: 11px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.comics-volume-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.comics-volume-actions small {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.comics-format-unsupported {
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  background: var(--warn-soft);
+  color: var(--warn-ink);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .comics-grid {
+    grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  }
+}
+
+/* --- 阅读器：页码输入 + 可拖进度条 + 适应/方向切换 + 下一卷 --- */
+.comics-reader-bar strong {
+  min-width: 0;
+}
+
+.comics-reader-bar .comics-reader-volume {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.comics-reader-tools {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* 旧样式把工具条内按钮推到右侧；工具组整体负责对齐，按钮自身不再偏移。 */
+.comics-reader-bar .comics-reader-tools button {
+  margin-left: 0;
+}
+
+.comics-reader-fit {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.comics-reader-fit button {
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #9fb2d0;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.comics-reader-fit button[aria-pressed="true"] {
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+}
+
+.comics-reader-direction[aria-pressed="true"] {
+  border-color: rgba(123, 138, 255, 0.65);
+  color: #c9d2ff;
+}
+
+.comics-reader-stage {
+  position: relative;
+  display: block;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
+.comics-reader-scroll {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  height: 100%;
+  overflow: auto;
+  padding: 16px 64px;
+}
+
+.comics-reader-stage[data-fit="page"] .comics-reader-scroll {
+  align-items: center;
+}
+
+.comics-reader-scroll img:first-child {
+  flex: 0 0 auto;
+  max-height: none;
+  border-radius: 6px;
+  background: #ffffff;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+}
+
+/* 适应宽度：页宽随舞台宽度伸展，纵向滚动连续阅读。 */
+.comics-reader-stage[data-fit="width"] .comics-reader-scroll img:first-child {
+  width: min(100%, 1080px);
+  height: auto;
+}
+
+/* 适应页面：整页完整落进舞台，不产生滚动。 */
+.comics-reader-stage[data-fit="page"] .comics-reader-scroll img:first-child {
+  width: auto;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.comics-reader-preload {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 翻页点击区：贴舞台左右两缘；日式方向时左右含义对调。 */
+.comics-reader-zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  width: 22%;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  color: #dce5f7;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+.comics-reader-zone.prev {
+  left: 0;
+  justify-content: flex-start;
+  padding-left: 10px;
+}
+
+.comics-reader-zone.next {
+  right: 0;
+  justify-content: flex-end;
+  padding-right: 10px;
+}
+
+.comics-reader-stage[data-direction="rtl"] .comics-reader-zone.prev {
+  left: auto;
+  right: 0;
+  justify-content: flex-end;
+  padding-left: 0;
+  padding-right: 10px;
+}
+
+.comics-reader-stage[data-direction="rtl"] .comics-reader-zone.next {
+  right: auto;
+  left: 0;
+  justify-content: flex-start;
+  padding-right: 0;
+  padding-left: 10px;
+}
+
+.comics-reader-stage:hover .comics-reader-zone:not(:disabled),
+.comics-reader-zone:focus-visible {
+  opacity: 0.85;
+}
+
+.comics-reader-zone.prev .lucide {
+  transform: rotate(180deg);
+}
+
+.comics-reader-stage[data-direction="rtl"] .comics-reader-zone.next .lucide {
+  transform: rotate(180deg);
+}
+
+.comics-reader-zone:disabled {
+  cursor: default;
+}
+
+.comics-reader-page-error {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: 1px solid rgba(227, 152, 158, 0.5);
+  border-radius: var(--radius-md);
+  background: rgba(20, 12, 12, 0.9);
+  color: #e3989e;
+  font-size: 13px;
+  transform: translate(-50%, -50%);
+}
+
+/* 控制区：进度条整行 + 翻页按钮行 + 卷信息。 */
+.comics-reader-controls {
+  display: grid;
+  gap: 6px;
+  padding: 10px 18px 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.comics-reader-seek {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.comics-reader-seek input[type="range"] {
+  flex: 1 1 auto;
+  height: 22px;
+  accent-color: var(--primary-lift);
+  cursor: pointer;
+}
+
+/* 日式方向：进度条随阅读方向镜像（1 页在右）。 */
+.comics-reader-seek.rtl input[type="range"] {
+  direction: rtl;
+}
+
+.comics-reader-page-input {
+  flex: 0 0 58px;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.06);
+  color: #dce5f7;
+  font-size: 13px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.comics-reader-page-input::-webkit-outer-spin-button,
+.comics-reader-page-input::-webkit-inner-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.comics-reader-page-total {
+  flex: 0 0 auto;
+  color: #9fb2d0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.comics-reader-seek-preview {
+  position: absolute;
+  top: -30px;
+  left: 50%;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  background: rgba(123, 138, 255, 0.9);
+  color: #ffffff;
+  font-size: 11px;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.comics-reader-nav {
+  justify-content: center;
+  padding: 0;
+  border-top: 0;
+}
+
+.comics-reader-next-volume {
+  border-color: rgba(123, 138, 255, 0.55) !important;
+  background: rgba(89, 105, 237, 0.22) !important;
+  color: #c9d2ff !important;
+}
+
+.comics-reader-next-volume:hover:not(:disabled) {
+  background: rgba(89, 105, 237, 0.34) !important;
+}
+
+.comics-reader-meta {
+  margin: 0;
+  color: #77879f;
+  font-size: 11px;
+  text-align: center;
+}
+
+.comics-reader-controls .comics-reader-error {
+  margin: 0;
+  color: #e3989e;
+  font-size: 12px;
+  text-align: center;
+}
+
+@media (max-width: 900px) {
+  .comics-reader-bar {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .comics-reader-tools {
+    flex-wrap: wrap;
+    margin-left: 0;
+  }
+
+  .comics-reader-scroll {
+    padding: 12px 40px;
+  }
+}
