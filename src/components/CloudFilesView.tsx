@@ -6,6 +6,8 @@ import {
   type Cloud115FileEntry,
   type Cloud115UploadSession,
 } from "../services/mediaServices";
+import { isTransferActive } from "../services/events";
+import { useTransferEvents, type TransferState } from "../hooks/useTransferEvents";
 import { Icon } from "./Icon";
 import { FileTypeIcon } from "./FileTypeIcon";
 import { FileThumbnail } from "./FileThumbnail";
@@ -70,6 +72,26 @@ function describeTargets(targets: Cloud115FileEntry[]): string {
   return `“${targets[0].name}”、“${targets[1].name}”等 ${targets.length} 项`;
 }
 
+/** 上传按钮的阶段文案：传输中带分片序号，收尾阶段提示正在确认文件。 */
+function uploadStageLabel(uploading: { index: number; total: number }, transfer: TransferState | undefined): string {
+  const base = `正在上传 ${uploading.index}/${uploading.total}`;
+  if (!transfer) return base;
+  if (transfer.stage === "preparing") return `${base} · 准备中`;
+  if (transfer.stage === "finalizing") return `${base} · 正在确认文件`;
+  if (transfer.stage === "transferring" && transfer.totalParts) {
+    const currentPart = Math.min((transfer.completedParts ?? 0) + 1, transfer.totalParts);
+    return `${base} · 第 ${currentPart}/${transfer.totalParts} 片`;
+  }
+  return base;
+}
+
+/** 传输进度专用的字节格式化；0 显示为 0 B 而不是占位符。 */
+function formatTransferBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return "—";
+  if (bytes === 0) return "0 B";
+  return formatBytes(bytes);
+}
+
 /** 115 网盘真实文件浏览页；批量移动/复制的目标策略由 Rust 侧统一校验。 */
 export function CloudFilesView({ account, onRequireLogin, onPlay }: CloudFilesViewProps) {
   const [path, setPath] = useState<FolderPick[]>([{ id: ROOT_ID, name: "115 网盘" }]);
@@ -96,6 +118,16 @@ export function CloudFilesView({ account, onRequireLogin, onPlay }: CloudFilesVi
   const [resumingId, setResumingId] = useState<string | null>(null);
   // 批量操作完成后手动触发列表重载；常规浏览仍走目录/搜索依赖。
   const [reloadNonce, setReloadNonce] = useState(0);
+  // 传输进度事件由全局单例 store 推送；此处仅做最小阶段展示。
+  const transfers = useTransferEvents();
+  /** 当前进行中的上传；上传按顺序逐个提交，同一时刻至多一个。 */
+  const activeUpload = transfers.find(
+    (transfer) => transfer.kind === "upload" && isTransferActive(transfer.stage),
+  );
+  /** 当前进行中的下载；下载动作由 busyAction 串行化，同一时刻至多一个。 */
+  const activeDownload = transfers.find(
+    (transfer) => transfer.kind === "download" && isTransferActive(transfer.stage),
+  );
   const currentFolderId = path[path.length - 1].id;
   const requestKey = `${currentFolderId}\u0000${query.trim()}`;
   const requestKeyRef = useRef(requestKey);
@@ -451,11 +483,11 @@ export function CloudFilesView({ account, onRequireLogin, onPlay }: CloudFilesVi
             <button
               className="primary-action cloud-upload-action"
               disabled={uploading !== null}
-              title={uploading ? `正在上传 ${uploading.name}` : "上传文件到当前目录"}
+              title={uploading ? uploadStageLabel(uploading, activeUpload) : "上传文件到当前目录"}
               onClick={() => void startUpload()}
             >
               <Icon name="upload" size={16} />
-              {uploading ? `正在上传 ${uploading.index}/${uploading.total}` : "上传文件"}
+              {uploading ? uploadStageLabel(uploading, activeUpload) : "上传文件"}
             </button>
             <div className="cloud-files-actions">
               <label className="file-search">
@@ -464,6 +496,25 @@ export function CloudFilesView({ account, onRequireLogin, onPlay }: CloudFilesVi
               </label>
             </div>
           </div>
+
+          {activeDownload && (
+            <div
+              className="cloud-transfer-progress"
+              role="status"
+              aria-label="下载进度"
+              style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, opacity: 0.75, padding: "0 4px" }}
+            >
+              <Icon name="download" size={14} />
+              <strong title={activeDownload.fileName} style={{ fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 280 }}>
+                {activeDownload.fileName}
+              </strong>
+              <span style={{ whiteSpace: "nowrap" }}>
+                {formatTransferBytes(activeDownload.transferredBytes ?? 0)}
+                {activeDownload.totalBytes ? ` / ${formatTransferBytes(activeDownload.totalBytes)}` : ""}
+                {activeDownload.speedBytesPerSec ? ` · ${formatTransferBytes(activeDownload.speedBytesPerSec)}/s` : ""}
+              </span>
+            </div>
+          )}
 
           {pendingSessions.length > 0 && (
             <div className="upload-resume-bar" role="status">
