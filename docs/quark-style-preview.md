@@ -31,6 +31,33 @@ real 115 account.
 - Shared compact headings, controls, borders, and surfaces for AI organization,
   comics, albums, tasks, and settings.
 
+## File-type artwork
+
+The file workspace now uses 14 original, locally bundled SVG designs for
+folders, videos, images, audio, PDF, documents, spreadsheets, presentations,
+archives, subtitles, text, code, e-books/comics, and unknown files. Each design
+uses a 40 × 40 viewBox and keeps a recognizable glyph at the 32 px list size.
+Navigation and action controls continue to use the shared Lucide wrapper.
+
+![File-type artwork at detail and list sizes](screenshots/file-type-icons.png)
+
+![Updated file workspace with the new artwork](screenshots/sirius-file-icons.jpg)
+
+- The canonical artwork is `src/components/FileTypeIcon.tsx`; all colors and
+  gradients are inside each SVG, and React assigns unique IDs per instance.
+- `src/domain/fileTypes.ts` resolves presentation from provider kind and file
+  extension. A folder named `photos.zip` stays a folder; provider-recognized
+  videos/subtitles retain their type. Classification does not enable extra
+  backend actions or change the existing filters.
+- `FileThumbnail` displays real 115 thumbnails, local comic covers, and album
+  images first. A missing or failed image falls back to the same type artwork.
+  An updated URL can load again without repeatedly requesting a failed URL.
+- `thumbUrl` is an optional TypeScript field matching the existing Rust
+  `thumb_url` output; no backend or credential changes are needed.
+- [Individual SVG exports](assets/file-types/) and the
+  [downloadable SVG set](assets/file-type-icons.zip) are derived from the
+  component. The [vector overview](assets/file-type-icons.svg) is also included.
+
 `App.css` retains the existing component styles; `Shell.css` and `Workbench.css`
 apply the updated shell and workspace treatments in that order. This keeps
 the change independent of service and Rust behavior.
@@ -46,6 +73,11 @@ the change independent of service and Rust behavior.
 - A 1200 × 750 hosted render of the file workspace was inspected. This caught
   a wrapped playback label; the action column now reserves enough space and
   playback labels do not wrap.
+- The artwork was inspected at large and 32 px sizes. Filename checks covered
+  uppercase extensions, leading-dot metadata, folders with file-like names,
+  video `.ts` versus source `.ts`, compressed archives, comics, and unknown
+  files. Static review caught and corrected the folder-picker icon slot's
+  inherited flex sizing.
 - Native macOS rendering, interactive browser checks, and live 115 operations
   have not been validated in this environment. The managed preview service
   could not mount `/proc`; the hosted preview requires a signed-in browser.

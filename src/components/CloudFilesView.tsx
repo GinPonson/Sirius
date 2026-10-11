@@ -7,6 +7,9 @@ import {
   type Cloud115UploadSession,
 } from "../services/mediaServices";
 import { Icon } from "./Icon";
+import { FileTypeIcon } from "./FileTypeIcon";
+import { FileThumbnail } from "./FileThumbnail";
+import { getFilePresentation } from "../domain/fileTypes";
 
 type CloudFileFilter = "all" | "folder" | "video" | "subtitle";
 type FolderPick = { id: string; name: string };
@@ -57,11 +60,6 @@ function formatModifiedAt(seconds: number): string {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(seconds * 1000));
-}
-
-/** 将文件类型转换为用户可读标签。 */
-function fileKindLabel(kind: Cloud115FileEntry["kind"]): string {
-  return { folder: "文件夹", video: "视频", subtitle: "字幕", file: "文件" }[kind];
 }
 
 /** 批量对话框中的人读清单：最多展示两个名称，其余折叠为数量。 */
@@ -535,10 +533,14 @@ export function CloudFilesView({ account, onRequireLogin, onPlay }: CloudFilesVi
                   onChange={() => toggleSelected(entry.id)}
                 />
                 <button className="file-name" onClick={() => openFolder(entry)} aria-disabled={entry.kind !== "folder"}>
-                  <span className={`file-kind-icon ${entry.kind}`}><Icon name={entry.kind === "folder" ? "folder" : entry.kind === "video" ? "play" : "history"} size={17} /></span>
+                  <FileThumbnail
+                    kind={getFilePresentation(entry).kind}
+                    src={entry.kind === "folder" ? null : entry.thumbUrl}
+                    size={32}
+                  />
                   <span><strong title={entry.name}>{entry.name}</strong>{entry.children !== null && <small>{entry.children} 个项目</small>}</span>
                 </button>
-                <span className="file-kind-label">{fileKindLabel(entry.kind)}</span>
+                <span className="file-kind-label">{getFilePresentation(entry).label}</span>
                 <span className="file-size">{formatBytes(entry.sizeBytes)}</span>
                 <time>{formatModifiedAt(entry.modifiedAt)}</time>
                 <div className="file-row-actions">
@@ -588,7 +590,7 @@ export function CloudFilesView({ account, onRequireLogin, onPlay }: CloudFilesVi
             <div className="picker-folder-list">
               {picker.loading ? <div className="picker-empty">正在读取文件夹…</div> : picker.entries.length === 0 ? <div className="picker-empty">此目录没有子文件夹</div> : picker.entries.map((entry) => (
                 <button key={entry.id} onClick={() => enterPickerFolder(entry)}>
-                  <Icon name="folder" size={16} />
+                  <span className="picker-folder-icon"><FileTypeIcon kind="folder" size={24} /></span>
                   <span>{entry.name}</span>
                   <Icon name="chevron" size={14} />
                 </button>

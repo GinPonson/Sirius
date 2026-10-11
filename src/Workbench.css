@@ -310,41 +310,6 @@
   font-size: 11px;
 }
 
-.file-kind-icon {
-  width: 30px;
-  height: 30px;
-  border-radius: 6px;
-  background: #eef3fa;
-  color: #83a1c5;
-}
-
-.file-kind-icon.folder {
-  background: transparent;
-  color: #7ab6e6;
-}
-
-.file-kind-icon.folder svg {
-  width: 29px;
-  height: 29px;
-  fill: #bfe1fb;
-  stroke: #7fb9e5;
-}
-
-.file-kind-icon.video {
-  background: #eff0ff;
-  color: #8c89d6;
-}
-
-.file-kind-icon.subtitle {
-  background: #eef6ff;
-  color: #7caddb;
-}
-
-.file-kind-icon.file {
-  background: #f2f5f8;
-  color: #94a4b7;
-}
-
 .file-kind-label,
 .file-size,
 .file-row time {
@@ -782,9 +747,13 @@
   width: 460px;
 }
 
-.picker-folder-list button > svg:first-child {
-  fill: #c6e5fb;
-  color: #91c2e7;
+.picker-folder-list button > .picker-folder-icon {
+  display: inline-flex;
+  width: 24px;
+  flex: 0 0 24px;
+  overflow: visible;
+  align-items: center;
+  justify-content: center;
 }
 
 .cloud-operation-dialog > .picker-folder-list {

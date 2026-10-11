@@ -6,6 +6,7 @@ import {
   type AlbumPhoto,
 } from "../services/albumsServices";
 import { Cloud115Service, type Cloud115FileEntry } from "../services/mediaServices";
+import { FileThumbnail } from "./FileThumbnail";
 import { Icon } from "./Icon";
 
 const albumsService = new AlbumsService();
@@ -322,17 +323,12 @@ export function AlbumsView() {
                               className="albums-photo-row"
                               onClick={() => void openPreview(visiblePhotos, photoIndex)}
                             >
-                              {photo.thumbUrl ? (
-                                <img
-                                  className="albums-photo-thumb"
-                                  src={photo.thumbUrl}
-                                  alt=""
-                                  referrerPolicy="no-referrer"
-                                  loading="lazy"
-                                />
-                              ) : (
-                                <span className="albums-photo-icon"><Icon name="images" size={15} /></span>
-                              )}
+                              <FileThumbnail
+                                src={photo.thumbUrl}
+                                kind="image"
+                                size={34}
+                                iconSize={30}
+                              />
                               <span className="albums-photo-name">{photo.name}</span>
                               <time>{new Date(photo.takenAt * 1000).toLocaleDateString("zh-CN")}</time>
                               <small>{formatBytes(photo.sizeBytes)}</small>
@@ -365,19 +361,12 @@ export function AlbumsView() {
                       if (next) setTab("timeline");
                     }}
                   >
-                    {album.coverUrl ? (
-                      <img
-                        className="albums-cover"
-                        src={album.coverUrl}
-                        alt=""
-                        referrerPolicy="no-referrer"
-                        loading="lazy"
-                      />
-                    ) : (
-                      <span className="albums-cover-fallback" aria-hidden="true">
-                        <Icon name="images" size={20} />
-                      </span>
-                    )}
+                    <FileThumbnail
+                      src={album.coverUrl}
+                      kind="image"
+                      iconSize={64}
+                      className="album-cover-thumbnail"
+                    />
                     <strong>{album.folderName}</strong>
                     <small>{album.photoCount} 张照片</small>
                   </button>
