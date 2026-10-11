@@ -89,6 +89,14 @@
 | 设计 token 与玻璃基座 | 已完成 | `npm run build` 通过；grep 确认 #858b94/95/858C9B 归零；浅色/暗色基准截图 `docs/screenshots/wave-f-checkpoint-*.png` | 2026-10-11 | Shell.css `:root` 唯一 token 区（颜色/间距/圆角/阴影/动效/玻璃），App.css/Workbench.css 全量消费；muted #666e7d（白底 5.13:1）；`.glass-panel` 玻璃只给顶栏/侧栏/对话框/批量栏/播放条五个固定层并带 reduced-transparency 回退；`:root[data-theme="dark"]` 暗色全量 token；`.cloud-file-pane` 容器查询基座（不能挂 .app-content：contain 会破坏 fixed 后代定位，已注释说明） |
 | 浏览器冒烟夹具扩展 | 已完成 | `npm run build` 通过；Node 测试台 22 项断言通过；53/53 服务命令全覆盖 | 2026-10-11 | dev-mock 升级为有状态内存文件系统（移动/复制/删除/建目录/回收站真实变更列表）、复刻 Tauri v2 事件投递路径模拟 `transfer://progress`、上传预置中断会话、`?theme=dark` 暗色预览、未覆盖命令 console.warn |
 
+## 2026-10-11 界面优化第三批：窗口结构与 AI 对话
+
+| 功能点 | 状态 | 验证 | 日期 | 说明 |
+| --- | --- | --- | --- | --- |
+| 窗口结构升级（侧栏双态/影视收拢/历史栈/统一搜索） | 已完成 | `npm run build` 通过；mock 浏览器走查 10 项（截图 `docs/screenshots/wp-g1/`，含暗色与持久化） | 2026-10-11 | 侧栏 80px ↔ 208px 双态（localStorage 持久化，弹簧过渡）；首页/媒体库/发现收拢为「影视」内部切换；轻量历史栈（{section, mediaId} 快照、50 条上限）覆盖主视图与详情进出；新建 TopBar 组件收拢前进/后退、范围搜索（影视=影视库、文件=当前目录）、⌘K；漫画/相册无搜索能力不显示搜索框 |
+| AI 多轮流式对话通道（Rust） | 已完成 | `cargo fmt/clippy(-D warnings)/test` 通过（69 项离线测试，新增 18 项）；前端对接见 G3 | 2026-10-11 | 迁移 `ai_chat_sessions`/`ai_chat_messages`（幂等）；`ai_chat.rs` SSE 字节级解码（跨 chunk 保 UTF-8）、协作式停止（保留部分回复与终态）、temperature 0.4 普通文本流；6 命令 create/send/stop/sessions_list/history/delete；`ai://chat-token` 事件；上下文随消息存档（32KiB 上限） |
+| AI 气泡对话面板与整理方案卡 | 已完成 | `npm run build` 通过；浏览器六项自查（17 张截图 `docs/screenshots/wp-g3/`：流式、方案卡全流程、切页提示、覆盖式面板、会话管理、暗色） | 2026-10-11 | 右下角玻璃气泡入口 → 380–420px 停靠面板（内容区 <640px ResizeObserver 切覆盖）；页面上下文注册（文件页完整接入，切页分隔提示，快照随消息存档）；方案卡=可勾选对照表+展开检查+确认执行（Rust 二次校验不变量保持）+结果卡；输入 IME 组词守卫、停止/重新生成；AI 整理独立页移除，入口迁移至气泡；dev-mock 补六命令与流模拟 |
+
 ## 后续阶段
 
 产品定位为**仅个人使用**（用户 2026-09-05 决策）：Developer ID 签名与公证不再执行（第 9 组核对清单跳过）；adhoc 签名的本地 release 包可直接使用。剩余唯一待办：用授权 115 账号登录应用，按 `docs/manual-verification.md` 第 1–8 组核对清单执行远程流程验证并回填结果（凭据请勿经对话传递）。
