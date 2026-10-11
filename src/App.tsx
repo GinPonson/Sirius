@@ -8,7 +8,7 @@ import perfectDaysStill from "./assets/watch-stills/perfect-days-street.jpg";
 import severanceStill from "./assets/watch-stills/severance-office.jpg";
 import { Icon } from "./components/Icon";
 import { AlbumsView } from "./components/AlbumsView";
-import { AiOrganizeView } from "./components/AiOrganizeView";
+import { AiChatPanel } from "./components/AiChatPanel";
 import { CloudFilesView } from "./components/CloudFilesView";
 import { ComicsView } from "./components/ComicsView";
 import {
@@ -27,6 +27,7 @@ import type {
   MediaItem,
   PlaybackSnapshot,
 } from "./domain/media";
+import { registerAppPageContext, notifyPageContextChanged } from "./domain/pageContext";
 import {
   AppSettingsService,
   Cloud115Service,
@@ -124,6 +125,9 @@ function App() {
       return true;
     }
   });
+  // AI 对话面板：开合与停靠/覆盖形态由应用壳持有；消息与当前会话由常驻面板自身保留。
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [aiPanelOverlay, setAiPanelOverlay] = useState(false);
   const lastProgressSaveAt = useRef(0);
   // 顶栏文件搜索：查询词由应用壳持有并下发到网盘文件页，防抖仍留在该页。
   const [fileQuery, setFileQuery] = useState("");
@@ -157,6 +161,35 @@ function App() {
       // 存储不可用时保持内存态即可。
     }
   }, [sidebarExpanded]);
+
+  // 应用层兜底页面上下文：视图未注册更细上下文时（影视/漫画/相册等），
+  // AI 面板仍能取到当前页面与页内作用域；文件页由 CloudFilesView 覆盖。
+  useEffect(() => {
+    registerAppPageContext(() => {
+      if (isVideoSection(section)) {
+        return selectedMedia
+          ? { page: section, scope: "影视", detail: selectedMedia.title }
+          : { page: section, scope: "影视", detail: VIDEO_MODES.find((mode) => mode.id === section)?.label };
+      }
+      if (section === "cloud-files") {
+        return { page: "cloud-files", scope: "网盘文件" };
+      }
+      const scopes: Partial<Record<AppSection, string>> = {
+        comics: "漫画",
+        albums: "相册",
+        tasks: "整理任务",
+        settings: "设置",
+      };
+      const scope = scopes[section];
+      return scope ? { page: section, scope } : null;
+    });
+    // 分区切换会换掉兜底上下文；通知面板刷新当前上下文标签。
+    notifyPageContextChanged();
+    return () => {
+      registerAppPageContext(null);
+      notifyPageContextChanged();
+    };
+  }, [section, selectedMedia]);
 
   useEffect(() => {
     let active = true;
@@ -548,7 +581,12 @@ function App() {
   const accountName = cloudProfile?.userName || cloudAccount.userName || "115 用户";
 
   return (
-    <div className="app-frame" data-sidebar-expanded={sidebarExpanded ? "true" : "false"}>
+    <div
+      className="app-frame"
+      data-sidebar-expanded={sidebarExpanded ? "true" : "false"}
+      data-ai-panel={aiPanelOpen ? "open" : "closed"}
+      data-ai-overlay={aiPanelOverlay ? "true" : "false"}
+    >
       <Sidebar
         active={activeNavId(section)}
         expanded={sidebarExpanded}
@@ -639,8 +677,6 @@ function App() {
           <AlbumsView />
         ) : section === "tasks" ? (
           <TasksView tasks={tasks} scanning={scanning} onScan={scanDirectory} />
-        ) : section === "ai-organize" ? (
-          <AiOrganizeView />
         ) : section === "cloud-files" ? (
           <CloudFilesView
             account={cloudAccount}
@@ -660,6 +696,13 @@ function App() {
           />
         )}
       </main>
+
+      <AiChatPanel
+        open={aiPanelOpen}
+        onToggle={() => setAiPanelOpen((value) => !value)}
+        onOverlayChange={setAiPanelOverlay}
+        playing={snapshot.initialized && playingMedia !== null}
+      />
 
       {snapshot.initialized && playingMedia && (
         <aside className="now-playing" aria-label="当前播放">
@@ -721,7 +764,6 @@ function sectionTitle(section: AppSection): string {
     albums: "相册",
     "cloud-files": "网盘文件",
     tasks: "整理任务",
-    "ai-organize": "AI 整理",
     settings: "设置",
   }[section];
 }
