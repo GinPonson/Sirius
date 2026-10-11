@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlbumsService,
   type AlbumFolderInput,
@@ -57,6 +57,8 @@ export function AlbumsView() {
   const [dialog, setDialog] = useState<DialogState>(null);
   const [busyOp, setBusyOp] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** 大图请求序号：每次发起新请求或翻页都会自增，用于丢弃迟到到达的旧响应。 */
+  const requestSeqRef = useRef(0);
 
   useEffect(() => {
     let active = true;
@@ -117,9 +119,17 @@ export function AlbumsView() {
     }
   }
 
-  const visibleMonths = (shelf?.months ?? []).filter(
-    (month) => !albumFilter || month.photos.some((photo) => photo.folderId === albumFilter),
-  );
+  /** 按当前专辑逐张过滤后的时间线视图；未选专辑时直接复用原索引数组，选中的月份才保留。 */
+  const visibleMonths = useMemo(() => {
+    const months = shelf?.months ?? [];
+    if (!albumFilter) return months;
+    return months
+      .map((month) => {
+        const photos = month.photos.filter((photo) => photo.folderId === albumFilter);
+        return { ...month, photoCount: photos.length, photos };
+      })
+      .filter((month) => month.photos.length > 0);
+  }, [shelf, albumFilter]);
   const visiblePhotos = visibleMonths.flatMap((month) => month.photos);
   const visibleAlbums = albumFilter
     ? (shelf?.albums ?? []).filter((album) => album.folderId === albumFilter)
@@ -131,20 +141,18 @@ export function AlbumsView() {
   /** 打开预览：先显示缩略图，后台解析原图直链并在加载成功后切换。 */
   async function openPreview(photos: AlbumPhoto[], index: number) {
     const photo = photos[index];
+    const seq = ++requestSeqRef.current;
     setReader({ photos, index, fullUrl: null, fullFailed: false });
     try {
       const source = await cloud115.downloadSource(photo.pickCode);
+      // 响应到达时若序号已被新请求或翻页推进，说明已切换照片，直接丢弃本次结果。
       setReader((current) =>
-        current && current.photos[index]?.fileId === photo.fileId
-          ? { ...current, fullUrl: source.url }
-          : current,
+        current && requestSeqRef.current === seq ? { ...current, fullUrl: source.url } : current,
       );
     } catch {
       // 直链解析失败时保留缩略图预览，不打断浏览。
       setReader((current) =>
-        current && current.photos[index]?.fileId === photo.fileId
-          ? { ...current, fullFailed: true }
-          : current,
+        current && requestSeqRef.current === seq ? { ...current, fullFailed: true } : current,
       );
     }
   }
@@ -154,6 +162,8 @@ export function AlbumsView() {
       if (!current) return current;
       const next = Math.min(Math.max(0, current.index + delta), current.photos.length - 1);
       if (next === current.index) return current;
+      // 翻页同样推进序号：旧照片仍在途的原图响应到达后会因序号变化被丢弃。
+      requestSeqRef.current += 1;
       void openPreview(current.photos, next);
       return { ...current, index: next, fullUrl: null, fullFailed: false };
     });
