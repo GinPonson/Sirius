@@ -683,6 +683,8 @@ async fn execute_plan_with_provider<P: ExecutionProvider>(
                             None => provider.create_folder(folder_id, &target_name).await.map(
                                 |folder| {
                                     created_folders.insert(target_name.clone(), folder.id.clone());
+                                    // 只统计本次执行真实新建的文件夹；复用快照目录或本轮已建目录不重复计数。
+                                    report.created_folders += 1;
                                     folder.id
                                 },
                             ),
@@ -1057,6 +1059,8 @@ mod tests {
                 .unwrap();
             assert_eq!(report.executed, 0);
             assert_eq!(report.failed, 1);
+            // 文件夹创建失败时不得计入新建数量。
+            assert_eq!(report.created_folders, 0);
             assert_eq!(report.details[0].status, "failed");
             assert!(report.details[0].detail.contains("准备目标文件夹失败"));
             assert!(report.details[0].detail.contains("创建文件夹失败"));
@@ -1134,6 +1138,7 @@ mod tests {
                 entry("f2", "旅行.jpg", "file"),
                 entry("f3", "未完成.doc", "file"),
                 entry("f4", "raw_clip.mov", "video"),
+                entry("f6", "微距虫鸣.wav", "file"),
                 entry("d1", "已归档", "folder"),
             ]);
             provider
@@ -1150,6 +1155,8 @@ mod tests {
                 ),
                 // 成功：移动并现场新建目标文件夹。
                 execution_item("f4", "raw_clip.mov", AiPlanAction::Move, "", "旅行视频"),
+                // 成功：移动复用本轮已新建的同名目标文件夹。
+                execution_item("f6", "微距虫鸣.wav", AiPlanAction::Move, "", "旅行视频"),
                 // 成功：删除到回收站。
                 execution_item("f2", "旅行.jpg", AiPlanAction::Delete, "", ""),
                 // 失败：provider 删除失败。
@@ -1162,11 +1169,13 @@ mod tests {
             let report = execute_plan_with_provider(&provider, &request)
                 .await
                 .unwrap();
-            assert_eq!(report.executed, 3);
+            assert_eq!(report.executed, 4);
             assert_eq!(report.failed, 2);
             assert_eq!(report.skipped, 1);
             assert_eq!(report.deleted_to_recycle_bin, 1);
-            assert_eq!(report.details.len(), 6);
+            // 两次移动共用同一个新建文件夹；去重复用不得重复计数。
+            assert_eq!(report.created_folders, 1);
+            assert_eq!(report.details.len(), 7);
             let statuses: Vec<&str> = report
                 .details
                 .iter()
@@ -1174,10 +1183,10 @@ mod tests {
                 .collect();
             assert_eq!(
                 statuses,
-                vec!["done", "done", "done", "failed", "failed", "skipped"]
+                vec!["done", "done", "done", "done", "failed", "failed", "skipped"]
             );
-            assert!(report.details[3].detail.contains("删除失败"));
-            assert!(report.details[4].detail.contains("文件已不在该目录"));
+            assert!(report.details[4].detail.contains("删除失败"));
+            assert!(report.details[5].detail.contains("文件已不在该目录"));
             assert_failed_count_matches_details(&report);
         });
     }
