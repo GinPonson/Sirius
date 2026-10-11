@@ -8,6 +8,7 @@ import {
 } from "../services/mediaServices";
 import { isTransferActive } from "../services/events";
 import { useTransferEvents, type TransferState } from "../hooks/useTransferEvents";
+import { registerViewPageContext, notifyPageContextChanged, type AiPageContext } from "../domain/pageContext";
 import { Icon } from "./Icon";
 import { FileTypeIcon } from "./FileTypeIcon";
 import { FileThumbnail } from "./FileThumbnail";
@@ -172,6 +173,30 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
     () => entries.filter((entry) => selectedIds.has(entry.id)),
     [entries, selectedIds],
   );
+
+  // AI 对话面板的页面上下文：目录、选择与加载进度随渲染更新；注册一次，读取引用取最新值。
+  const pageContextRef = useRef<AiPageContext | null>(null);
+  pageContextRef.current = !account?.connected ? null : {
+    page: "cloud-files",
+    scope: "网盘文件",
+    detail: path.length > 1 ? path.slice(1).map((item) => item.name).join(" / ") : undefined,
+    selection: selectedEntries.slice(0, 8).map((entry) => entry.name),
+    selectedCount: selectedIds.size,
+    query: query.trim() || undefined,
+    loaded: `${entries.length} / ${total}`,
+    folderId: currentFolderId,
+    folderName: path[path.length - 1].name,
+  };
+
+  useEffect(() => {
+    registerViewPageContext(() => pageContextRef.current);
+    return () => registerViewPageContext(null);
+  }, []);
+
+  // 上下文随渲染更新（目录、选择、加载进度）；通知 AI 面板刷新当前上下文标签。
+  useEffect(() => {
+    notifyPageContextChanged();
+  });
 
   /** 查询 SQLite 中未完成的 multipart 会话；仅在登录状态下有意义。 */
   function refreshUploadSessions() {
