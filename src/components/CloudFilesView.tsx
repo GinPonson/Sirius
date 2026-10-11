@@ -7,6 +7,9 @@ import {
   type Cloud115UploadSession,
 } from "../services/mediaServices";
 import { Icon } from "./Icon";
+import { FileTypeIcon } from "./FileTypeIcon";
+import { FileThumbnail } from "./FileThumbnail";
+import { getFilePresentation } from "../domain/fileTypes";
 
 type CloudFileFilter = "all" | "folder" | "video" | "subtitle";
 type FolderPick = { id: string; name: string };
@@ -57,11 +60,6 @@ function formatModifiedAt(seconds: number): string {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(seconds * 1000));
-}
-
-/** 将文件类型转换为用户可读标签。 */
-function fileKindLabel(kind: Cloud115FileEntry["kind"]): string {
-  return { folder: "文件夹", video: "视频", subtitle: "字幕", file: "文件" }[kind];
 }
 
 /** 批量对话框中的人读清单：最多展示两个名称，其余折叠为数量。 */
@@ -437,38 +435,24 @@ export function CloudFilesView({ account, onRequireLogin, onPlay }: CloudFilesVi
 
   return (
     <section className="page-section cloud-files-view">
-      <div className="cloud-status-strip">
-        <span><i />{account.userName ? `${account.userName} · 已连接` : "115 已连接"}</span>
-        <span>{total} 个项目</span>
-        <button onClick={onRequireLogin}>账号</button>
-      </div>
-
       {error && <div className="cloud-inline-error" role="alert">{error}</div>}
       {notice && <div className="cloud-action-notice" role="status"><Icon name="check" size={14} />{notice}<button aria-label="关闭提示" onClick={() => setNotice(null)}><Icon name="close" size={13} /></button></div>}
 
       <div className="cloud-file-pane">
           <div className="cloud-files-toolbar">
-            <nav className="file-breadcrumbs" aria-label="当前网盘路径">
-              {path.map((item, index) => (
-                <span key={item.id}>
-                  {index > 0 && <Icon name="chevron" size={13} />}
-                  <button className={index === path.length - 1 ? "active" : ""} onClick={() => navigateToPath(index)}>{item.name}</button>
-                </span>
-              ))}
-            </nav>
+            <button
+              className="primary-action cloud-upload-action"
+              disabled={uploading !== null}
+              title={uploading ? `正在上传 ${uploading.name}` : "上传文件到当前目录"}
+              onClick={() => void startUpload()}
+            >
+              <Icon name="upload" size={16} />
+              {uploading ? `正在上传 ${uploading.index}/${uploading.total}` : "上传文件"}
+            </button>
             <div className="cloud-files-actions">
-              <button
-                className="secondary-action"
-                disabled={uploading !== null}
-                title={uploading ? `正在上传 ${uploading.name}` : "上传文件到当前目录"}
-                onClick={() => void startUpload()}
-              >
-                <Icon name="upload" size={15} />
-                {uploading ? `正在上传 ${uploading.index}/${uploading.total}` : "上传"}
-              </button>
               <label className="file-search">
                 <Icon name="search" size={15} />
-                <input value={query} placeholder="搜索当前目录" onChange={(event) => setQuery(event.currentTarget.value)} />
+                <input aria-label="搜索当前目录" value={query} placeholder="搜索当前目录" onChange={(event) => setQuery(event.currentTarget.value)} />
               </label>
             </div>
           </div>
@@ -495,12 +479,22 @@ export function CloudFilesView({ account, onRequireLogin, onPlay }: CloudFilesVi
           )}
 
           <div className="file-filter-row">
-            <div className="segmented-control" aria-label="文件类型筛选">
-              {([ ["all", "全部"], ["folder", "文件夹"], ["video", "视频"], ["subtitle", "字幕"] ] as const).map(([value, label]) => (
-                <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}</button>
+            <nav className="file-breadcrumbs" aria-label="当前网盘路径">
+              {path.map((item, index) => (
+                <span key={item.id}>
+                  {index > 0 && <Icon name="chevron" size={13} />}
+                  <button className={index === path.length - 1 ? "active" : ""} onClick={() => navigateToPath(index)}>{item.name}</button>
+                </span>
               ))}
+            </nav>
+            <div className="cloud-filter-options">
+              <div className="segmented-control" aria-label="文件类型筛选">
+                {([ ["all", "全部"], ["folder", "文件夹"], ["video", "视频"], ["subtitle", "字幕"] ] as const).map(([value, label]) => (
+                  <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}</button>
+                ))}
+              </div>
+              <span>{visibleEntries.length} / {total} 个项目</span>
             </div>
-            <span>{visibleEntries.length} / {total} 个项目</span>
           </div>
 
           {selectedIds.size > 0 && (
@@ -529,8 +523,8 @@ export function CloudFilesView({ account, onRequireLogin, onPlay }: CloudFilesVi
               />
               <span role="columnheader">名称</span><span role="columnheader">类型</span><span role="columnheader">大小</span><span role="columnheader">修改时间</span><span aria-hidden="true" />
             </div>
-            {loading ? <FileRowsSkeleton /> : visibleEntries.length > 0 ? visibleEntries.map((entry, index) => (
-              <div className="file-row" role="row" key={entry.id} style={{ "--file-index": index } as React.CSSProperties}>
+            {loading ? <FileRowsSkeleton /> : visibleEntries.length > 0 ? visibleEntries.map((entry) => (
+              <div className={`file-row${selectedIds.has(entry.id) ? " selected" : ""}`} role="row" key={entry.id}>
                 <input
                   type="checkbox"
                   className="file-check"
@@ -539,10 +533,14 @@ export function CloudFilesView({ account, onRequireLogin, onPlay }: CloudFilesVi
                   onChange={() => toggleSelected(entry.id)}
                 />
                 <button className="file-name" onClick={() => openFolder(entry)} aria-disabled={entry.kind !== "folder"}>
-                  <span className={`file-kind-icon ${entry.kind}`}><Icon name={entry.kind === "folder" ? "folder" : entry.kind === "video" ? "play" : "history"} size={17} /></span>
-                  <span><strong>{entry.name}</strong>{entry.children !== null && <small>{entry.children} 个项目</small>}</span>
+                  <FileThumbnail
+                    kind={getFilePresentation(entry).kind}
+                    src={entry.kind === "folder" ? null : entry.thumbUrl}
+                    size={32}
+                  />
+                  <span><strong title={entry.name}>{entry.name}</strong>{entry.children !== null && <small>{entry.children} 个项目</small>}</span>
                 </button>
-                <span className="file-kind-label">{fileKindLabel(entry.kind)}</span>
+                <span className="file-kind-label">{getFilePresentation(entry).label}</span>
                 <span className="file-size">{formatBytes(entry.sizeBytes)}</span>
                 <time>{formatModifiedAt(entry.modifiedAt)}</time>
                 <div className="file-row-actions">
@@ -568,6 +566,12 @@ export function CloudFilesView({ account, onRequireLogin, onPlay }: CloudFilesVi
         
       </div>
 
+      <div className="cloud-status-strip">
+        <span><i />{account.userName ? `${account.userName} · 已连接` : "115 已连接"}</span>
+        <span>{total} 个项目</span>
+        <button onClick={onRequireLogin}>管理账号</button>
+      </div>
+
       {renameEntry && <div className="cloud-operation-backdrop" onPointerDown={(event) => event.target === event.currentTarget && !busyAction && setRenameEntry(null)}><form className="cloud-operation-dialog" onSubmit={(event) => { event.preventDefault(); void submitRename(); }}><strong>重命名</strong><span>为“{renameEntry.name}”输入新名称</span><input autoFocus value={renameValue} onChange={(event) => setRenameValue(event.currentTarget.value)} /><div><button type="button" className="secondary-action" disabled={busyAction} onClick={() => setRenameEntry(null)}>取消</button><button type="submit" className="primary-action" disabled={busyAction || !renameValue.trim()}>保存</button></div></form></div>}
       {deleteTargets.length > 0 && <div className="cloud-operation-backdrop" onPointerDown={(event) => event.target === event.currentTarget && !busyAction && setDeleteTargets([])}><section className="cloud-operation-dialog"><strong>{deleteTargets.length === 1 ? "移入回收站？" : `移入回收站 ${deleteTargets.length} 项？`}</strong><span>{describeTargets(deleteTargets)}将从当前目录移除，可稍后在回收站恢复。</span><div><button className="secondary-action" disabled={busyAction} onClick={() => setDeleteTargets([])}>取消</button><button className="danger-action" disabled={busyAction} onClick={() => void confirmDelete()}>{busyAction ? "正在删除" : "删除"}</button></div></section></div>}
       {picker && (
@@ -586,7 +590,7 @@ export function CloudFilesView({ account, onRequireLogin, onPlay }: CloudFilesVi
             <div className="picker-folder-list">
               {picker.loading ? <div className="picker-empty">正在读取文件夹…</div> : picker.entries.length === 0 ? <div className="picker-empty">此目录没有子文件夹</div> : picker.entries.map((entry) => (
                 <button key={entry.id} onClick={() => enterPickerFolder(entry)}>
-                  <Icon name="folder" size={16} />
+                  <span className="picker-folder-icon"><FileTypeIcon kind="folder" size={24} /></span>
                   <span>{entry.name}</span>
                   <Icon name="chevron" size={14} />
                 </button>

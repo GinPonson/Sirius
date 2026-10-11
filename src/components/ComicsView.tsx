@@ -7,6 +7,8 @@ import {
   type ComicsVolume,
 } from "../services/comicsServices";
 import { Cloud115Service, type Cloud115FileEntry } from "../services/mediaServices";
+import { FileThumbnail } from "./FileThumbnail";
+import { FileTypeIcon } from "./FileTypeIcon";
 import { Icon } from "./Icon";
 
 const comicsService = new ComicsService();
@@ -216,11 +218,13 @@ export function ComicsView() {
                       aria-expanded={openTitle === group.title}
                       onClick={() => setOpenTitle(openTitle === group.title ? null : group.title)}
                     >
-                      {cover ? (
-                        <img className="comics-cover" src={convertFileSrc(cover)} alt="" />
-                      ) : (
-                        <span className="comics-spine" aria-hidden="true" />
-                      )}
+                      <FileThumbnail
+                        src={cover ? convertFileSrc(cover) : null}
+                        kind="ebook"
+                        size={44}
+                        iconSize={40}
+                        className="comic-cover-thumbnail"
+                      />
                       <div>
                         <strong>{group.title}</strong>
                         <small>
@@ -233,7 +237,10 @@ export function ComicsView() {
                       <ul className="comics-volumes">
                         {group.volumes.map((volume) => (
                           <li key={volume.fileId}>
-                            <span>{volume.name}</span>
+                            <span className="comics-volume-name">
+                              <FileTypeIcon kind="ebook" size={24} />
+                              <span>{volume.name}</span>
+                            </span>
                             <div className="comics-volume-actions">
                               <small>{formatBytes(volume.sizeBytes)}</small>
                               {isReaderSupported(volume.name) && (

@@ -1,0 +1,9 @@
+/* 颜色与形状都在 SVG 内部，样式仅负责在列表、网格中的排版。 */
+.file-type-icon {
+  display: block;
+  flex: 0 0 auto;
+  overflow: visible;
+  vertical-align: middle;
+  pointer-events: none;
+  shape-rendering: geometricPrecision;
+}

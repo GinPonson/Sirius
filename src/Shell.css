@@ -1,0 +1,422 @@
+/* Sirius 桌面壳层：轻量工具栏、窄导航与白色内容区。 */
+:root {
+  --primary: #5969ed;
+  --muted: #858c9b;
+  --hairline: #edf0f5;
+  --text-section: 18px;
+  --text-display: 28px;
+  --shell-rail-width: 80px;
+  --shell-header-height: 64px;
+  color: #303540;
+  background: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+.app-frame {
+  min-height: 100vh;
+  background: #fff;
+}
+
+.app-sidebar {
+  z-index: 6;
+  display: flex;
+  width: var(--shell-rail-width);
+  padding: 0 10px 14px;
+  flex-direction: column;
+  border-right: 1px solid #edf0f7;
+  background: linear-gradient(180deg, #eef0ff 0, #f7f9fe 100px, #f8faff 100%);
+  backdrop-filter: none;
+  box-shadow: none;
+}
+
+.sidebar-brand {
+  min-height: 88px;
+  padding: 18px 0 14px;
+  flex: 0 0 auto;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+}
+
+.sidebar-brand .brand-mark {
+  width: 31px;
+  height: 31px;
+  border: 1px solid rgba(255, 255, 255, .9);
+  border-radius: 11px;
+  background: linear-gradient(145deg, #7384ff, #5364df);
+  color: #fff;
+  font-size: 20px;
+  font-weight: 700;
+  box-shadow: 0 3px 8px rgba(91, 106, 210, .12);
+}
+
+.sidebar-brand strong {
+  color: #626b8a;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .04em;
+}
+
+.app-sidebar nav {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 16px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #dfe4f1 transparent;
+}
+
+.app-sidebar .nav-group {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 5px;
+}
+
+.app-sidebar .nav-group + .nav-group {
+  position: relative;
+  padding-top: 16px;
+}
+
+.app-sidebar .nav-group + .nav-group::before {
+  position: absolute;
+  top: 0;
+  left: 17px;
+  right: 17px;
+  height: 1px;
+  background: #e6eaf3;
+  content: "";
+}
+
+.app-sidebar .nav-item {
+  position: relative;
+  display: flex;
+  height: 56px;
+  padding: 8px 2px;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 5px;
+  border-radius: 10px;
+  color: #7b8394;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
+  transition: color .15s ease, background .15s ease;
+}
+
+.app-sidebar .nav-item::after {
+  content: none;
+}
+
+.app-sidebar .nav-item:hover {
+  background: #edf1fa;
+  color: #505d80;
+}
+
+.app-sidebar .nav-item.active {
+  background: #e9edff;
+  color: #5366e8;
+  font-weight: 500;
+}
+
+.app-sidebar .nav-item.active svg {
+  stroke-width: 1.9px;
+}
+
+.app-sidebar .nav-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border: 1px solid #f8faff;
+  border-radius: 7px;
+  background: #e68380;
+  color: #fff;
+  font-size: 9px;
+  line-height: 12px;
+}
+
+.sidebar-footer {
+  padding-top: 12px;
+  flex: 0 0 auto;
+}
+
+.app-content {
+  min-height: 100vh;
+  margin-left: var(--shell-rail-width);
+  padding: calc(var(--shell-header-height) + 24px) 32px 96px;
+  background: #fff;
+}
+
+.topbar.shell-topbar {
+  position: fixed;
+  inset: 0 0 auto var(--shell-rail-width);
+  z-index: 5;
+  display: flex;
+  height: var(--shell-header-height);
+  gap: 24px;
+  margin: 0;
+  padding: 0 28px 0 32px;
+  border-bottom: 1px solid #eff1f7;
+  background: linear-gradient(110deg, #eff0ff 0%, #f1f7fe 57%, #f1fafa 100%);
+  backdrop-filter: none;
+}
+
+.shell-heading {
+  display: flex;
+  min-width: 150px;
+  flex: 1 1 0;
+  align-items: center;
+  gap: 14px;
+  overflow: hidden;
+}
+
+.shell-app-name {
+  color: #495271;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -.02em;
+}
+
+.shell-title-divider {
+  width: 1px;
+  height: 13px;
+  flex: 0 0 auto;
+  background: #d8deed;
+}
+
+.shell-topbar h1 {
+  min-width: 0;
+  overflow: hidden;
+  color: #7a8398;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell-media-search {
+  display: flex;
+  width: min(360px, 34vw);
+  height: 33px;
+  flex: 0 1 360px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid #e4e9f3;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .72);
+  color: #9aa4b7;
+  transition: background .15s ease, border-color .15s ease;
+}
+
+.shell-media-search:focus-within {
+  border-color: #b7c2f8;
+  background: #fff;
+  box-shadow: 0 0 0 2px rgba(89, 105, 237, .07);
+}
+
+.shell-media-search input {
+  width: 100%;
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: #404b62;
+  font-size: 12px;
+}
+
+.shell-media-search input::placeholder {
+  color: #a1a9b8;
+}
+
+.shell-media-search kbd {
+  color: #a5adbd;
+  font-family: inherit;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.shell-media-search button {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #929dae;
+  cursor: pointer;
+}
+
+.shell-media-search button:hover {
+  background: #edf0f8;
+}
+
+.shell-account-area {
+  display: flex;
+  min-width: 0;
+  flex: 1 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 22px;
+}
+
+.shell-storage {
+  display: flex;
+  min-width: 96px;
+  flex-direction: column;
+  gap: 6px;
+  color: #66718a;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.shell-storage > span > span {
+  color: #9ca6b7;
+}
+
+.shell-storage-meter {
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: #e0e8f2;
+}
+
+.shell-storage-meter i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #8997ee, #a7bef5);
+}
+
+.shell-account-button {
+  display: flex;
+  min-width: 0;
+  height: 38px;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 5px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #6a758a;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.shell-account-button:hover {
+  border-color: rgba(205, 216, 234, .8);
+  background: rgba(255, 255, 255, .65);
+}
+
+.shell-account-avatar {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  place-items: center;
+  border: 1px solid #dce5f4;
+  border-radius: 50%;
+  background: #e9f0fc;
+  color: #91a2c8;
+}
+
+.shell-account-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.shell-account-name {
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell-account-button > svg {
+  transform: rotate(90deg);
+}
+
+.app-frame .now-playing {
+  left: calc(var(--shell-rail-width) + 24px);
+  border-radius: 10px;
+  box-shadow: 0 4px 22px rgba(59, 77, 111, .08);
+}
+
+/* 详情仍使用原返回和播放逻辑，只对齐新增固定工具栏。 */
+.app-content .detail-page {
+  margin: -24px -32px -96px;
+}
+
+.app-content .detail-sticky-header {
+  top: var(--shell-header-height);
+}
+
+@media (max-width: 1040px) {
+  .app-content {
+    padding-right: 24px;
+    padding-left: 24px;
+  }
+
+  .topbar.shell-topbar {
+    gap: 16px;
+    padding-right: 20px;
+    padding-left: 24px;
+  }
+
+  .shell-heading {
+    min-width: 120px;
+    gap: 10px;
+  }
+
+  .shell-account-area {
+    gap: 14px;
+  }
+
+  .shell-account-name {
+    max-width: 72px;
+  }
+
+  .app-content .detail-page {
+    margin-right: -24px;
+    margin-left: -24px;
+  }
+}
+
+@media (max-height: 760px) {
+  .sidebar-brand {
+    min-height: 76px;
+    padding-top: 12px;
+  }
+
+  .app-sidebar .nav-item {
+    height: 49px;
+    gap: 4px;
+  }
+
+  .app-sidebar nav {
+    gap: 10px;
+  }
+
+  .app-sidebar .nav-group + .nav-group {
+    padding-top: 10px;
+  }
+
+  .sidebar-footer {
+    padding-top: 8px;
+  }
+}

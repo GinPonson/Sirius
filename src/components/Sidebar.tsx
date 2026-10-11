@@ -1,16 +1,10 @@
 import type { AppSection } from "../domain/media";
-import type { Cloud115AccountStatus, Cloud115UserProfile } from "../services/mediaServices";
 import { Icon } from "./Icon";
 
 type SidebarProps = {
   active: AppSection;
   taskCount: number;
-  query: string;
-  onQueryChange: (query: string) => void;
   onNavigate: (section: AppSection) => void;
-  cloudAccount: Cloud115AccountStatus | null;
-  cloudProfile: Cloud115UserProfile | null;
-  onAccountClick: () => void;
 };
 
 const NAVIGATION: Array<{
@@ -43,48 +37,32 @@ const NAVIGATION: Array<{
 export function Sidebar({
   active,
   taskCount,
-  query,
-  onQueryChange,
   onNavigate,
-  cloudAccount,
-  cloudProfile,
-  onAccountClick,
 }: SidebarProps) {
   return (
-    <aside className="app-sidebar">
-      <div className="window-drag-region" data-tauri-drag-region />
-      <div className="sidebar-brand">
-        <span className="brand-mark">S</span>
-        <div>
-          <strong>Sirius</strong>
-          <small>115 第三方客户端</small>
-        </div>
+    <aside className="app-sidebar" aria-label="Sirius 功能导航">
+      <div className="sidebar-brand" data-tauri-drag-region>
+        <span className="brand-mark" aria-hidden="true" data-tauri-drag-region>S</span>
+        <strong data-tauri-drag-region>Sirius</strong>
       </div>
-
-      <label className="sidebar-search">
-        <Icon name="search" size={16} />
-        <input
-          value={query}
-          placeholder="搜索影片"
-          onChange={(event) => onQueryChange(event.currentTarget.value)}
-        />
-        <kbd>⌘ K</kbd>
-      </label>
 
       <nav aria-label="主导航">
         {(["workspace", "content"] as const).map((group) => (
-          <div className="nav-group" key={group}>
-            <span className="nav-group-label">{group === "workspace" ? "工作区" : "内容"}</span>
-            {NAVIGATION.filter((item) => item.group === group).map((item) => (
+          <div className="nav-group" key={group} role="group" aria-label={group === "workspace" ? "工作区" : "内容"}>
+            {NAVIGATION.filter((item) => item.group === group && item.id !== "settings").map((item) => (
               <button
                 key={item.id}
+                type="button"
                 className={active === item.id ? "nav-item active" : "nav-item"}
+                aria-current={active === item.id ? "page" : undefined}
+                aria-label={item.id === "tasks" && taskCount > 0 ? `${item.label}，${taskCount} 项需要处理` : item.label}
+                title={item.label}
                 onClick={() => onNavigate(item.id)}
               >
-                <Icon name={item.icon} />
+                <Icon name={item.icon} size={20} />
                 <span>{item.label}</span>
                 {item.id === "tasks" && taskCount > 0 && (
-                  <span className="nav-badge">{taskCount}</span>
+                  <span className="nav-badge" aria-hidden="true">{taskCount > 99 ? "99+" : taskCount}</span>
                 )}
               </button>
             ))}
@@ -92,20 +70,18 @@ export function Sidebar({
         ))}
       </nav>
 
-      <button className="source-summary account-summary" onClick={onAccountClick}>
-        <div className="source-icon">
-          {cloudAccount?.connected && cloudProfile?.avatarUrl ? (
-            <img src={cloudProfile.avatarUrl} alt="" referrerPolicy="no-referrer" />
-          ) : (
-            <Icon name={cloudAccount?.connected ? "home" : "cloud"} size={16} />
-          )}
-        </div>
-        <div>
-          <strong>{cloudAccount?.connected ? cloudAccount.userName || "115 用户" : "登录 115"}</strong>
-          <small>{cloudAccount?.connected ? "账号已连接" : "点击扫码登录"}</small>
-        </div>
-        <Icon name="chevron" size={13} />
-      </button>
+      <div className="sidebar-footer">
+        <button
+          type="button"
+          className={active === "settings" ? "nav-item active" : "nav-item"}
+          aria-current={active === "settings" ? "page" : undefined}
+          title="设置"
+          onClick={() => onNavigate("settings")}
+        >
+          <Icon name="settings" size={20} />
+          <span>设置</span>
+        </button>
+      </div>
     </aside>
   );
 }
