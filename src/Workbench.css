@@ -2353,5 +2353,312 @@
 
   .comics-reader-scroll {
     padding: 12px 40px;
+   相册模式展示升级（时间线沉浸）：缩略图网格 + 三档密度、月份吸顶、
+   年月柱图导航、专辑「更多」菜单与分类空状态（DESIGN.md §16 modes.albums）。
+   仅追加相册区块；网格列数走容器查询 —— albums-body 上声明 container-type，
+   该容器内没有 fixed 后代（预览遮罩与操作对话框均渲染在它之外），
+   遵守 Shell.css §0.3 对 contain 派生包含块的约束。
+   ========================================================================== */
+.albums-body {
+  container-type: inline-size;
+  container-name: albums-pane;
+  min-width: 0;
+}
+
+/* 密度三档：只换网格列宽与间距变量，数据口径不变 */
+.albums-body[data-density="comfort"] { --albums-tile-min: 200px; --albums-grid-gap: 14px; }
+.albums-body[data-density="standard"] { --albums-tile-min: 152px; --albums-grid-gap: 10px; }
+.albums-body[data-density="compact"] { --albums-tile-min: 116px; --albums-grid-gap: 8px; }
+
+.albums-timeline-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 20px;
+  align-items: start;
+}
+
+/* 月份吸顶：贴住固定顶栏下缘；scroll-margin-top 吸收顶栏与吸头条自身的遮挡 */
+.albums-month {
+  scroll-margin-top: calc(var(--shell-header-height) + 72px);
+}
+
+.albums-month-head {
+  position: sticky;
+  top: calc(var(--shell-header-height) + 8px);
+  z-index: 2;
+  background: var(--surface-sunken);
+  box-shadow: var(--shadow-1);
+}
+
+/* 照片缩略图墙：列数随容器宽度自适应，密度档只调列宽下限 */
+.albums-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--albums-tile-min, 152px), 1fr));
+  gap: var(--albums-grid-gap, 10px);
+  margin-top: 12px;
+}
+
+.albums-photo-tile {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.albums-photo-tile:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* FileThumbnail 撑满图块：真实缩略图 cover 铺满，缺图回退类型图标居中 */
+.file-thumbnail.albums-tile-thumb {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+}
+
+.file-thumbnail.albums-tile-thumb.has-image {
+  background: var(--surface-active);
+  box-shadow: none;
+}
+
+.file-thumbnail.albums-tile-thumb > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform var(--duration-panel) var(--ease-spring);
+}
+
+.albums-photo-tile:hover .file-thumbnail.albums-tile-thumb > img {
+  transform: scale(1.03);
+}
+
+/* 图块元数据：自下而上遮罩 + 白字（DESIGN.md §14 影像遮罩规则） */
+.albums-tile-meta {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: grid;
+  gap: 1px;
+  padding: 22px 9px 7px;
+  background: linear-gradient(to top, rgba(8, 12, 18, 0.72), transparent);
+  color: rgba(255, 255, 255, 0.94);
+  opacity: 0;
+  text-align: left;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+  pointer-events: none;
+}
+
+.albums-photo-tile:hover .albums-tile-meta,
+.albums-photo-tile:focus-visible .albums-tile-meta {
+  opacity: 1;
+}
+
+.albums-tile-name {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 520;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.albums-tile-meta time {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 压缩档图块过小，悬停元数据反而遮挡，直接省去 */
+.albums-body[data-density="compact"] .albums-tile-meta {
+  display: none;
+}
+
+/* —— 年月柱图导航（手写 SVG，柱高与当月照片数成正比） —— */
+.albums-month-nav {
+  position: sticky;
+  top: calc(var(--shell-header-height) + 8px);
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  max-height: calc(100vh - var(--shell-header-height) - 40px);
+  padding: 10px 7px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.albums-month-nav-bars {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--hairline-strong) transparent;
+}
+
+.albums-month-nav button {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  padding: 3px 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+}
+
+.albums-month-nav button:hover {
+  background: var(--surface-hover);
+}
+
+.albums-month-nav button span {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.albums-month-nav button:hover rect {
+  fill: var(--primary-ink);
+}
+
+.albums-month-nav button.active span {
+  color: var(--primary-ink);
+  font-weight: 600;
+}
+
+.albums-month-nav button.active rect {
+  fill: var(--primary);
+}
+
+.albums-month-nav-note {
+  max-width: 92px;
+  margin: 0;
+  color: var(--fg-disabled);
+  font-size: 10px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+/* —— 工具行：视图切换 + 统计 + 密度 —— */
+.albums-toolbar-side {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* —— 选中专辑条：整理操作收进「更多」菜单 —— */
+.albums-actions-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.albums-more-wrap {
+  position: relative;
+}
+
+.albums-more {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 11px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.albums-more:hover,
+.albums-more[aria-expanded="true"] {
+  border-color: var(--hairline-strong);
+  color: var(--primary-ink);
+}
+
+.albums-more-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 5;
+  display: grid;
+  min-width: 168px;
+  padding: 5px;
+  border: 1px solid var(--frosted-border);
+  border-radius: var(--radius-md);
+  background: var(--surface-elevated);
+  box-shadow: var(--shadow-2);
+}
+
+.albums-more-menu button {
+  display: flex;
+  height: 32px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+  font-size: 12px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.albums-more-menu button:hover:not(:disabled) {
+  border: 0;
+  background: var(--surface-hover);
+  color: var(--fg);
+}
+
+.albums-more-menu button.danger {
+  color: var(--danger-ink);
+}
+
+.albums-more-menu button.danger:hover:not(:disabled) {
+  background: var(--danger-soft);
+}
+
+/* —— 分类空状态 —— */
+.albums-empty-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+/* —— 容器查询：置于区块末尾，匹配时按级联覆盖上方同权重的基底规则 ——
+   窄内容列：列宽下限抬到 40%，压缩档也不会出现不可辨识的小图 */
+@container albums-pane (max-width: 560px) {
+  .albums-photo-grid {
+    grid-template-columns: repeat(auto-fill, minmax(max(var(--albums-tile-min, 152px), 40%), 1fr));
+  }
+}
+
+/* 容器过窄时收起右侧柱图导航，时间线独占整列 */
+@container albums-pane (max-width: 720px) {
+  .albums-timeline-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .albums-month-nav {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .albums-photo-tile .albums-tile-meta,
+  .file-thumbnail.albums-tile-thumb > img,
+  .albums-month-nav rect {
+    transition: none;
   }
 }
