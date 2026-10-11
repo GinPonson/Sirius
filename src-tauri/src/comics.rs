@@ -424,12 +424,14 @@ pub async fn open_volume(
 
     if !archive_ready {
         // 未下载：走断点续传下载（磁盘满、签名过期等错误显式返回，保留 .sirius-part 进度）。
+        // 漫画缓存属于内部取数，不进入任务中心进度事件，回调传 None。
         provider
             .download_file(
                 &input.pick_code,
                 &volume_dir.to_string_lossy(),
                 &archive_name,
                 input.size_bytes,
+                None,
             )
             .await?;
     }

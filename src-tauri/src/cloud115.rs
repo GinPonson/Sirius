@@ -1,4 +1,8 @@
 use crate::library::{LibraryRepository, UploadPartState, UploadSession};
+use crate::transfer::{
+    speed_bytes_per_sec, DownloadProgressGate, ProgressCallback, TransferReporter, TransferStage,
+    TransferUpdate,
+};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use hmac::{Hmac, Mac};
 use qrcode::{render::svg, QrCode};
@@ -608,6 +612,7 @@ impl Cloud115Provider {
         credentials: &Cloud115UploadCredentials,
         init: &Cloud115UploadInit,
         bytes: Vec<u8>,
+        progress: &TransferReporter,
     ) -> Result<(), String> {
         if init.status != 1
             || init.bucket.is_empty()
@@ -616,6 +621,15 @@ impl Cloud115Provider {
         {
             return Err("115 上传初始化结果不支持 OSS PUT".to_string());
         }
+        // 单对象 PUT 无法观测请求内进度，发射一次 transferring 让界面进入传输态。
+        progress.report(
+            TransferStage::Transferring,
+            TransferUpdate {
+                transferred_bytes: Some(0),
+                total_bytes: Some(bytes.len() as u64),
+                ..TransferUpdate::default()
+            },
+        );
         let response = self
             .oss_request(
                 credentials,
@@ -643,6 +657,7 @@ impl Cloud115Provider {
         source: &Path,
         file_size: u64,
         persistence: Option<(&LibraryRepository, UploadSessionSeed<'_>)>,
+        progress: &TransferReporter,
     ) -> Result<(), String> {
         if file_size == 0 {
             return Err("OSS multipart 文件大小必须大于零".to_string());
@@ -698,9 +713,22 @@ impl Cloud115Provider {
             repository.save_upload_session(session)?;
         }
 
+        let total_parts = file_size.div_ceil(MULTIPART_PART_BYTES);
+        // 传输开始先发一次 0 分片进度，让界面在首个 20 MiB 分片完成前就能进入传输态。
+        progress.report(
+            TransferStage::Transferring,
+            TransferUpdate {
+                completed_parts: Some(0),
+                total_parts: Some(total_parts),
+                transferred_bytes: Some(0),
+                total_bytes: Some(file_size),
+                speed_bytes_per_sec: None,
+            },
+        );
+        let mut last_progress = Some((Instant::now(), 0_u64));
+
         let workflow = async {
             let mut parts = Vec::new();
-            let total_parts = file_size.div_ceil(MULTIPART_PART_BYTES);
             for part_number in 1..=total_parts {
                 let offset = (part_number - 1) * MULTIPART_PART_BYTES;
                 let length = std::cmp::min(MULTIPART_PART_BYTES, file_size - offset) as usize;
@@ -746,6 +774,14 @@ impl Cloud115Provider {
                             });
                             repository.save_upload_session(session)?;
                         }
+                        report_multipart_progress(
+                            progress,
+                            part_number,
+                            total_parts,
+                            file_size,
+                            MULTIPART_PART_BYTES,
+                            &mut last_progress,
+                        );
                         last_error = None;
                         break;
                     }
@@ -759,6 +795,18 @@ impl Cloud115Provider {
                 }
             }
 
+            // 最后一个分片完成后、发起 CompleteMultipartUpload 前进入 finalizing；
+            // 收到 115 回调成功（workflow 返回 Ok）后由命令层补发 done。
+            progress.report(
+                TransferStage::Finalizing,
+                TransferUpdate {
+                    completed_parts: Some(total_parts),
+                    total_parts: Some(total_parts),
+                    transferred_bytes: Some(file_size),
+                    total_bytes: Some(file_size),
+                    speed_bytes_per_sec: None,
+                },
+            );
             let complete_body = complete_multipart_xml(&parts).into_bytes();
             let query = oss_query(&[("uploadId", upload_id.clone())]);
             let complete = self
@@ -901,6 +949,7 @@ impl Cloud115Provider {
         credentials: &Cloud115UploadCredentials,
         init: &Cloud115UploadInit,
         source: &Path,
+        progress: &TransferReporter,
     ) -> Result<Cloud115UploadResult, String> {
         if init.bucket != session.bucket || init.object_key != session.object_key {
             return Err("115 resume 返回的 OSS 目标与持久化会话不一致".to_string());
@@ -911,15 +960,30 @@ impl Cloud115Provider {
         session.status = "uploading".to_string();
         repository.save_upload_session(&session)?;
 
+        let part_size = usize::try_from(session.part_size)
+            .map_err(|_| "持久化分片大小超出当前平台范围".to_string())?;
+        let total_parts = session.file_size.div_ceil(part_size as u64);
+        let resumed_parts = session.completed_parts.len() as u64;
+        let resumed_bytes = std::cmp::min(resumed_parts * part_size as u64, session.file_size);
+        // 恢复路径先上报已完成分片基数，让界面从真实进度开始展示。
+        progress.report(
+            TransferStage::Transferring,
+            TransferUpdate {
+                completed_parts: Some(resumed_parts),
+                total_parts: Some(total_parts),
+                transferred_bytes: Some(resumed_bytes),
+                total_bytes: Some(session.file_size),
+                speed_bytes_per_sec: None,
+            },
+        );
+        let mut last_progress = Some((Instant::now(), resumed_bytes));
+
         let workflow = async {
-            let part_size = usize::try_from(session.part_size)
-                .map_err(|_| "持久化分片大小超出当前平台范围".to_string())?;
             let mut parts = session
                 .completed_parts
                 .iter()
                 .map(|part| (part.number as usize, part.etag.clone()))
                 .collect::<Vec<_>>();
-            let total_parts = session.file_size.div_ceil(part_size as u64);
             for part_number in 1..=total_parts {
                 let part_number_usize = part_number as usize;
                 if parts.iter().any(|(number, _)| *number == part_number_usize) {
@@ -970,6 +1034,14 @@ impl Cloud115Provider {
                             })
                             .collect();
                         repository.save_upload_session(&session)?;
+                        report_multipart_progress(
+                            progress,
+                            part_number,
+                            total_parts,
+                            session.file_size,
+                            part_size as u64,
+                            &mut last_progress,
+                        );
                         last_error = None;
                         break;
                     }
@@ -983,6 +1055,17 @@ impl Cloud115Provider {
                 }
             }
 
+            // 与全新上传一致：补齐剩余分片后进入 finalizing，由命令层在成功后补发 done。
+            progress.report(
+                TransferStage::Finalizing,
+                TransferUpdate {
+                    completed_parts: Some(total_parts),
+                    total_parts: Some(total_parts),
+                    transferred_bytes: Some(session.file_size),
+                    total_bytes: Some(session.file_size),
+                    speed_bytes_per_sec: None,
+                },
+            );
             let query = oss_query(&[("uploadId", session.upload_id.clone())]);
             let complete = self
                 .oss_request(
@@ -1030,14 +1113,33 @@ impl Cloud115Provider {
     }
 
     /// 校验本地文件未变化后，从磁盘流式恢复持久化 multipart 会话；文件大小不再有 64 MiB 上限。
+    /// 进度经 `on_progress` 回调上报，离线测试与不关心进度的调用方可传 `None`。
     pub async fn resume_upload_session(
         &self,
         repository: &LibraryRepository,
         session: UploadSession,
+        on_progress: Option<ProgressCallback>,
     ) -> Result<Cloud115UploadResult, String> {
         let source = PathBuf::from(&session.local_path);
+        let reporter = TransferReporter::upload(on_progress, &source);
+        let result = self
+            .resume_upload_with_progress(repository, session, &source, &reporter)
+            .await;
+        reporter.finish(result.is_ok());
+        result
+    }
+
+    /// 恢复上传的具体流程；终态事件由外层 `resume_upload_session` 统一补发。
+    async fn resume_upload_with_progress(
+        &self,
+        repository: &LibraryRepository,
+        session: UploadSession,
+        source: &Path,
+        reporter: &TransferReporter,
+    ) -> Result<Cloud115UploadResult, String> {
+        reporter.report(TransferStage::Preparing, TransferUpdate::default());
         let (file_sha1, pre_sha1, file_size) = tokio::task::spawn_blocking({
-            let source = source.clone();
+            let source = source.to_path_buf();
             move || compute_upload_digests(&source)
         })
         .await
@@ -1050,24 +1152,45 @@ impl Cloud115Provider {
         }
         let init = self.resume_upload_metadata(&session).await?;
         let credentials = self.upload_credentials().await?;
-        self.resume_oss_multipart(repository, session, &credentials, &init, &source)
+        self.resume_oss_multipart(repository, session, &credentials, &init, source, reporter)
             .await
     }
 
     /// 从磁盘流式上传本地文件：≤20 MiB 走单对象 PUT，更大的文件走 multipart 并持久化会话。
     /// SHA1 与分块均按需从磁盘读取，文件大小不再有 64 MiB 上限。
+    /// 进度经 `on_progress` 回调上报，离线测试与不关心进度的调用方可传 `None`。
     pub async fn upload_file_from_disk(
         &self,
         repository: &LibraryRepository,
         local_path: &str,
         target_id: &str,
+        on_progress: Option<ProgressCallback>,
     ) -> Result<Cloud115UploadResult, String> {
         let source = PathBuf::from(local_path);
         if !source.is_absolute() {
             return Err("上传源文件必须使用绝对路径".to_string());
         }
+        let reporter = TransferReporter::upload(on_progress, &source);
+        let result = self
+            .upload_with_progress(repository, local_path, &source, target_id, &reporter)
+            .await;
+        reporter.finish(result.is_ok());
+        result
+    }
+
+    /// 上传的具体流程；终态事件由外层 `upload_file_from_disk` 统一补发。
+    async fn upload_with_progress(
+        &self,
+        repository: &LibraryRepository,
+        local_path: &str,
+        source: &Path,
+        target_id: &str,
+        reporter: &TransferReporter,
+    ) -> Result<Cloud115UploadResult, String> {
+        // preparing：上传启动即上报，覆盖摘要计算与 115 预传调度阶段。
+        reporter.report(TransferStage::Preparing, TransferUpdate::default());
         let (file_name, file_sha1, pre_sha1, file_size) = {
-            let digest_source = source.clone();
+            let digest_source = source.to_path_buf();
             tokio::task::spawn_blocking(move || {
                 let file_name = digest_source
                     .file_name()
@@ -1090,7 +1213,7 @@ impl Cloud115Provider {
         if matches!(init.status, 6..=8) {
             let (start, end) = parse_sign_check_range(&init.sign_check, file_size as usize)?;
             let sign_val = {
-                let range_source = source.clone();
+                let range_source = source.to_path_buf();
                 let range = tokio::task::spawn_blocking(move || {
                     read_file_range(&range_source, start as u64, end - start + 1)
                 })
@@ -1131,18 +1254,21 @@ impl Cloud115Provider {
                     self.put_oss_multipart(
                         &credentials,
                         &init,
-                        &source,
+                        source,
                         file_size,
                         Some((repository, seed)),
+                        reporter,
                     )
                     .await?;
                 } else {
+                    let range_source = source.to_path_buf();
                     let bytes = tokio::task::spawn_blocking(move || {
-                        read_file_range(&source, 0, file_size as usize)
+                        read_file_range(&range_source, 0, file_size as usize)
                     })
                     .await
                     .map_err(|error| format!("上传文件读取线程异常终止：{error}"))??;
-                    self.put_oss_object(&credentials, &init, bytes).await?;
+                    self.put_oss_object(&credentials, &init, bytes, reporter)
+                        .await?;
                 }
                 Ok(Cloud115UploadResult {
                     file_name,
@@ -1363,12 +1489,14 @@ impl Cloud115Provider {
 
     /// 将文件下载到本地目录。存在 `.sirius-part` 临时文件时按 Range 续传；
     /// 401/403 时重新解析一次下载地址；成功后原子重命名，失败保留临时文件供重试。
+    /// 进度经 `on_progress` 回调限频上报，离线测试与不关心进度的调用方可传 `None`。
     pub async fn download_file(
         &self,
         pick_code: &str,
         target_dir: &str,
         file_name: &str,
         expected_size_bytes: u64,
+        on_progress: Option<ProgressCallback>,
     ) -> Result<Cloud115DownloadResult, String> {
         if pick_code.trim().is_empty() {
             return Err("115 文件缺少 pick_code，无法下载".to_string());
@@ -1378,7 +1506,24 @@ impl Cloud115Provider {
         if !dir.is_absolute() {
             return Err("下载目标目录必须使用绝对路径".to_string());
         }
-        let final_path = dir.join(&safe_name);
+        let reporter = TransferReporter::download(on_progress, &safe_name);
+        let result = self
+            .download_with_progress(pick_code, &dir, &safe_name, expected_size_bytes, &reporter)
+            .await;
+        reporter.finish(result.is_ok());
+        result
+    }
+
+    /// 下载的具体流程；终态事件由外层 `download_file` 统一补发。
+    async fn download_with_progress(
+        &self,
+        pick_code: &str,
+        dir: &Path,
+        safe_name: &str,
+        expected_size_bytes: u64,
+        reporter: &TransferReporter,
+    ) -> Result<Cloud115DownloadResult, String> {
+        let final_path = dir.join(safe_name);
         let temp_path = dir.join(format!("{safe_name}.sirius-part"));
         match tokio::fs::metadata(&final_path).await {
             Ok(_) => return Err(format!("目标位置已存在同名文件：{}", final_path.display())),
@@ -1394,13 +1539,23 @@ impl Cloud115Provider {
         if expected_size_bytes > 0 && offset > expected_size_bytes {
             return Err("本地下载临时文件大于远端文件大小，已停止以避免数据损坏".to_string());
         }
-
+        // preparing：本地检查完成后上报；续传时携带已有的字节基数。
+        reporter.report(
+            TransferStage::Preparing,
+            download_progress_update(offset, expected_size_bytes),
+        );
+        let mut gate = DownloadProgressGate::new();
         let mut refreshed = false;
         loop {
             if expected_size_bytes > 0 && offset == expected_size_bytes {
+                // 临时文件已完整：补发一次终态前进度再落盘。
+                reporter.report(
+                    TransferStage::Transferring,
+                    download_progress_update(offset, expected_size_bytes),
+                );
                 Self::finalize_download(&temp_path, &final_path).await?;
                 return Ok(Cloud115DownloadResult {
-                    file_name: safe_name,
+                    file_name: safe_name.to_string(),
                     saved_path: final_path.to_string_lossy().into_owned(),
                     size_bytes: offset,
                     resumed_bytes: 0,
@@ -1467,6 +1622,14 @@ impl Cloud115Provider {
                     return Err(format!("写入本地文件失败：{error}"));
                 }
                 received += chunk.len() as u64;
+                // 限频上报：每 200ms 或每 1 MiB 至多一次，速度按上次发射以来的差值估算。
+                if let Some(emission) = gate.admit(Instant::now(), received, false) {
+                    reporter.report(
+                        TransferStage::Transferring,
+                        download_progress_update(emission.transferred_bytes, expected_size_bytes)
+                            .with_speed(emission.speed_bytes_per_sec),
+                    );
+                }
             }
             sink.flush()
                 .await
@@ -1478,9 +1641,17 @@ impl Cloud115Provider {
                     "下载数据不完整（{received}/{expected_size_bytes} 字节）；进度已保留，重新下载将从断点继续"
                 ));
             }
+            // 传输结束必发一次最终进度，避免限频吞掉最后一段字节。
+            if let Some(emission) = gate.admit(Instant::now(), received, true) {
+                reporter.report(
+                    TransferStage::Transferring,
+                    download_progress_update(emission.transferred_bytes, expected_size_bytes)
+                        .with_speed(emission.speed_bytes_per_sec),
+                );
+            }
             Self::finalize_download(&temp_path, &final_path).await?;
             return Ok(Cloud115DownloadResult {
-                file_name: safe_name,
+                file_name: safe_name.to_string(),
                 saved_path: final_path.to_string_lossy().into_owned(),
                 size_bytes: received,
                 resumed_bytes: offset,
@@ -2393,6 +2564,43 @@ fn is_subtitle_extension(extension: &str) -> bool {
     matches!(extension, "srt" | "ass" | "ssa" | "vtt" | "sub")
 }
 
+/// 组装下载进度数值；远端大小未知时省略 total_bytes。
+fn download_progress_update(transferred_bytes: u64, expected_size_bytes: u64) -> TransferUpdate {
+    TransferUpdate {
+        transferred_bytes: Some(transferred_bytes),
+        total_bytes: (expected_size_bytes > 0).then_some(expected_size_bytes),
+        ..TransferUpdate::default()
+    }
+}
+
+/// 在一个 multipart 分片完成后上报 transferring；速度按上次上报以来的字节差与耗时估算。
+fn report_multipart_progress(
+    progress: &TransferReporter,
+    completed_parts: u64,
+    total_parts: u64,
+    file_size: u64,
+    part_size: u64,
+    last_progress: &mut Option<(Instant, u64)>,
+) {
+    let transferred = std::cmp::min(completed_parts * part_size, file_size);
+    let speed = match last_progress.replace((Instant::now(), transferred)) {
+        Some((last_at, last_bytes)) => {
+            speed_bytes_per_sec(transferred.saturating_sub(last_bytes), last_at.elapsed())
+        }
+        None => None,
+    };
+    progress.report(
+        TransferStage::Transferring,
+        TransferUpdate {
+            completed_parts: Some(completed_parts),
+            total_parts: Some(total_parts),
+            transferred_bytes: Some(transferred),
+            total_bytes: Some(file_size),
+            speed_bytes_per_sec: speed,
+        },
+    );
+}
+
 /// 开发构建会频繁改变二进制签名，使用权限为 0600 的用户临时文件避免钥匙串反复询问。
 #[cfg(debug_assertions)]
 fn load_tokens() -> Result<Option<OAuthTokens>, String> {
@@ -2949,7 +3157,12 @@ mod tests {
                 }
                 let credentials = provider.upload_credentials().await?;
                 provider
-                    .put_oss_object(&credentials, &init, bytes.clone())
+                    .put_oss_object(
+                        &credentials,
+                        &init,
+                        bytes.clone(),
+                        &TransferReporter::upload(None, Path::new(&file_name)),
+                    )
                     .await?;
                 for _ in 0..12 {
                     let page = provider.list_files(&folder.id, 0, 100, "").await?;
@@ -3013,7 +3226,14 @@ mod tests {
                 }
                 let credentials = provider.upload_credentials().await?;
                 provider
-                    .put_oss_multipart(&credentials, &init, &local_path, bytes.len() as u64, None)
+                    .put_oss_multipart(
+                        &credentials,
+                        &init,
+                        &local_path,
+                        bytes.len() as u64,
+                        None,
+                        &TransferReporter::upload(None, &local_path),
+                    )
                     .await?;
                 for _ in 0..60 {
                     let page = provider.list_files(&folder.id, 0, 100, "").await?;
@@ -3150,7 +3370,9 @@ mod tests {
                     status: "paused".to_string(),
                 };
                 repository.save_upload_session(&session)?;
-                provider.resume_upload_session(&repository, session).await?;
+                provider
+                    .resume_upload_session(&repository, session, None)
+                    .await?;
                 for _ in 0..40 {
                     let page = provider.list_files(&folder.id, 0, 100, "").await?;
                     if page.entries.iter().any(|entry| entry.name == file_name) {
