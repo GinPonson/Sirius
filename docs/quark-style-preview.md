@@ -4,6 +4,20 @@ This revision follows the light desktop-client visual direction shown on
 [Quark Drive's official site](https://pan.quark.cn/), while retaining Sirius
 branding and its existing 115 workflows.
 
+## Preview comparison
+
+These are actual 1200 × 750 renders of the browser frontend using the same
+repository-provided demo data. They do not show a native macOS window or a
+real 115 account.
+
+### Updated workspace
+
+![Quark-inspired Sirius file workspace](screenshots/sirius-quark-after.jpg)
+
+### Previous workspace
+
+![Previous Sirius file workspace](screenshots/sirius-before.jpg)
+
 ## Changes
 
 - 80 px navigation rail with all nine existing sections, active-page semantics,
