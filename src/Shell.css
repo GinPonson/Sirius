@@ -3,7 +3,8 @@
    §0 DESIGN TOKENS —— 全应用唯一 token 定义区
    App.css / Workbench.css 只消费变量，不得重复定义（跨文件去重的唯一来源）。
    对齐 DESIGN.md（Google Stitch 格式）：主色 #5969ed、8 步间距梯、三档阴影、
-   弹簧动效。玻璃分级、暗色 token 组与容器查询基座由下一提交接入。
+   弹簧动效、分级玻璃。暗色模式由后续夹具在根元素设 data-theme="dark"，
+   CSS 只响应属性选择器。
    ========================================================================== */
 :root {
   color-scheme: light;
@@ -122,6 +123,110 @@
   -webkit-font-smoothing: antialiased;
 }
 
+/* ============================================================================
+   §0.1 暗色 token 组 —— 夹具设 html[data-theme="dark"] 后生效
+   画布 #101318 系、卡片 #191d25 系、正文 #f1f4f8、次级 #a6afbd（8.4:1）。
+   暗色玻璃提高底色不透明度（0.86 > 浅色 0.82）；主色/危险色实底不变（白字
+   对比保持 4.5+/5.5），作为文本时改用提亮的 *-ink 变体。
+   ========================================================================== */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --primary: #5969ed;
+  --primary-hover: #6b7af1;
+  --primary-ink: #a3adfc;         /* 暗底 8.8:1 */
+  --primary-lift: #8f9cff;
+  --on-primary: #ffffff;
+  --primary-soft: rgba(163, 173, 252, 0.16);
+  --primary-tint: rgba(89, 105, 237, 0.22);
+
+  --fg: #f1f4f8;
+  --muted: #a6afbd;
+  --fg-disabled: #566070;
+
+  --bg: #101318;
+  --canvas: #101318;
+  --surface: #191d25;
+  --surface-hover: #20252f;
+  --surface-active: #262c37;
+  --surface-sunken: #1a1f28;
+  --surface-elevated: #1d222c;
+  --surface-stone: #22202a;
+
+  --hairline: #2a303c;
+  --hairline-strong: #3d4454;
+
+  --frosted-bg: rgba(23, 27, 35, 0.86);
+  --frosted-border: rgba(255, 255, 255, 0.12);
+  --frosted-highlight: rgba(255, 255, 255, 0.10);
+  --scrim-bg: rgba(0, 0, 0, 0.50);
+
+  --status-ready: #3ecf8e;
+  --status-ready-glow: rgba(89, 212, 153, 0.22);
+  --success: #2eb872;
+  --success-ink: #6fdd9a;
+  --success-soft: rgba(89, 212, 153, 0.14);
+  --danger: #c5302a;
+  --danger-ink: #ff8a8f;
+  --danger-soft: rgba(197, 48, 42, 0.18);
+  --warn: #d9a514;
+  --warn-ink: #f2c94c;
+  --warn-soft: rgba(181, 136, 0, 0.16);
+
+  --stage-thinking-bg: rgba(223, 168, 143, 0.22);
+  --stage-thinking-ink: #d99a76;
+  --stage-searching-bg: rgba(159, 201, 162, 0.22);
+  --stage-searching-ink: #7fbf8a;
+  --stage-reading-bg: rgba(159, 187, 224, 0.22);
+  --stage-reading-ink: #7fa9dc;
+  --stage-editing-bg: rgba(192, 168, 221, 0.22);
+  --stage-editing-ink: #a98cd0;
+
+  --key-bg-start: #262b35;
+  --key-bg-end: #20242e;
+  --key-border: #3a4150;
+
+  --shadow-1: 0 1px 4px rgba(0, 0, 0, 0.40);
+  --shadow-2: 0 4px 14px rgba(0, 0, 0, 0.45);
+  --shadow-2-hover: 0 10px 22px rgba(0, 0, 0, 0.55);
+  --shadow-3: 0 8px 32px rgba(0, 0, 0, 0.55);
+}
+
+/* ============================================================================
+   §0.2 玻璃分级 .glass-panel —— 仅固定层（导航/顶栏/浮层/批量栏/播放条）
+   内容层（文件列表/表格/表单）不得使用 backdrop-filter。
+   TSX 无法在本 WP 加类名，故以选择器组等效应用；后续可直接挂 .glass-panel。
+   prefers-reduced-transparency 回退见 Workbench.css 末尾（级联最后生效）。
+   ========================================================================== */
+.glass-panel,
+.topbar.shell-topbar,
+.app-sidebar,
+.detail-sticky-header,
+.cloud-account-modal,
+.cloud-operation-dialog,
+.file-batch-bar,
+.albums-actions,
+.now-playing,
+.file-action-menu,
+.cloud-app-picker {
+  background: var(--frosted-bg);
+  -webkit-backdrop-filter: var(--frosted-blur);
+  backdrop-filter: var(--frosted-blur);
+  border-color: var(--frosted-border);
+}
+
+/* ============================================================================
+   §0.3 容器查询基座 —— 本 WP 只铺基础，@container 重排留给后续 WP
+   注意：container-type 派生 contain: layout，会使本元素成为 fixed 后代的包含
+   块；因此不能挂在 .app-content / .page-section 上（内部有 fixed 顶栏与对话框
+   遮罩），挂在没有 fixed 后代的文件工作台主列上。后续用法示例：
+   @container content-pane (min-width: 960px) { .file-table-head { ... } }
+   ========================================================================== */
+.cloud-file-pane {
+  container-type: inline-size;
+  container-name: content-pane;
+}
+
 .app-frame {
   min-height: 100vh;
   background: var(--bg);
@@ -133,8 +238,8 @@
   width: var(--shell-rail-width);
   padding: 0 10px 14px;
   flex-direction: column;
-  border-right: 1px solid var(--hairline);
-  box-shadow: none; backdrop-filter: none;
+  border-right: 1px solid var(--frosted-border);
+  box-shadow: none;
 }
 
 .sidebar-brand {
@@ -272,8 +377,7 @@
   gap: var(--space-5);
   margin: 0;
   padding: 0 28px 0 var(--space-6);
-  border-bottom: 1px solid var(--hairline);
-  backdrop-filter: none;
+  border-bottom: 1px solid var(--frosted-border);
 }
 
 .shell-heading {
@@ -462,7 +566,7 @@
 .app-frame .now-playing {
   left: calc(var(--shell-rail-width) + var(--space-5));
   border-radius: 10px;
-  box-shadow: var(--shadow-3);
+  box-shadow: var(--shadow-3), inset 0 1px 0 var(--frosted-highlight);
 }
 
 /* 详情仍使用原返回和播放逻辑，只对齐新增固定工具栏。 */
