@@ -1,9 +1,13 @@
-use crate::cloud115::{sanitize_remote_file_name, Cloud115FileEntry, Cloud115Provider};
+use crate::cloud115::{
+    sanitize_remote_file_name, Cloud115FileEntry, Cloud115FilePage, Cloud115FolderResult,
+    Cloud115Provider,
+};
 use crate::library::{AiProviderSettings, LibraryRepository};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
+use std::future::Future;
 use std::time::Duration;
 
 /// AI 整理密钥只存放在 macOS 钥匙串（开发构建使用 0600 临时文件），绝不进入 SQLite、日志或前端。
@@ -480,10 +484,92 @@ fn policy_delete(entry: &Cloud115FileEntry) -> Result<(), String> {
     Ok(())
 }
 
+/// 执行链路对 115 provider 的最小依赖面；独立成 trait 以便单元测试注入脚本化失败。
+/// 返回值显式标注 `+ Send`，保证 execute_plan 的 future 满足 Tauri 命令的 Send 约束。
+trait ExecutionProvider {
+    fn list_files(
+        &self,
+        parent_id: &str,
+        offset: u64,
+        limit: u64,
+        query: &str,
+    ) -> impl Future<Output = Result<Cloud115FilePage, String>> + Send;
+
+    fn update_file(
+        &self,
+        file_id: &str,
+        name: Option<&str>,
+        starred: Option<bool>,
+    ) -> impl Future<Output = Result<(), String>> + Send;
+
+    fn move_files(
+        &self,
+        file_ids: &[String],
+        target_id: &str,
+    ) -> impl Future<Output = Result<(), String>> + Send;
+
+    fn delete_files(&self, file_ids: &[String]) -> impl Future<Output = Result<(), String>> + Send;
+
+    fn create_folder(
+        &self,
+        parent_id: &str,
+        name: &str,
+    ) -> impl Future<Output = Result<Cloud115FolderResult, String>> + Send;
+}
+
+impl ExecutionProvider for Cloud115Provider {
+    fn list_files(
+        &self,
+        parent_id: &str,
+        offset: u64,
+        limit: u64,
+        query: &str,
+    ) -> impl Future<Output = Result<Cloud115FilePage, String>> + Send {
+        Cloud115Provider::list_files(self, parent_id, offset, limit, query)
+    }
+
+    fn update_file(
+        &self,
+        file_id: &str,
+        name: Option<&str>,
+        starred: Option<bool>,
+    ) -> impl Future<Output = Result<(), String>> + Send {
+        Cloud115Provider::update_file(self, file_id, name, starred)
+    }
+
+    fn move_files(
+        &self,
+        file_ids: &[String],
+        target_id: &str,
+    ) -> impl Future<Output = Result<(), String>> + Send {
+        Cloud115Provider::move_files(self, file_ids, target_id)
+    }
+
+    fn delete_files(&self, file_ids: &[String]) -> impl Future<Output = Result<(), String>> + Send {
+        Cloud115Provider::delete_files(self, file_ids)
+    }
+
+    fn create_folder(
+        &self,
+        parent_id: &str,
+        name: &str,
+    ) -> impl Future<Output = Result<Cloud115FolderResult, String>> + Send {
+        Cloud115Provider::create_folder(self, parent_id, name)
+    }
+}
+
 /// 显式确认后的确定性执行。执行前重新读取目录快照并逐项重新绑定：
 /// 文件必须仍在同一目录且名称与分析计划一致；重命名/移动/删除策略全部在 Rust 内强制执行。
 pub async fn execute_plan(
     provider: &Cloud115Provider,
+    request: &AiExecutionRequest,
+) -> Result<AiExecutionReport, String> {
+    execute_plan_with_provider(provider, request).await
+}
+
+/// 以任意 provider 实现执行计划；与 execute_plan 共享全部执行语义，供测试注入脚本化结果。
+async fn execute_plan_with_provider<P: ExecutionProvider>(
+    provider: &P,
     request: &AiExecutionRequest,
 ) -> Result<AiExecutionReport, String> {
     if !request.confirmed {
@@ -574,10 +660,16 @@ pub async fn execute_plan(
                                 known_names.insert(new_name);
                                 mutated = true;
                             }
-                            Err(error) => detail.detail = format!("重命名失败：{error}"),
+                            Err(error) => {
+                                report.failed += 1;
+                                detail.detail = format!("重命名失败：{error}");
+                            }
                         }
                     }
-                    Err(error) => detail.detail = error,
+                    Err(error) => {
+                        report.failed += 1;
+                        detail.detail = error;
+                    }
                 }
             }
             AiPlanAction::Move => match policy_move_target(entry, &item.target_folder) {
@@ -608,13 +700,22 @@ pub async fn execute_plan(
                                     report.executed += 1;
                                     mutated = true;
                                 }
-                                Err(error) => detail.detail = format!("移动失败：{error}"),
+                                Err(error) => {
+                                    report.failed += 1;
+                                    detail.detail = format!("移动失败：{error}");
+                                }
                             }
                         }
-                        Err(error) => detail.detail = format!("准备目标文件夹失败：{error}"),
+                        Err(error) => {
+                            report.failed += 1;
+                            detail.detail = format!("准备目标文件夹失败：{error}");
+                        }
                     }
                 }
-                Err(error) => detail.detail = error,
+                Err(error) => {
+                    report.failed += 1;
+                    detail.detail = error;
+                }
             },
             AiPlanAction::Delete => match policy_delete(entry) {
                 Ok(()) => match provider
@@ -628,9 +729,15 @@ pub async fn execute_plan(
                         report.deleted_to_recycle_bin += 1;
                         mutated = true;
                     }
-                    Err(error) => detail.detail = format!("删除失败：{error}"),
+                    Err(error) => {
+                        report.failed += 1;
+                        detail.detail = format!("删除失败：{error}");
+                    }
                 },
-                Err(error) => detail.detail = error,
+                Err(error) => {
+                    report.failed += 1;
+                    detail.detail = error;
+                }
             },
         }
         if mutated {
@@ -638,6 +745,16 @@ pub async fn execute_plan(
         }
         report.details.push(detail);
     }
+    // 不变量：明细中 status 为 failed 的条数必须等于顶层 failed 计数，保证汇总与明细一致。
+    debug_assert_eq!(
+        report
+            .details
+            .iter()
+            .filter(|detail| detail.status == "failed")
+            .count(),
+        report.failed,
+        "执行报告 failed 计数与明细不一致"
+    );
     Ok(report)
 }
 
@@ -768,5 +885,300 @@ mod tests {
         assert!(parse_plan(raw, &entries, "fd", false, "m").is_err());
         // 非 JSON 输出。
         assert!(parse_plan("不是 JSON", &entries, "fd", false, "m").is_err());
+    }
+
+    /// 脚本化 provider：目录快照固定，写操作按文件 ID 返回预置结果（未预置的默认成功），
+    /// 用于离线驱动 execute_plan 的各失败分支。
+    struct ScriptedProvider {
+        snapshot: Vec<Cloud115FileEntry>,
+        update_outcomes: HashMap<String, Result<(), String>>,
+        move_outcomes: HashMap<String, Result<(), String>>,
+        delete_outcomes: HashMap<String, Result<(), String>>,
+        create_folder_outcome: Option<Result<Cloud115FolderResult, String>>,
+    }
+
+    impl ExecutionProvider for ScriptedProvider {
+        fn list_files(
+            &self,
+            _parent_id: &str,
+            _offset: u64,
+            _limit: u64,
+            _query: &str,
+        ) -> impl Future<Output = Result<Cloud115FilePage, String>> + Send {
+            let entries = self.snapshot.clone();
+            let total = entries.len() as u64;
+            async move {
+                Ok(Cloud115FilePage {
+                    entries,
+                    total,
+                    offset: 0,
+                    limit: 200,
+                    has_more: false,
+                })
+            }
+        }
+
+        fn update_file(
+            &self,
+            file_id: &str,
+            _name: Option<&str>,
+            _starred: Option<bool>,
+        ) -> impl Future<Output = Result<(), String>> + Send {
+            let outcome = self.update_outcomes.get(file_id).cloned().unwrap_or(Ok(()));
+            async move { outcome }
+        }
+
+        fn move_files(
+            &self,
+            file_ids: &[String],
+            _target_id: &str,
+        ) -> impl Future<Output = Result<(), String>> + Send {
+            let outcome = file_ids
+                .first()
+                .and_then(|file_id| self.move_outcomes.get(file_id))
+                .cloned()
+                .unwrap_or(Ok(()));
+            async move { outcome }
+        }
+
+        fn delete_files(
+            &self,
+            file_ids: &[String],
+        ) -> impl Future<Output = Result<(), String>> + Send {
+            let outcome = file_ids
+                .first()
+                .and_then(|file_id| self.delete_outcomes.get(file_id))
+                .cloned()
+                .unwrap_or(Ok(()));
+            async move { outcome }
+        }
+
+        fn create_folder(
+            &self,
+            _parent_id: &str,
+            name: &str,
+        ) -> impl Future<Output = Result<Cloud115FolderResult, String>> + Send {
+            let outcome = self.create_folder_outcome.clone().unwrap_or_else(|| {
+                Ok(Cloud115FolderResult {
+                    id: format!("created-{name}"),
+                    name: name.to_string(),
+                })
+            });
+            async move { outcome }
+        }
+    }
+
+    fn scripted_provider(snapshot: Vec<Cloud115FileEntry>) -> ScriptedProvider {
+        ScriptedProvider {
+            snapshot,
+            update_outcomes: HashMap::new(),
+            move_outcomes: HashMap::new(),
+            delete_outcomes: HashMap::new(),
+            create_folder_outcome: None,
+        }
+    }
+
+    fn execution_item(
+        file_id: &str,
+        current_name: &str,
+        action: AiPlanAction,
+        suggested_name: &str,
+        target_folder: &str,
+    ) -> AiExecutionItem {
+        AiExecutionItem {
+            file_id: file_id.to_string(),
+            current_name: current_name.to_string(),
+            action,
+            suggested_name: suggested_name.to_string(),
+            target_folder: target_folder.to_string(),
+        }
+    }
+
+    fn execution_request(items: Vec<AiExecutionItem>) -> AiExecutionRequest {
+        AiExecutionRequest {
+            folder_id: "folder-1".to_string(),
+            confirmed: true,
+            items,
+        }
+    }
+
+    /// 断言 execute_plan 的核心不变量：顶层 failed 计数必须等于明细中 status 为 failed 的条数。
+    fn assert_failed_count_matches_details(report: &AiExecutionReport) {
+        let failed_details = report
+            .details
+            .iter()
+            .filter(|detail| detail.status == "failed")
+            .count();
+        assert_eq!(report.failed, failed_details, "failed 计数必须与明细一致");
+    }
+
+    #[test]
+    fn execute_plan_counts_rename_provider_failure_as_failed() {
+        tauri::async_runtime::block_on(async {
+            let mut provider = scripted_provider(vec![entry("f1", "旧名.mp4", "video")]);
+            provider
+                .update_outcomes
+                .insert("f1".to_string(), Err("网络中断".to_string()));
+            let request = execution_request(vec![execution_item(
+                "f1",
+                "旧名.mp4",
+                AiPlanAction::Rename,
+                "新名.mp4",
+                "",
+            )]);
+            let report = execute_plan_with_provider(&provider, &request)
+                .await
+                .unwrap();
+            assert_eq!(report.executed, 0);
+            assert_eq!(report.failed, 1);
+            assert_eq!(report.details.len(), 1);
+            assert_eq!(report.details[0].status, "failed");
+            assert!(report.details[0].detail.contains("重命名失败"));
+            assert!(report.details[0].detail.contains("网络中断"));
+            assert_failed_count_matches_details(&report);
+        });
+    }
+
+    #[test]
+    fn execute_plan_counts_move_target_preparation_failure_as_failed() {
+        tauri::async_runtime::block_on(async {
+            // 快照中不存在目标文件夹，执行时现场创建；创建失败必须计为失败。
+            let mut provider = scripted_provider(vec![entry("f1", "旅行.raw", "file")]);
+            provider.create_folder_outcome = Some(Err("创建文件夹失败".to_string()));
+            let request = execution_request(vec![execution_item(
+                "f1",
+                "旅行.raw",
+                AiPlanAction::Move,
+                "",
+                "纪录片",
+            )]);
+            let report = execute_plan_with_provider(&provider, &request)
+                .await
+                .unwrap();
+            assert_eq!(report.executed, 0);
+            assert_eq!(report.failed, 1);
+            assert_eq!(report.details[0].status, "failed");
+            assert!(report.details[0].detail.contains("准备目标文件夹失败"));
+            assert!(report.details[0].detail.contains("创建文件夹失败"));
+            assert_failed_count_matches_details(&report);
+        });
+    }
+
+    #[test]
+    fn execute_plan_counts_delete_provider_failure_as_failed() {
+        tauri::async_runtime::block_on(async {
+            let mut provider = scripted_provider(vec![entry("f1", "损坏.mp4", "video")]);
+            provider
+                .delete_outcomes
+                .insert("f1".to_string(), Err("删除被拒绝".to_string()));
+            let request = execution_request(vec![execution_item(
+                "f1",
+                "损坏.mp4",
+                AiPlanAction::Delete,
+                "",
+                "",
+            )]);
+            let report = execute_plan_with_provider(&provider, &request)
+                .await
+                .unwrap();
+            assert_eq!(report.executed, 0);
+            assert_eq!(report.failed, 1);
+            assert_eq!(report.deleted_to_recycle_bin, 0);
+            assert_eq!(report.details[0].status, "failed");
+            assert!(report.details[0].detail.contains("删除失败"));
+            assert!(report.details[0].detail.contains("删除被拒绝"));
+            assert_failed_count_matches_details(&report);
+        });
+    }
+
+    #[test]
+    fn execute_plan_counts_policy_rejections_as_failed() {
+        tauri::async_runtime::block_on(async {
+            // 脚本化写操作默认成功：若计数来自 provider 失败而非策略拒绝，下方断言会失败。
+            let provider = scripted_provider(vec![
+                entry("f1", "a.mkv", "video"),
+                entry("f2", "b.mkv", "video"),
+                entry("d1", "已归档", "folder"),
+                entry("d2", "已整理", "folder"),
+            ]);
+            let request = execution_request(vec![
+                // 重命名与目录内已有条目重名。
+                execution_item("f1", "a.mkv", AiPlanAction::Rename, "b.mkv", ""),
+                // 文件夹不允许移动。
+                execution_item("d1", "已归档", AiPlanAction::Move, "", "x"),
+                // 文件夹不允许删除。
+                execution_item("d2", "已整理", AiPlanAction::Delete, "", ""),
+            ]);
+            let report = execute_plan_with_provider(&provider, &request)
+                .await
+                .unwrap();
+            assert_eq!(report.executed, 0);
+            assert_eq!(report.failed, 3);
+            assert_eq!(report.details.len(), 3);
+            assert!(report.details[0].detail.contains("策略拒绝"));
+            assert!(report.details[0].detail.contains("同名"));
+            assert!(report.details[1].detail.contains("不允许移动文件夹"));
+            assert!(report.details[2].detail.contains("不允许删除文件夹"));
+            for detail in &report.details {
+                assert_eq!(detail.status, "failed");
+            }
+            assert_failed_count_matches_details(&report);
+        });
+    }
+
+    #[test]
+    fn execute_plan_report_sums_mixed_success_failure_and_skips() {
+        tauri::async_runtime::block_on(async {
+            let mut provider = scripted_provider(vec![
+                entry("f1", "IMG_20240101.mp4", "video"),
+                entry("f2", "旅行.jpg", "file"),
+                entry("f3", "未完成.doc", "file"),
+                entry("f4", "raw_clip.mov", "video"),
+                entry("d1", "已归档", "folder"),
+            ]);
+            provider
+                .delete_outcomes
+                .insert("f3".to_string(), Err("删除被拒绝".to_string()));
+            let request = execution_request(vec![
+                // 成功：重命名。
+                execution_item(
+                    "f1",
+                    "IMG_20240101.mp4",
+                    AiPlanAction::Rename,
+                    "家庭视频 2024.mp4",
+                    "",
+                ),
+                // 成功：移动并现场新建目标文件夹。
+                execution_item("f4", "raw_clip.mov", AiPlanAction::Move, "", "旅行视频"),
+                // 成功：删除到回收站。
+                execution_item("f2", "旅行.jpg", AiPlanAction::Delete, "", ""),
+                // 失败：provider 删除失败。
+                execution_item("f3", "未完成.doc", AiPlanAction::Delete, "", ""),
+                // 失败：文件已不在目录。
+                execution_item("f5", "ghost.mp4", AiPlanAction::Delete, "", ""),
+                // 跳过：保持现状。
+                execution_item("d1", "已归档", AiPlanAction::Keep, "", ""),
+            ]);
+            let report = execute_plan_with_provider(&provider, &request)
+                .await
+                .unwrap();
+            assert_eq!(report.executed, 3);
+            assert_eq!(report.failed, 2);
+            assert_eq!(report.skipped, 1);
+            assert_eq!(report.deleted_to_recycle_bin, 1);
+            assert_eq!(report.details.len(), 6);
+            let statuses: Vec<&str> = report
+                .details
+                .iter()
+                .map(|detail| detail.status.as_str())
+                .collect();
+            assert_eq!(
+                statuses,
+                vec!["done", "done", "done", "failed", "failed", "skipped"]
+            );
+            assert!(report.details[3].detail.contains("删除失败"));
+            assert!(report.details[4].detail.contains("文件已不在该目录"));
+            assert_failed_count_matches_details(&report);
+        });
     }
 }
