@@ -19,7 +19,7 @@ import { Cloud115AuthModal } from "./components/Cloud115AuthModal";
 import { LoginGate } from "./components/LoginGate";
 import { MediaDetail } from "./components/MediaDetail";
 import { PosterCard } from "./components/PosterCard";
-import { Sidebar } from "./components/Sidebar";
+import { Sidebar, type SidebarNavId } from "./components/Sidebar";
 import type {
   AppSection,
   LibraryTask,
@@ -48,6 +48,21 @@ const IDLE_SNAPSHOT: PlaybackSnapshot = {
   volume: 80,
   error: null,
 };
+
+/** 侧栏展开态持久化键；值 "0" 表示收起，缺省视为展开。 */
+const SIDEBAR_EXPANDED_KEY = "sirius-sidebar-expanded";
+
+/** 影视单入口的三个内部视图；沿用原首页/媒体库/发现的 section 与数据逻辑。 */
+const VIDEO_MODES: Array<{ id: AppSection; label: string }> = [
+  { id: "home", label: "继续观看" },
+  { id: "library", label: "我的媒体" },
+  { id: "discover", label: "发现" },
+];
+
+/** 影视入口的三个内部视图共用一段切换 UI 与侧栏高亮。 */
+function isVideoSection(section: AppSection): section is "home" | "library" | "discover" {
+  return section === "home" || section === "library" || section === "discover";
+}
 
 const repository = new TauriMediaRepository();
 const sourceResolver = new LocalSourceResolver();
@@ -96,6 +111,15 @@ function App() {
   const [playingCloudFileId, setPlayingCloudFileId] = useState<string | null>(null);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
+  // 侧栏双态：收起为 80px 图标轨道，展开为图标配文字；用户选择持久化。
+  const [sidebarExpanded, setSidebarExpanded] = useState(() => {
+    try {
+      return window.localStorage.getItem(SIDEBAR_EXPANDED_KEY) !== "0";
+    } catch {
+      // 存储不可用（隐私模式等）时退回内存态默认展开，不影响本次会话。
+      return true;
+    }
+  });
   const lastProgressSaveAt = useRef(0);
   const mediaSearchRef = useRef<HTMLInputElement>(null);
   const mediaSearchVisible = !selectedMedia && (section === "home" || section === "library" || section === "discover");
@@ -115,6 +139,15 @@ function App() {
     window.addEventListener("keydown", focusMediaSearch);
     return () => window.removeEventListener("keydown", focusMediaSearch);
   }, [mediaSearchVisible]);
+
+  useEffect(() => {
+    // 展开态变化即回写 localStorage；失败只影响下次启动的初始值。
+    try {
+      window.localStorage.setItem(SIDEBAR_EXPANDED_KEY, sidebarExpanded ? "1" : "0");
+    } catch {
+      // 存储不可用时保持内存态即可。
+    }
+  }, [sidebarExpanded]);
 
   useEffect(() => {
     let active = true;
@@ -459,11 +492,13 @@ function App() {
   const accountName = cloudProfile?.userName || cloudAccount.userName || "115 用户";
 
   return (
-    <div className="app-frame">
+    <div className="app-frame" data-sidebar-expanded={sidebarExpanded ? "true" : "false"}>
       <Sidebar
-        active={section}
+        active={activeNavId(section)}
+        expanded={sidebarExpanded}
         taskCount={attentionTaskCount}
-        onNavigate={navigateFromSidebar}
+        onNavigate={(id) => navigateFromSidebar(id === "video" ? "home" : id)}
+        onToggleExpanded={() => setSidebarExpanded((value) => !value)}
       />
 
       <main className="app-content">
@@ -537,25 +572,42 @@ function App() {
             onClose={() => setSelectedMedia(null)}
             onPlay={playMedia}
           />
-        ) : section === "home" ? (
-          <HomeView
-            media={visibleMedia}
-            onNavigate={setSection}
-            onOpen={setSelectedMedia}
-            onPlay={playMedia}
-          />
-        ) : section === "library" ? (
-          <LibraryView
-            loading={loading}
-            media={visibleMedia}
-            filter={filter}
-            query={query}
-            onFilter={setFilter}
-            onOpen={setSelectedMedia}
-            onPlay={playMedia}
-          />
-        ) : section === "discover" ? (
-          <DiscoverView media={visibleMedia} onOpen={setSelectedMedia} onPlay={playMedia} />
+        ) : isVideoSection(section) ? (
+          <>
+            <div className="video-mode-tabs" role="group" aria-label="影视视图切换">
+              {VIDEO_MODES.map((mode) => (
+                <button
+                  key={mode.id}
+                  type="button"
+                  aria-current={section === mode.id ? "true" : undefined}
+                  className={section === mode.id ? "active" : ""}
+                  onClick={() => navigateFromSidebar(mode.id)}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
+            {section === "home" ? (
+              <HomeView
+                media={visibleMedia}
+                onNavigate={navigateFromSidebar}
+                onOpen={setSelectedMedia}
+                onPlay={playMedia}
+              />
+            ) : section === "library" ? (
+              <LibraryView
+                loading={loading}
+                media={visibleMedia}
+                filter={filter}
+                query={query}
+                onFilter={setFilter}
+                onOpen={setSelectedMedia}
+                onPlay={playMedia}
+              />
+            ) : (
+              <DiscoverView media={visibleMedia} onOpen={setSelectedMedia} onPlay={playMedia} />
+            )}
+          </>
         ) : section === "comics" ? (
           <ComicsView />
         ) : section === "albums" ? (
@@ -623,11 +675,17 @@ function App() {
   );
 }
 
+/** 侧栏高亮归并：影视三个内部视图共用同一「影视」入口。 */
+function activeNavId(section: AppSection): SidebarNavId {
+  if (isVideoSection(section)) return "video";
+  return section;
+}
+
 function sectionTitle(section: AppSection): string {
   return {
-    home: "首页",
-    library: "媒体库",
-    discover: "发现",
+    home: "影视",
+    library: "影视",
+    discover: "影视",
     comics: "漫画",
     albums: "相册",
     "cloud-files": "网盘文件",
