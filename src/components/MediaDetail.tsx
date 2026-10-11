@@ -2,10 +2,10 @@ import { useEffect } from "react";
 import arrivalStill from "../assets/watch-stills/arrival-desert.jpg";
 import perfectDaysStill from "../assets/watch-stills/perfect-days-street.jpg";
 import severanceStill from "../assets/watch-stills/severance-office.jpg";
+import posterFallback from "../assets/brand/poster-fallback.svg";
 import type { MediaItem } from "../domain/media";
 import { Icon } from "./Icon";
 
-const DETAIL_STILLS = [severanceStill, perfectDaysStill, arrivalStill];
 const HERO_STILLS: Record<string, string> = {
   arrival: arrivalStill,
   "perfect-days": perfectDaysStill,
@@ -26,8 +26,8 @@ export function MediaDetail({
   onClose,
   onPlay,
 }: MediaDetailProps) {
-  // 已有演示媒体使用对应剧照；其他条目仍稳定复用素材库，避免出现空白主视觉。
-  const heroStill = HERO_STILLS[media.id] ?? DETAIL_STILLS[0];
+  // 仅在存在该作品的真实剧照时使用剧照，否则回退品牌备援影像，不借用其他作品的画面。
+  const heroStill = HERO_STILLS[media.id] ?? posterFallback;
 
   useEffect(() => {
     // 独立详情页必须从顶部开始，不能继承媒体库页面的滚动位置。
