@@ -2220,3 +2220,180 @@
     display: none;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   WP H1 追加：新建文件夹 / 回收站入口与面板 / 目标选择器最近使用
+   -------------------------------------------------------------------------- */
+.cloud-toolbar-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.cloud-newfolder-action svg {
+  color: var(--primary-ink);
+}
+
+.cloud-recycle-button {
+  display: inline-flex;
+  height: 36px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
+}
+
+.cloud-recycle-button:hover {
+  background: var(--surface-sunken);
+  color: var(--fg);
+}
+
+.file-filter-row {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+/* 回收站面板：表头与行共用 file-table 基座，仅列宽按回收站语义调整。 */
+.recycle-header {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 14px;
+}
+
+.recycle-header strong {
+  color: var(--fg);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.recycle-header > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.recycle-table .file-table-head,
+.recycle-table .file-row {
+  grid-template-columns: 28px minmax(180px, 1fr) 88px 116px minmax(120px, 170px) 172px;
+}
+
+.recycle-origin {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recycle-row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.recycle-row-actions button {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.recycle-row-actions button:hover:not(:disabled) {
+  background: var(--primary-soft);
+  color: var(--primary-ink);
+}
+
+.recycle-row-actions button.danger {
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--surface));
+  color: var(--danger-ink);
+}
+
+.recycle-row-actions button.danger:hover:not(:disabled) {
+  background: var(--danger-soft);
+}
+
+/* 目标选择器：最近使用（一键直达）与明确的目标路径行。 */
+.picker-recent {
+  margin-top: 12px;
+}
+
+.picker-recent-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.picker-recent-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.picker-recent-list button {
+  display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
+  height: 30px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px 0 7px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  color: var(--fg);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.picker-recent-list button:hover {
+  border-color: var(--primary);
+  color: var(--primary-ink);
+}
+
+.picker-recent-list button > span:not(.picker-folder-icon) {
+  overflow: hidden;
+  flex: 0 1 auto;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-recent-list button small {
+  overflow: hidden;
+  max-width: 150px;
+  flex: 0 1 auto;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-target-line {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
+}
+
+.picker-target-line strong {
+  color: var(--fg);
+  font-weight: 600;
+}
