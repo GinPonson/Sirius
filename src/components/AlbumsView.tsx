@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type SyntheticEvent } from "react";
 import {
   AlbumsService,
   type AlbumFolderInput,
@@ -6,12 +6,49 @@ import {
   type AlbumPhoto,
 } from "../services/albumsServices";
 import { Cloud115Service, type Cloud115FileEntry } from "../services/mediaServices";
+import { registerViewPageContext, notifyPageContextChanged, type AiPageContext } from "../domain/pageContext";
+import { FileThumbnail } from "./FileThumbnail";
+import { FileTypeIcon } from "./FileTypeIcon";
 import { Icon } from "./Icon";
+import { AlbumMonthNav, monthLabel } from "./AlbumMonthNav";
 
 const albumsService = new AlbumsService();
 const cloud115 = new Cloud115Service();
 
 const ROOT_ID = "0";
+
+/** 照片网格密度档位与持久化键；三档仅改变网格列宽与间距，不改变数据口径。 */
+type AlbumsDensity = "comfort" | "standard" | "compact";
+const DENSITY_STORAGE_KEY = "sirius-albums-density";
+const DENSITY_ORDER: AlbumsDensity[] = ["comfort", "standard", "compact"];
+const DENSITY_LABELS: Record<AlbumsDensity, string> = { comfort: "舒适", standard: "标准", compact: "紧凑" };
+
+function readStoredDensity(): AlbumsDensity {
+  try {
+    const stored = window.localStorage.getItem(DENSITY_STORAGE_KEY);
+    if (stored && DENSITY_ORDER.includes(stored as AlbumsDensity)) return stored as AlbumsDensity;
+  } catch {
+    // localStorage 不可用时使用默认密度即可。
+  }
+  return "standard";
+}
+
+/** 缩放档位："fit" 为适应窗口，数字为相对原图的倍率（1 即 100%）。 */
+type ZoomMode = "fit" | number;
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 5;
+const ZOOM_STEP = 0.25;
+
+function stepZoom(current: ZoomMode, direction: 1 | -1): ZoomMode {
+  if (direction > 0) {
+    return current === "fit" ? 1 : Math.min(MAX_ZOOM, Math.round((current + ZOOM_STEP) * 100) / 100);
+  }
+  return current === "fit" ? "fit" : Math.max(MIN_ZOOM, Math.round((current - ZOOM_STEP) * 100) / 100);
+}
+
+function prefersReducedMotion(): boolean {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
 
 /** 将字节数格式化为紧凑容量；与网盘文件页保持一致的展示规则。 */
 function formatBytes(bytes: number): string {
@@ -22,18 +59,13 @@ function formatBytes(bytes: number): string {
   return `${value >= 10 || unitIndex === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unitIndex]}`;
 }
 
-/** 将月份键（UTC YYYY-MM）渲染为本地年月标签。 */
-function monthLabel(monthKey: string): string {
-  const [year, month] = monthKey.split("-").map(Number);
-  if (!year || !month) return monthKey;
-  return `${year} 年 ${month} 月`;
-}
-
 type ReaderState = {
   photos: AlbumPhoto[];
   index: number;
   /** 短时效原图直链；加载失败时回退缩略图。 */
   fullUrl: string | null;
+  /** 原图直链解析或加载进行中。 */
+  fullLoading: boolean;
   fullFailed: boolean;
 };
 
@@ -43,7 +75,7 @@ type DialogState =
   | { kind: "remove" }
   | null;
 
-/** 相册模式：照片索引 → 时间线/专辑 → 预览大图与专辑整理。整理操作全部走 115 回收站语义。 */
+/** 相册模式：照片索引 → 时间线缩略图墙/专辑 → 预览大图与专辑整理。整理操作全部走 115 回收站语义。 */
 export function AlbumsView() {
   const [rootFolders, setRootFolders] = useState<Cloud115FileEntry[]>([]);
   const [folderId, setFolderId] = useState(ROOT_ID);
@@ -52,10 +84,14 @@ export function AlbumsView() {
   const [shelf, setShelf] = useState<AlbumsIndexSummary | null>(null);
   const [tab, setTab] = useState<"timeline" | "albums">("timeline");
   const [albumFilter, setAlbumFilter] = useState<string | null>(null);
+  const [density, setDensityState] = useState<AlbumsDensity>(readStoredDensity);
+  const [albumMenuOpen, setAlbumMenuOpen] = useState(false);
   const [reader, setReader] = useState<ReaderState | null>(null);
   const [dialog, setDialog] = useState<DialogState>(null);
   const [busyOp, setBusyOp] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** 大图请求序号：每次发起新请求或翻页都会自增，用于丢弃迟到到达的旧响应。 */
+  const requestSeqRef = useRef(0);
 
   useEffect(() => {
     let active = true;
@@ -72,8 +108,26 @@ export function AlbumsView() {
     };
   }, []);
 
+  /** 首次读取失败后的重试入口；不重置整页状态，仅重新拉取索引。 */
+  function retryLoadIndex() {
+    setError(null);
+    albumsService.index()
+      .then((summary) => setShelf(summary))
+      .catch((reason) => setError(`读取相册时间线失败：${String(reason)}`));
+  }
+
   async function loadIndex() {
     setShelf(await albumsService.index());
+  }
+
+  /** 切换密度档位并持久化；存储失败时仅保留本次会话的选择。 */
+  function setDensity(next: AlbumsDensity) {
+    setDensityState(next);
+    try {
+      window.localStorage.setItem(DENSITY_STORAGE_KEY, next);
+    } catch {
+      // 存储不可用时保持内存态即可。
+    }
   }
 
   /** 识别选中目录；目录名由前端目录列表提供，仅作专辑展示元数据。 */
@@ -116,10 +170,22 @@ export function AlbumsView() {
     }
   }
 
-  const visibleMonths = (shelf?.months ?? []).filter(
-    (month) => !albumFilter || month.photos.some((photo) => photo.folderId === albumFilter),
+  /** 按当前专辑逐张过滤后的时间线视图；未选专辑时直接复用原索引数组，选中的月份才保留。 */
+  const visibleMonths = useMemo(() => {
+    const months = shelf?.months ?? [];
+    if (!albumFilter) return months;
+    return months
+      .map((month) => {
+        const photos = month.photos.filter((photo) => photo.folderId === albumFilter);
+        return { ...month, photoCount: photos.length, photos };
+      })
+      .filter((month) => month.photos.length > 0);
+  }, [shelf, albumFilter]);
+  const visiblePhotos = useMemo(() => visibleMonths.flatMap((month) => month.photos), [visibleMonths]);
+  const photoIndexById = useMemo(
+    () => new Map(visiblePhotos.map((photo, index) => [photo.fileId, index])),
+    [visiblePhotos],
   );
-  const visiblePhotos = visibleMonths.flatMap((month) => month.photos);
   const visibleAlbums = albumFilter
     ? (shelf?.albums ?? []).filter((album) => album.folderId === albumFilter)
     : shelf?.albums ?? [];
@@ -127,35 +193,135 @@ export function AlbumsView() {
     ? (shelf?.albums ?? []).find((album) => album.folderId === albumFilter)
     : null;
 
-  /** 打开预览：先显示缩略图，后台解析原图直链并在加载成功后切换。 */
-  async function openPreview(photos: AlbumPhoto[], index: number) {
-    const photo = photos[index];
-    setReader({ photos, index, fullUrl: null, fullFailed: false });
+  // —— 月份吸顶与年月导航的滚动联动 ——
+  const monthRefs = useRef(new Map<string, HTMLElement>());
+  const scrollFrameRef = useRef(0);
+  const [activeMonthKey, setActiveMonthKey] = useState<string | null>(null);
+
+  // 「更多」菜单外点关闭：不用 fixed 垫层（.albums-actions 的 backdrop-filter 会成为
+  // fixed 后代的包含块，垫层无法铺满视口），改为文档级 pointerdown 判定。
+  const moreWrapRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!albumMenuOpen) return;
+    function handleDocumentPointerDown(event: PointerEvent) {
+      if (moreWrapRef.current && event.target instanceof Node && moreWrapRef.current.contains(event.target)) return;
+      setAlbumMenuOpen(false);
+    }
+    document.addEventListener("pointerdown", handleDocumentPointerDown);
+    return () => document.removeEventListener("pointerdown", handleDocumentPointerDown);
+  }, [albumMenuOpen]);
+
+  function setMonthRef(monthKey: string) {
+    return (element: HTMLElement | null) => {
+      if (element) monthRefs.current.set(monthKey, element);
+      else monthRefs.current.delete(monthKey);
+    };
+  }
+
+  useEffect(() => {
+    if (tab !== "timeline" || visibleMonths.length === 0) {
+      setActiveMonthKey(null);
+      return;
+    }
+    // 吸顶头部贴住的位置：顶栏 64px + 吸顶月份条自身高度 + 一点余量。
+    const stickyTop = 104;
+    function updateActiveMonth() {
+      scrollFrameRef.current = 0;
+      let current: string | null = null;
+      for (const month of visibleMonths) {
+        const element = monthRefs.current.get(month.monthKey);
+        if (!element) continue;
+        if (element.getBoundingClientRect().top <= stickyTop) current = month.monthKey;
+      }
+      // 滚动到底部时强制落在最后（最旧）月份，避免末月柱无法点亮。
+      const scrollBottom = window.scrollY + window.innerHeight;
+      if (document.documentElement.scrollHeight - scrollBottom <= 2) {
+        current = visibleMonths[visibleMonths.length - 1]?.monthKey ?? current;
+      }
+      setActiveMonthKey((previous) => (previous === current ? previous : current));
+    }
+    function handleScroll() {
+      if (!scrollFrameRef.current) {
+        scrollFrameRef.current = window.requestAnimationFrame(updateActiveMonth);
+      }
+    }
+    updateActiveMonth();
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      if (scrollFrameRef.current) window.cancelAnimationFrame(scrollFrameRef.current);
+      scrollFrameRef.current = 0;
+    };
+  }, [tab, visibleMonths]);
+
+  /** 柱图点击：滚动定位到对应月份；scroll-margin-top 吸收顶栏与吸头条的遮挡。 */
+  function navigateToMonth(monthKey: string) {
+    monthRefs.current.get(monthKey)?.scrollIntoView({
+      behavior: prefersReducedMotion() ? "auto" : "smooth",
+      block: "start",
+    });
+  }
+
+  // —— 大图预览：requestSeq 竞态守卫 + 缩放/平移/缩略图条 ——
+  const [zoom, setZoom] = useState<ZoomMode>("fit");
+  const [fullNatural, setFullNatural] = useState<{ width: number; height: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const activeStripItemRef = useRef<HTMLButtonElement | null>(null);
+  const panStateRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    scrollLeft: number;
+    scrollTop: number;
+  } | null>(null);
+
+  /** 后台解析原图直链；到达时序号已推进则丢弃，翻页与重试共用。 */
+  async function resolveFullSource(seq: number, photo: AlbumPhoto) {
     try {
       const source = await cloud115.downloadSource(photo.pickCode);
       setReader((current) =>
-        current && current.photos[index]?.fileId === photo.fileId
-          ? { ...current, fullUrl: source.url }
+        current && requestSeqRef.current === seq
+          ? { ...current, fullUrl: source.url, fullFailed: false, fullLoading: false }
           : current,
       );
     } catch {
-      // 直链解析失败时保留缩略图预览，不打断浏览。
+      // 直链解析失败时保留缩略图预览，不打断浏览；明确提供重试入口。
       setReader((current) =>
-        current && current.photos[index]?.fileId === photo.fileId
-          ? { ...current, fullFailed: true }
+        current && requestSeqRef.current === seq
+          ? { ...current, fullUrl: null, fullFailed: true, fullLoading: false }
           : current,
       );
     }
   }
 
+  /** 打开预览：先显示缩略图，后台解析原图直链并在加载成功后切换。 */
+  async function openPreview(photos: AlbumPhoto[], index: number) {
+    const photo = photos[Math.min(Math.max(0, index), photos.length - 1)];
+    if (!photo) return;
+    const seq = ++requestSeqRef.current;
+    setReader({ photos, index: photos.indexOf(photo), fullUrl: null, fullLoading: true, fullFailed: false });
+    setZoom("fit");
+    setFullNatural(null);
+    void resolveFullSource(seq, photo);
+  }
+
   function changePhoto(delta: number) {
-    setReader((current) => {
-      if (!current) return current;
-      const next = Math.min(Math.max(0, current.index + delta), current.photos.length - 1);
-      if (next === current.index) return current;
-      void openPreview(current.photos, next);
-      return { ...current, index: next, fullUrl: null, fullFailed: false };
-    });
+    if (!reader) return;
+    const next = reader.index + delta;
+    if (next < 0 || next > reader.photos.length - 1) return;
+    // openPreview 内部会推进序号：旧照片仍在途的原图响应到达后会因序号变化被丢弃。
+    void openPreview(reader.photos, next);
+  }
+
+  function retryFullSource() {
+    if (!reader) return;
+    const photo = reader.photos[reader.index];
+    if (!photo) return;
+    const seq = ++requestSeqRef.current;
+    setReader((current) => (current ? { ...current, fullLoading: true, fullFailed: false } : current));
+    void resolveFullSource(seq, photo);
   }
 
   function closePreview() {
@@ -165,13 +331,80 @@ export function AlbumsView() {
   useEffect(() => {
     if (!reader) return;
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "ArrowRight") changePhoto(1);
-      else if (event.key === "ArrowLeft") changePhoto(-1);
-      else if (event.key === "Escape") closePreview();
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        changePhoto(1);
+      } else if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        changePhoto(-1);
+      } else if (event.key === "Escape") {
+        closePreview();
+      }
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [reader]);
+
+  // 翻页后复位舞台滚动位置；缩略图条把当前项滚到可视范围中央。
+  useEffect(() => {
+    stageRef.current?.scrollTo({ left: 0, top: 0 });
+    activeStripItemRef.current?.scrollIntoView({
+      behavior: prefersReducedMotion() ? "auto" : "smooth",
+      block: "nearest",
+      inline: "center",
+    });
+  }, [reader?.index, reader === null]);
+
+  // 滚轮缩放需 non-passive 监听才能阻止页面滚动；React 合成 onWheel 为被动监听。
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!reader || !stage) return;
+    function handleWheel(event: WheelEvent) {
+      if (event.deltaY === 0) return;
+      event.preventDefault();
+      const direction = event.deltaY < 0 ? 1 : -1;
+      setZoom((current) => stepZoom(current, direction));
+    }
+    stage.addEventListener("wheel", handleWheel, { passive: false });
+    return () => stage.removeEventListener("wheel", handleWheel);
+  }, [reader]);
+
+  function handleStagePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+    const stage = stageRef.current;
+    if (!stage) return;
+    panStateRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      scrollLeft: stage.scrollLeft,
+      scrollTop: stage.scrollTop,
+    };
+    setDragging(true);
+    stage.setPointerCapture(event.pointerId);
+  }
+
+  function handleStagePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const pan = panStateRef.current;
+    const stage = stageRef.current;
+    if (!pan || !stage || pan.pointerId !== event.pointerId) return;
+    stage.scrollLeft = pan.scrollLeft - (event.clientX - pan.startX);
+    stage.scrollTop = pan.scrollTop - (event.clientY - pan.startY);
+  }
+
+  function handleStagePointerEnd(event: ReactPointerEvent<HTMLDivElement>) {
+    if (panStateRef.current?.pointerId !== event.pointerId) return;
+    panStateRef.current = null;
+    setDragging(false);
+    stageRef.current?.releasePointerCapture(event.pointerId);
+  }
+
+  function handleStageImgLoad(event: SyntheticEvent<HTMLImageElement>) {
+    const image = event.currentTarget;
+    if (image.naturalWidth > 0 && image.naturalHeight > 0) {
+      setFullNatural({ width: image.naturalWidth, height: image.naturalHeight });
+    }
+  }
 
   /** 重命名专辑目录；远端改名后重新识别该目录以刷新本机索引。 */
   async function renameAlbum() {
@@ -231,6 +464,43 @@ export function AlbumsView() {
   }
 
   const currentPhoto = reader ? reader.photos[reader.index] : null;
+  const previewUrl = reader
+    ? (reader.fullUrl && !reader.fullFailed ? reader.fullUrl : currentPhoto?.thumbUrl ?? "")
+    : "";
+
+  // AI 对话面板的页面上下文：视图/专辑/月份/预览照片随渲染更新；注册一次，读取引用取最新值。
+  const pageContextRef = useRef<AiPageContext | null>(null);
+  pageContextRef.current = {
+    page: "albums",
+    scope: "相册",
+    detail: [
+      tab === "timeline" ? "时间线" : "专辑",
+      filteredAlbum?.folderName,
+      activeMonthKey ? monthLabel(activeMonthKey) : null,
+    ]
+      .filter(Boolean)
+      .join(" · ") || undefined,
+    loaded: shelf ? `${visiblePhotos.length} / ${shelf.photoCount}` : undefined,
+    viewMode: tab,
+    albumName: filteredAlbum?.folderName,
+    currentMonth: activeMonthKey ? monthLabel(activeMonthKey) : undefined,
+    photoName: currentPhoto?.name,
+    photoPosition: reader ? `${reader.index + 1} / ${reader.photos.length}` : undefined,
+  };
+
+  useEffect(() => {
+    registerViewPageContext(() => pageContextRef.current);
+    return () => registerViewPageContext(null);
+  }, []);
+
+  // 上下文随渲染更新（切视图、选专辑、滚动跨月、预览翻张）；通知 AI 面板刷新标签。
+  useEffect(() => {
+    notifyPageContextChanged();
+  });
+
+  const timelineEmpty =
+    shelf !== null && tab === "timeline" && visibleMonths.length === 0;
+  const notIndexed = timelineEmpty && !albumFilter && (shelf?.folderCount ?? 0) === 0;
 
   return (
     <section className="page-section albums-view">
@@ -265,7 +535,7 @@ export function AlbumsView() {
         </div>
       </div>
 
-      {error && <div className="cloud-inline-error" role="alert">{error}</div>}
+      {error && shelf && <div className="cloud-inline-error" role="alert">{error}</div>}
 
       {shelf && (
         <>
@@ -278,73 +548,159 @@ export function AlbumsView() {
                 专辑
               </button>
             </div>
-            <span className="albums-stats">
-              {shelf.folderCount} 个目录 · {shelf.photoCount} 张照片
-              {albumFilter && filteredAlbum ? ` · ${filteredAlbum.folderName}` : ""}
-            </span>
+            <div className="albums-toolbar-side">
+              <span className="albums-stats">
+                {shelf.folderCount} 个目录 · {shelf.photoCount} 张照片
+                {albumFilter && filteredAlbum ? ` · ${filteredAlbum.folderName}` : ""}
+              </span>
+              <div className="segmented-control albums-density" role="group" aria-label="照片网格密度">
+                {DENSITY_ORDER.map((option) => (
+                  <button
+                    key={option}
+                    className={density === option ? "active" : ""}
+                    aria-pressed={density === option}
+                    title={`照片网格密度：${DENSITY_LABELS[option]}`}
+                    onClick={() => setDensity(option)}
+                  >
+                    {DENSITY_LABELS[option]}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
 
           {filteredAlbum && filteredAlbum.folderId !== ROOT_ID && (
             <div className="albums-actions" role="toolbar" aria-label="专辑整理操作">
               <span>已选专辑：{filteredAlbum.folderName}</span>
-              <div>
-                <button disabled={busyOp} onClick={() => setDialog({ kind: "rename", value: filteredAlbum.folderName })}>重命名</button>
-                <button className="danger" disabled={busyOp} onClick={() => setDialog({ kind: "recycle" })}>移入回收站</button>
-                <button disabled={busyOp} onClick={() => setDialog({ kind: "remove" })}>仅移除本机索引</button>
+              <div className="albums-actions-tools">
+                <div className="albums-more-wrap" ref={moreWrapRef}>
+                  <button
+                    className="albums-more"
+                    aria-label={`专辑「${filteredAlbum.folderName}」的更多操作`}
+                    aria-expanded={albumMenuOpen}
+                    onClick={() => setAlbumMenuOpen((current) => !current)}
+                  >
+                    <Icon name="more" size={15} />
+                    更多
+                  </button>
+                  {albumMenuOpen && (
+                    <div className="albums-more-menu" role="menu" aria-label="专辑整理操作">
+                      <button
+                        role="menuitem"
+                        disabled={busyOp}
+                        onClick={() => {
+                          setDialog({ kind: "rename", value: filteredAlbum.folderName });
+                          setAlbumMenuOpen(false);
+                        }}
+                      >
+                        <Icon name="edit" size={14} />
+                        重命名
+                      </button>
+                      <button
+                        role="menuitem"
+                        className="danger"
+                        disabled={busyOp}
+                        onClick={() => {
+                          setDialog({ kind: "recycle" });
+                          setAlbumMenuOpen(false);
+                        }}
+                      >
+                        <Icon name="trash" size={14} />
+                        移入回收站
+                      </button>
+                      <button
+                        role="menuitem"
+                        disabled={busyOp}
+                        onClick={() => {
+                          setDialog({ kind: "remove" });
+                          setAlbumMenuOpen(false);
+                        }}
+                      >
+                        <Icon name="folder" size={14} />
+                        仅移除本机索引
+                      </button>
+                    </div>
+                  )}
+                </div>
                 <button disabled={busyOp} onClick={() => setAlbumFilter(null)}>取消选择</button>
               </div>
             </div>
           )}
 
-          {tab === "timeline" &&
-            (visibleMonths.length === 0 ? (
-              <div className="empty-state">
-                <Icon name="images" size={24} />
-                <h2>还没有照片索引</h2>
-                <p>选择目录识别，或批量索引根目录；自动下探两层子目录（适配手机备份结构），时间线按文件时间分月展示。</p>
-              </div>
+          {tab === "timeline" && (
+            timelineEmpty ? (
+              notIndexed ? (
+                <div className="empty-state">
+                  <Icon name="images" size={24} />
+                  <h2>还没有照片索引</h2>
+                  <p>选择目录识别，或批量索引根目录；自动下探两层子目录（适配手机备份结构），时间线按文件时间分月展示。</p>
+                </div>
+              ) : albumFilter ? (
+                <div className="empty-state">
+                  <Icon name="images" size={24} />
+                  <h2>该专辑在当前索引中没有照片</h2>
+                  <p>专辑“{filteredAlbum?.folderName}”按当前索引快照没有可展示的照片；可重新识别该目录，或返回全部时间线。</p>
+                  <div className="albums-empty-actions">
+                    <button className="secondary-action" onClick={() => setAlbumFilter(null)}>取消筛选</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="empty-state">
+                  <Icon name="images" size={24} />
+                  <h2>已索引的目录中没有照片</h2>
+                  <p>已索引目录的快照中未发现图片文件；可换一个目录重新识别。</p>
+                </div>
+              )
             ) : (
-              <div className="albums-timeline">
-                {visibleMonths.map((month) => (
-                  <section key={month.monthKey} className="albums-month" aria-label={monthLabel(month.monthKey)}>
-                    <header className="albums-month-head">
-                      <h3>{monthLabel(month.monthKey)}</h3>
-                      <span>{month.photoCount} 张</span>
-                    </header>
-                    <ul className="albums-photo-list">
-                      {month.photos.map((photo) => {
-                        const photoIndex = visiblePhotos.findIndex(
-                          (item) => item.fileId === photo.fileId,
-                        );
-                        return (
-                          <li key={photo.fileId}>
+              <div className="albums-body" data-density={density}>
+                <div className="albums-timeline-layout">
+                  <div className="albums-timeline">
+                    {visibleMonths.map((month) => (
+                      <section
+                        key={month.monthKey}
+                        className="albums-month"
+                        aria-label={monthLabel(month.monthKey)}
+                        ref={setMonthRef(month.monthKey)}
+                      >
+                        <header className="albums-month-head">
+                          <h3>{monthLabel(month.monthKey)}</h3>
+                          <span>{month.photoCount} 张</span>
+                        </header>
+                        <div className="albums-photo-grid">
+                          {month.photos.map((photo) => (
                             <button
-                              className="albums-photo-row"
-                              onClick={() => void openPreview(visiblePhotos, photoIndex)}
+                              key={photo.fileId}
+                              className="albums-photo-tile"
+                              aria-label={`预览 ${photo.name}`}
+                              title={`${photo.name} · ${new Date(photo.takenAt * 1000).toLocaleDateString("zh-CN")} · ${formatBytes(photo.sizeBytes)}`}
+                              onClick={() => void openPreview(visiblePhotos, photoIndexById.get(photo.fileId) ?? 0)}
                             >
-                              {photo.thumbUrl ? (
-                                <img
-                                  className="albums-photo-thumb"
-                                  src={photo.thumbUrl}
-                                  alt=""
-                                  referrerPolicy="no-referrer"
-                                  loading="lazy"
-                                />
-                              ) : (
-                                <span className="albums-photo-icon"><Icon name="images" size={15} /></span>
-                              )}
-                              <span className="albums-photo-name">{photo.name}</span>
-                              <time>{new Date(photo.takenAt * 1000).toLocaleDateString("zh-CN")}</time>
-                              <small>{formatBytes(photo.sizeBytes)}</small>
+                              <FileThumbnail
+                                src={photo.thumbUrl}
+                                kind="image"
+                                size={120}
+                                iconSize={32}
+                                className="albums-tile-thumb"
+                              />
+                              <span className="albums-tile-meta" aria-hidden="true">
+                                <span className="albums-tile-name">{photo.name}</span>
+                                <time>{new Date(photo.takenAt * 1000).toLocaleDateString("zh-CN")}</time>
+                              </span>
                             </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </section>
-                ))}
+                          ))}
+                        </div>
+                      </section>
+                    ))}
+                  </div>
+                  <AlbumMonthNav
+                    months={visibleMonths.map((month) => ({ monthKey: month.monthKey, photoCount: month.photoCount }))}
+                    activeMonthKey={activeMonthKey}
+                    onNavigate={navigateToMonth}
+                  />
+                </div>
               </div>
-            ))}
+            )
+          )}
 
           {tab === "albums" &&
             (visibleAlbums.length === 0 ? (
@@ -362,22 +718,16 @@ export function AlbumsView() {
                     onClick={() => {
                       const next = albumFilter === album.folderId ? null : album.folderId;
                       setAlbumFilter(next);
+                      setAlbumMenuOpen(false);
                       if (next) setTab("timeline");
                     }}
                   >
-                    {album.coverUrl ? (
-                      <img
-                        className="albums-cover"
-                        src={album.coverUrl}
-                        alt=""
-                        referrerPolicy="no-referrer"
-                        loading="lazy"
-                      />
-                    ) : (
-                      <span className="albums-cover-fallback" aria-hidden="true">
-                        <Icon name="images" size={20} />
-                      </span>
-                    )}
+                    <FileThumbnail
+                      src={album.coverUrl}
+                      kind="image"
+                      iconSize={64}
+                      className="album-cover-thumbnail"
+                    />
                     <strong>{album.folderName}</strong>
                     <small>{album.photoCount} 张照片</small>
                   </button>
@@ -388,45 +738,122 @@ export function AlbumsView() {
       )}
 
       {!shelf && !error && (
-        <div className="empty-state albums-empty">
+        <div className="empty-state albums-empty" aria-live="polite">
           <Icon name="images" size={24} />
           <h2>正在读取相册时间线</h2>
-          <p>识别或批量索引后，这里会按月份展示照片时间线。</p>
+          <p>识别或批量索引后，这里会按月份展示照片缩略图墙。</p>
+        </div>
+      )}
+
+      {!shelf && error && (
+        <div className="empty-state albums-empty">
+          <Icon name="alert" size={24} />
+          <h2>相册索引读取失败</h2>
+          <p>{error}</p>
+          <div className="albums-empty-actions">
+            <button className="secondary-action" onClick={retryLoadIndex}>
+              <Icon name="refresh" size={14} />
+              重试
+            </button>
+          </div>
         </div>
       )}
 
       {reader && currentPhoto && (
-        <div className="albums-preview" role="dialog" aria-modal="true" aria-label="照片预览">
-          <header className="comics-reader-bar">
-            <strong>{currentPhoto.name}</strong>
-            <span>
+        <div className="albums-preview" role="dialog" aria-modal="true" aria-label={`照片预览：${currentPhoto.name}`}>
+          <header className="albums-preview-bar">
+            <strong title={currentPhoto.name}>{currentPhoto.name}</strong>
+            <span className="albums-preview-count">
               {reader.index + 1} / {reader.photos.length}
             </span>
-            <button onClick={closePreview}>
+            <div className="albums-preview-tools" role="group" aria-label="缩放控制">
+              <button className={zoom === "fit" ? "active" : ""} onClick={() => setZoom("fit")}>适应窗口</button>
+              <button
+                aria-label="缩小"
+                disabled={zoom === "fit" || zoom <= MIN_ZOOM}
+                onClick={() => setZoom((current) => stepZoom(current, -1))}
+              >
+                −
+              </button>
+              <button
+                className="albums-preview-zoom-label"
+                title="点击恢复 100%"
+                onClick={() => setZoom(1)}
+              >
+                {zoom === "fit" ? "适应" : `${Math.round(zoom * 100)}%`}
+              </button>
+              <button
+                aria-label="放大"
+                disabled={zoom !== "fit" && zoom >= MAX_ZOOM}
+                onClick={() => setZoom((current) => stepZoom(current, 1))}
+              >
+                +
+              </button>
+            </div>
+            <button className="albums-preview-close" onClick={closePreview}>
               <Icon name="close" size={15} />
               关闭
             </button>
           </header>
-          <div className="comics-reader-stage">
-            {reader.fullUrl && !reader.fullFailed ? (
-              <img
-                src={reader.fullUrl}
-                alt={currentPhoto.name}
-                referrerPolicy="no-referrer"
-                onError={() => setReader((current) => current ? { ...current, fullFailed: true } : current)}
-              />
-            ) : (
-              <img
-                src={currentPhoto.thumbUrl ?? ""}
-                alt={currentPhoto.name}
-                referrerPolicy="no-referrer"
-              />
-            )}
+          <div className="albums-preview-stage-wrap">
+            <div
+              className={`albums-preview-stage${zoom !== "fit" ? " zoomed" : ""}${dragging ? " dragging" : ""}`}
+              ref={stageRef}
+              onPointerDown={handleStagePointerDown}
+              onPointerMove={handleStagePointerMove}
+              onPointerUp={handleStagePointerEnd}
+              onPointerCancel={handleStagePointerEnd}
+            >
+              {previewUrl ? (
+                <img
+                  className={zoom === "fit" ? "" : "zoomed"}
+                  src={previewUrl}
+                  alt={currentPhoto.name}
+                  referrerPolicy="no-referrer"
+                  draggable={false}
+                  onLoad={handleStageImgLoad}
+                  onError={() =>
+                    setReader((current) =>
+                      current && current.fullUrl && !current.fullFailed
+                        ? { ...current, fullUrl: null, fullFailed: true, fullLoading: false }
+                        : current,
+                    )
+                  }
+                  style={zoom !== "fit" && fullNatural ? { width: `${Math.round(fullNatural.width * zoom)}px` } : undefined}
+                />
+              ) : (
+                <div className="albums-preview-fallback">
+                  <FileTypeIcon kind="image" size={72} />
+                </div>
+              )}
+            </div>
+            {reader.fullLoading && <span className="albums-preview-note">正在加载原图…</span>}
             {reader.fullFailed && (
-              <span className="albums-preview-note">原图直链加载失败，正在显示缩略图</span>
+              <span className="albums-preview-note albums-preview-note-failed">
+                原图直链加载失败，正在显示缩略图
+                <button onClick={() => void retryFullSource()}>
+                  <Icon name="refresh" size={12} />
+                  重试
+                </button>
+              </span>
             )}
           </div>
-          <div className="comics-reader-nav">
+          <div className="albums-preview-strip" aria-label="照片缩略图条">
+            {reader.photos.map((photo, index) => (
+              <button
+                key={photo.fileId}
+                ref={index === reader.index ? activeStripItemRef : undefined}
+                className={index === reader.index ? "active" : ""}
+                aria-label={`查看 ${photo.name}`}
+                aria-current={index === reader.index ? "true" : undefined}
+                title={photo.name}
+                onClick={() => void openPreview(reader.photos, index)}
+              >
+                <FileThumbnail src={photo.thumbUrl} kind="image" size={44} iconSize={26} />
+              </button>
+            ))}
+          </div>
+          <div className="albums-preview-nav">
             <button disabled={reader.index === 0} onClick={() => changePhoto(-1)}>上一张</button>
             <button
               disabled={reader.index >= reader.photos.length - 1}

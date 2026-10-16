@@ -1,90 +1,74 @@
-import type { AppSection } from "../domain/media";
-import type { Cloud115AccountStatus, Cloud115UserProfile } from "../services/mediaServices";
 import { Icon } from "./Icon";
 
+/** 侧栏导航标识；AI 整理并入右下角对话面板，不再占用侧栏入口。 */
+export type SidebarNavId =
+  | "cloud-files"
+  | "tasks"
+  | "video"
+  | "comics"
+  | "albums"
+  | "settings";
+
 type SidebarProps = {
-  active: AppSection;
+  active: SidebarNavId;
+  /** true 为展开态（图标 + 文字 + 分组标题），false 为 80px 图标轨道；持久化由应用壳负责。 */
+  expanded: boolean;
   taskCount: number;
-  query: string;
-  onQueryChange: (query: string) => void;
-  onNavigate: (section: AppSection) => void;
-  cloudAccount: Cloud115AccountStatus | null;
-  cloudProfile: Cloud115UserProfile | null;
-  onAccountClick: () => void;
+  onNavigate: (id: SidebarNavId) => void;
+  onToggleExpanded: () => void;
 };
 
 const NAVIGATION: Array<{
-  id: AppSection;
+  id: Exclude<SidebarNavId, "settings">;
   label: string;
-  icon:
-    | "cloud"
-    | "tasks"
-    | "sparkles"
-    | "home"
-    | "library"
-    | "discover"
-    | "book"
-    | "images"
-    | "settings";
+  icon: "cloud" | "tasks" | "play" | "book" | "images";
   group: "workspace" | "content";
 }> = [
   { id: "cloud-files", label: "网盘文件", icon: "cloud", group: "workspace" },
-  { id: "tasks", label: "整理任务", icon: "tasks", group: "workspace" },
-  { id: "ai-organize", label: "AI 整理", icon: "sparkles", group: "workspace" },
-  { id: "settings", label: "设置", icon: "settings", group: "workspace" },
-  { id: "home", label: "首页", icon: "home", group: "content" },
-  { id: "library", label: "媒体库", icon: "library", group: "content" },
-  { id: "discover", label: "发现", icon: "discover", group: "content" },
+  { id: "video", label: "影视", icon: "play", group: "content" },
   { id: "comics", label: "漫画", icon: "book", group: "content" },
   { id: "albums", label: "相册", icon: "images", group: "content" },
 ];
 
-/** 文件优先的常驻侧栏；115 文件工作区是默认入口，媒体浏览退居内容模式。 */
+const GROUP_LABELS: Record<"workspace" | "content", string> = {
+  workspace: "工作区",
+  content: "内容",
+};
+
+/** 文件优先的常驻侧栏；收起为图标轨道，展开显示分组标题与文字标签。 */
 export function Sidebar({
   active,
+  expanded,
   taskCount,
-  query,
-  onQueryChange,
   onNavigate,
-  cloudAccount,
-  cloudProfile,
-  onAccountClick,
+  onToggleExpanded,
 }: SidebarProps) {
   return (
-    <aside className="app-sidebar">
-      <div className="window-drag-region" data-tauri-drag-region />
-      <div className="sidebar-brand">
-        <span className="brand-mark">S</span>
-        <div>
-          <strong>Sirius</strong>
-          <small>115 第三方客户端</small>
-        </div>
+    <aside className="app-sidebar" aria-label="Sirius 功能导航">
+      <div className="sidebar-brand" data-tauri-drag-region>
+        <span className="brand-mark" aria-hidden="true" data-tauri-drag-region>S</span>
+        <strong data-tauri-drag-region>Sirius</strong>
       </div>
-
-      <label className="sidebar-search">
-        <Icon name="search" size={16} />
-        <input
-          value={query}
-          placeholder="搜索影片"
-          onChange={(event) => onQueryChange(event.currentTarget.value)}
-        />
-        <kbd>⌘ K</kbd>
-      </label>
 
       <nav aria-label="主导航">
         {(["workspace", "content"] as const).map((group) => (
-          <div className="nav-group" key={group}>
-            <span className="nav-group-label">{group === "workspace" ? "工作区" : "内容"}</span>
+          <div className="nav-group" key={group} role="group" aria-label={GROUP_LABELS[group]}>
+            {/* 分组标题仅在展开态可见；收起轨道依赖图标与 tooltip 辨识。 */}
+            <span className="nav-group-label" aria-hidden="true">{GROUP_LABELS[group]}</span>
             {NAVIGATION.filter((item) => item.group === group).map((item) => (
               <button
                 key={item.id}
+                type="button"
                 className={active === item.id ? "nav-item active" : "nav-item"}
+                aria-current={active === item.id ? "page" : undefined}
+                aria-label={item.id === "tasks" && taskCount > 0 ? `${item.label}，${taskCount} 项需要处理` : item.label}
+                title={item.label}
                 onClick={() => onNavigate(item.id)}
               >
-                <Icon name={item.icon} />
+                <Icon name={item.icon} size={20} />
                 <span>{item.label}</span>
                 {item.id === "tasks" && taskCount > 0 && (
-                  <span className="nav-badge">{taskCount}</span>
+                  <span className="nav-badge" aria-hidden="true">{taskCount > 99 ? "99+" : taskCount}</span>
                 )}
               </button>
             ))}
@@ -92,20 +76,28 @@ export function Sidebar({
         ))}
       </nav>
 
-      <button className="source-summary account-summary" onClick={onAccountClick}>
-        <div className="source-icon">
-          {cloudAccount?.connected && cloudProfile?.avatarUrl ? (
-            <img src={cloudProfile.avatarUrl} alt="" referrerPolicy="no-referrer" />
-          ) : (
-            <Icon name={cloudAccount?.connected ? "home" : "cloud"} size={16} />
-          )}
-        </div>
-        <div>
-          <strong>{cloudAccount?.connected ? cloudAccount.userName || "115 用户" : "登录 115"}</strong>
-          <small>{cloudAccount?.connected ? "账号已连接" : "点击扫码登录"}</small>
-        </div>
-        <Icon name="chevron" size={13} />
-      </button>
+      <div className="sidebar-footer">
+        <button
+          type="button"
+          className={active === "settings" ? "nav-item active" : "nav-item"}
+          aria-current={active === "settings" ? "page" : undefined}
+          title="设置"
+          onClick={() => onNavigate("settings")}
+        >
+          <Icon name="settings" size={20} />
+          <span>设置</span>
+        </button>
+        <button
+          type="button"
+          className="sidebar-toggle"
+          aria-label={expanded ? "收起侧栏" : "展开侧栏"}
+          title={expanded ? "收起侧栏" : "展开侧栏"}
+          aria-expanded={expanded}
+          onClick={onToggleExpanded}
+        >
+          <Icon name="chevron" size={16} />
+        </button>
+      </div>
     </aside>
   );
 }

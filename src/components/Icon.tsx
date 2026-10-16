@@ -15,14 +15,21 @@ import {
   Pencil,
   Play,
   Plus,
+  RefreshCw,
   Search,
+  SendHorizontal,
   Settings,
+  SkipBack,
+  SkipForward,
   Sparkles,
+  Square,
   Star,
   Trash2,
   TriangleAlert,
   Upload,
   User,
+  Volume2,
+  VolumeX,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -52,7 +59,14 @@ export type IconName =
   | "download"
   | "sparkles"
   | "book"
-  | "images";
+  | "images"
+  | "send"
+  | "stop"
+  | "refresh"
+  | "back10"
+  | "forward10"
+  | "volume"
+  | "volumeOff";
 
 const ICONS: Record<IconName, LucideIcon> = {
   home: House,
@@ -80,6 +94,13 @@ const ICONS: Record<IconName, LucideIcon> = {
   sparkles: Sparkles,
   book: BookOpen,
   images: Images,
+  send: SendHorizontal,
+  stop: Square,
+  refresh: RefreshCw,
+  back10: SkipBack,
+  forward10: SkipForward,
+  volume: Volume2,
+  volumeOff: VolumeX,
 };
 
 type IconProps = {

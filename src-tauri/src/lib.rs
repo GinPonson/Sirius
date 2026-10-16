@@ -1,15 +1,18 @@
 mod ai;
+mod ai_chat;
 mod albums;
 mod cloud115;
 mod comics;
 mod library;
 mod media_info;
 mod playback;
+mod transfer;
 
 use ai::{
     AiExecutionReport, AiExecutionRequest, AiOrganizationPlan, AiProviderSettingsView,
     AiProviderUpdateInput,
 };
+use ai_chat::{AiChatSendReceipt, ChatStreamRegistry};
 use albums::{AlbumFolderInput, AlbumsIndexSummary, PhotosOverview};
 use comics::{ComicOpenInput, ComicSession, ComicsIndexSummary, ComicsOverview};
 
@@ -20,14 +23,25 @@ use cloud115::{
     Cloud115SubtitleStream, Cloud115UploadResult, Cloud115UserProfile,
 };
 use library::{
-    AppSettings, LibraryRepository, LibraryTask, MediaInfo, MediaItem, PlaybackProgress,
-    UploadSession,
+    AiChatMessageRow, AiChatSession, AppSettings, LibraryRepository, LibraryTask, MediaInfo,
+    MediaItem, PlaybackProgress, UploadSession,
 };
 use playback::{PlaybackManager, PlaybackSnapshot, RemoteSourceResolver};
 use std::sync::Arc;
-use tauri::{window::WindowBuilder, AppHandle, Manager, State, Window};
+use tauri::{window::WindowBuilder, AppHandle, Emitter, Manager, State, Window};
+use transfer::TransferProgress;
 
 const VIDEO_WINDOW_LABEL: &str = "video";
+
+/// 把传输进度事件转发到 WebView；负载契约与 `src/services/events.ts` 保持一致。
+fn transfer_progress_callback(app: &AppHandle) -> transfer::ProgressCallback {
+    let app = app.clone();
+    Arc::new(move |progress: TransferProgress| {
+        if let Err(error) = app.emit(transfer::TRANSFER_PROGRESS_EVENT, progress) {
+            eprintln!("发送传输进度事件失败：{error}");
+        }
+    })
+}
 
 /// 返回 Sirius 支持选择的 115 开放平台应用身份。
 #[tauri::command]
@@ -114,6 +128,7 @@ async fn cloud115_download_source(
 }
 
 /// 将 115 文件下载到本地目录；存在 .sirius-part 临时文件时自动断点续传，成功后原子重命名。
+/// 下载进度经 transfer://progress 事件限频推送。
 #[tauri::command]
 async fn cloud115_download_file(
     pick_code: String,
@@ -121,9 +136,16 @@ async fn cloud115_download_file(
     file_name: String,
     expected_size_bytes: u64,
     provider: State<'_, Arc<Cloud115Provider>>,
+    app: AppHandle,
 ) -> Result<Cloud115DownloadResult, String> {
     provider
-        .download_file(&pick_code, &target_dir, &file_name, expected_size_bytes)
+        .download_file(
+            &pick_code,
+            &target_dir,
+            &file_name,
+            expected_size_bytes,
+            Some(transfer_progress_callback(&app)),
+        )
         .await
 }
 
@@ -183,15 +205,22 @@ async fn cloud115_copy_files(
 }
 
 /// 从磁盘流式上传本地文件到指定 115 目录：SHA1 与分块按需读取，≤20 MiB 单对象 PUT，更大文件 multipart。
+/// 上传进度经 transfer://progress 事件按阶段推送。
 #[tauri::command]
 async fn cloud115_upload_file(
     path: String,
     target_id: String,
     provider: State<'_, Arc<Cloud115Provider>>,
     repository: State<'_, Arc<LibraryRepository>>,
+    app: AppHandle,
 ) -> Result<Cloud115UploadResult, String> {
     provider
-        .upload_file_from_disk(repository.inner(), &path, &target_id)
+        .upload_file_from_disk(
+            repository.inner(),
+            &path,
+            &target_id,
+            Some(transfer_progress_callback(&app)),
+        )
         .await
 }
 
@@ -301,11 +330,13 @@ async fn cloud115_upload_sessions(
 }
 
 /// 从 SQLite 会话恢复 multipart；本地文件按需流式读取与校验，不再有 64 MiB 上限。
+/// 恢复进度同样经 transfer://progress 事件按阶段推送。
 #[tauri::command]
 async fn cloud115_resume_upload(
     session_id: String,
     provider: State<'_, Arc<Cloud115Provider>>,
     repository: State<'_, Arc<LibraryRepository>>,
+    app: AppHandle,
 ) -> Result<Cloud115UploadResult, String> {
     if session_id.trim().is_empty() {
         return Err("上传会话 ID 不能为空".to_string());
@@ -322,7 +353,11 @@ async fn cloud115_resume_upload(
     .await
     .map_err(|error| format!("上传会话查询线程异常终止：{error}"))??;
     provider
-        .resume_upload_session(repository.as_ref(), session)
+        .resume_upload_session(
+            repository.as_ref(),
+            session,
+            Some(transfer_progress_callback(&app)),
+        )
         .await
 }
 
@@ -370,6 +405,197 @@ async fn ai_execute_plan(
     provider: State<'_, Arc<Cloud115Provider>>,
 ) -> Result<AiExecutionReport, String> {
     ai::execute_plan(provider.inner(), &request).await
+}
+
+/// 新建 AI 对话会话并返回其元数据；title 缺省时使用默认标题。
+#[tauri::command]
+async fn ai_chat_create(
+    title: Option<String>,
+    repository: State<'_, Arc<LibraryRepository>>,
+) -> Result<AiChatSession, String> {
+    let repository = Arc::clone(repository.inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        repository.create_ai_chat_session(&ai_chat::next_chat_session_id(), title.as_deref())
+    })
+    .await
+    .map_err(|error| format!("创建对话会话线程异常终止：{error}"))?
+}
+
+/// 返回全部 AI 对话会话元数据，按最近更新倒序。
+#[tauri::command]
+async fn ai_chat_sessions_list(
+    repository: State<'_, Arc<LibraryRepository>>,
+) -> Result<Vec<AiChatSession>, String> {
+    let repository = Arc::clone(repository.inner());
+    tauri::async_runtime::spawn_blocking(move || repository.ai_chat_sessions())
+        .await
+        .map_err(|error| format!("对话会话查询线程异常终止：{error}"))?
+}
+
+/// 返回会话内全部消息（按时间顺序），含随消息存档的页面上下文快照。
+#[tauri::command]
+async fn ai_chat_history(
+    session_id: String,
+    repository: State<'_, Arc<LibraryRepository>>,
+) -> Result<Vec<AiChatMessageRow>, String> {
+    let session_id = session_id.trim().to_string();
+    if session_id.is_empty() {
+        return Err("会话 ID 不能为空".to_string());
+    }
+    let repository = Arc::clone(repository.inner());
+    tauri::async_runtime::spawn_blocking(move || repository.ai_chat_messages(&session_id))
+        .await
+        .map_err(|error| format!("对话历史查询线程异常终止：{error}"))?
+}
+
+/// 删除会话及其全部消息；存在进行中的回复时拒绝，避免流任务写回已删除的会话。
+#[tauri::command]
+async fn ai_chat_delete(
+    session_id: String,
+    repository: State<'_, Arc<LibraryRepository>>,
+    registry: State<'_, Arc<ChatStreamRegistry>>,
+) -> Result<(), String> {
+    let session_id = session_id.trim().to_string();
+    if session_id.is_empty() {
+        return Err("会话 ID 不能为空".to_string());
+    }
+    if registry.has_active(&session_id) {
+        return Err("会话正在回复中，请先停止当前回复再删除".to_string());
+    }
+    let repository = Arc::clone(repository.inner());
+    tauri::async_runtime::spawn_blocking(move || repository.delete_ai_chat_session(&session_id))
+        .await
+        .map_err(|error| format!("删除对话会话线程异常终止：{error}"))?
+}
+
+/// 中断会话当前进行中的流式回复；返回是否确实存在进行中的流。
+/// 中断后已收到的部分回复会被持久化，并补发一次 done 事件（error=「已停止」）。
+#[tauri::command]
+fn ai_chat_stop(
+    session_id: String,
+    registry: State<'_, Arc<ChatStreamRegistry>>,
+) -> Result<bool, String> {
+    let session_id = session_id.trim().to_string();
+    if session_id.is_empty() {
+        return Err("会话 ID 不能为空".to_string());
+    }
+    Ok(registry.stop(&session_id))
+}
+
+/// 发送一条用户消息并启动流式回复。
+///
+/// 校验通过后立即返回回执（含在首个增量前确定的助手消息 ID）；增量经
+/// `ai://chat-token` 事件推送，终态事件恰好一次。页面上下文（context 摘要
+/// 对象）随本条用户消息持久化，并并入该条消息的请求文本。
+#[tauri::command]
+async fn ai_chat_send(
+    session_id: String,
+    content: String,
+    context: Option<serde_json::Value>,
+    repository: State<'_, Arc<LibraryRepository>>,
+    registry: State<'_, Arc<ChatStreamRegistry>>,
+    app: AppHandle,
+) -> Result<AiChatSendReceipt, String> {
+    let session_id = session_id.trim().to_string();
+    if session_id.is_empty() {
+        return Err("会话 ID 不能为空".to_string());
+    }
+    let content = content.trim().to_string();
+    if content.is_empty() {
+        return Err("消息内容不能为空".to_string());
+    }
+    let repository = Arc::clone(repository.inner());
+    let registry = Arc::clone(registry.inner());
+
+    // 配置与密钥在任何写入前快速校验；密钥值只进入请求头，不进日志或事件。
+    let (settings, api_key) = {
+        let repository = Arc::clone(&repository);
+        tauri::async_runtime::spawn_blocking(move || {
+            let settings = repository.ai_provider()?;
+            let api_key = ai::require_api_key()?;
+            Ok::<_, String>((settings, api_key))
+        })
+        .await
+        .map_err(|error| format!("读取 AI 配置线程异常终止：{error}"))??
+    };
+
+    // 并发互斥：同一会话同时只允许一个进行中的回复。
+    let stopper = registry.register(&session_id)?;
+
+    let send_result = async {
+        let history = {
+            let repository = Arc::clone(&repository);
+            let session_id = session_id.clone();
+            tauri::async_runtime::spawn_blocking(move || repository.ai_chat_messages(&session_id))
+                .await
+                .map_err(|error| format!("读取对话历史线程异常终止：{error}"))??
+        };
+        let user_message_id = ai_chat::next_chat_message_id();
+        // 上下文的解析与大小校验都发生在任何持久化之前。
+        let turns = ai_chat::build_chat_turns(&history, &content, context.as_ref())?;
+        let context_json = ai_chat::context_to_json(context.as_ref())?;
+
+        // 先持久化用户消息再启动流：流失败或应用退出时消息也不丢失。
+        {
+            let repository = Arc::clone(&repository);
+            let session_id = session_id.clone();
+            let user_message_id = user_message_id.clone();
+            let content = content.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                repository.append_ai_chat_message(
+                    &user_message_id,
+                    &session_id,
+                    "user",
+                    &content,
+                    context_json.as_deref(),
+                )
+            })
+            .await
+            .map_err(|error| format!("保存对话消息线程异常终止：{error}"))??;
+        }
+
+        // 助手消息 ID 在首个增量事件前确定，前端用它聚合 delta。
+        let message_id = ai_chat::next_chat_message_id();
+        let task_repository = Arc::clone(&repository);
+        let task_registry = Arc::clone(&registry);
+        let task_session_id = session_id.clone();
+        let task_message_id = message_id.clone();
+        let task_app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let job = ai_chat::ChatStreamJob {
+                settings: &settings,
+                api_key: &api_key,
+                turns: &turns,
+                session_id: &task_session_id,
+                message_id: &task_message_id,
+            };
+            ai_chat::run_chat_stream(
+                task_repository.as_ref(),
+                &job,
+                &stopper,
+                &task_registry,
+                |event| {
+                    if let Err(error) = task_app.emit(ai_chat::AI_CHAT_TOKEN_EVENT, event) {
+                        eprintln!("发送 AI 对话事件失败：{error}");
+                    }
+                },
+            )
+            .await;
+        });
+        Ok(AiChatSendReceipt {
+            // 克隆而非移动：外层在发送失败时还需要会话 ID 释放并发互斥。
+            session_id: session_id.clone(),
+            message_id,
+            user_message_id,
+        })
+    }
+    .await;
+
+    // 后续任一步失败都要释放并发互斥，允许用户立即重试。
+    if send_result.is_err() {
+        registry.unregister(&session_id);
+    }
+    send_result
 }
 
 /// 识别 115 目录中的漫画压缩包并按系列分组；单次最多读取 200 项，结果持久化为本机索引。
@@ -715,6 +941,8 @@ pub fn run() {
             let repository = LibraryRepository::open(&database_path)
                 .map_err(|error| format!("初始化 Sirius 媒体库失败：{error}"))?;
             app.manage(Arc::new(repository));
+            // AI 对话流的停止令牌登记表：支撑 ai_chat_stop 跨命令中断与并发发送互斥。
+            app.manage(Arc::new(ChatStreamRegistry::default()));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -753,6 +981,12 @@ pub fn run() {
             ai_update_provider,
             ai_analyze_folder,
             ai_execute_plan,
+            ai_chat_create,
+            ai_chat_send,
+            ai_chat_stop,
+            ai_chat_sessions_list,
+            ai_chat_history,
+            ai_chat_delete,
             comics_recognize,
             comics_index,
             comics_index_folders,

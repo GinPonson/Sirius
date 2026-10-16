@@ -28,6 +28,32 @@ pub struct AiProviderSettings {
     pub model: String,
 }
 
+/// AI 对话会话元数据；消息正文与页面上下文快照保存在 ai_chat_messages。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiChatSession {
+    pub id: String,
+    pub title: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// AI 对话消息行；context_json 是前端随该条消息注入的页面上下文 JSON 快照（可空）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiChatMessageRow {
+    pub id: String,
+    pub session_id: String,
+    /// "user" 或 "assistant"。
+    pub role: String,
+    pub content: String,
+    pub context_json: Option<String>,
+    pub created_at: String,
+}
+
+/// AI 对话的默认标题；前端未指定标题时使用。
+const AI_CHAT_DEFAULT_TITLE: &str = "新对话";
+
 /// 经过刮削后供前端展示的媒体实体。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -290,7 +316,26 @@ impl LibraryRepository {
                    audio_codec TEXT,
                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                    PRIMARY KEY (provider, file_id)
-                 );",
+                 );
+                 CREATE TABLE IF NOT EXISTS ai_chat_sessions (
+                   id TEXT PRIMARY KEY,
+                   title TEXT NOT NULL,
+                   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                 );
+                 CREATE INDEX IF NOT EXISTS idx_ai_chat_sessions_updated
+                   ON ai_chat_sessions(updated_at DESC);
+                 CREATE TABLE IF NOT EXISTS ai_chat_messages (
+                   seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                   id TEXT NOT NULL UNIQUE,
+                   session_id TEXT NOT NULL REFERENCES ai_chat_sessions(id) ON DELETE CASCADE,
+                   role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+                   content TEXT NOT NULL,
+                   context_json TEXT,
+                   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                 );
+                 CREATE INDEX IF NOT EXISTS idx_ai_chat_messages_session
+                   ON ai_chat_messages(session_id, seq);",
             )
             .map_err(|error| format!("迁移 SQLite 媒体库失败：{error}"))?;
 
@@ -391,6 +436,155 @@ impl LibraryRepository {
                 params![settings.base_url, settings.model],
             )
             .map_err(|error| format!("保存 AI 配置失败：{error}"))?;
+        Ok(())
+    }
+
+    /// 返回全部 AI 对话会话，按最近更新倒序。
+    pub fn ai_chat_sessions(&self) -> Result<Vec<AiChatSession>, String> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| "SQLite 媒体库锁已损坏，必须重启应用".to_string())?;
+        let mut statement = connection
+            .prepare(
+                "SELECT id,title,created_at,updated_at
+                 FROM ai_chat_sessions ORDER BY updated_at DESC, id DESC",
+            )
+            .map_err(|error| format!("读取对话会话失败：{error}"))?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok(AiChatSession {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    created_at: row.get(2)?,
+                    updated_at: row.get(3)?,
+                })
+            })
+            .map_err(|error| format!("读取对话会话失败：{error}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| format!("读取对话会话失败：{error}"))
+    }
+
+    /// 新建 AI 对话会话；id 由调用方生成，title 缺省时使用默认标题。
+    pub fn create_ai_chat_session(
+        &self,
+        id: &str,
+        title: Option<&str>,
+    ) -> Result<AiChatSession, String> {
+        let id = id.trim();
+        if id.is_empty() {
+            return Err("会话 ID 不能为空".to_string());
+        }
+        let title = title
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+            .unwrap_or(AI_CHAT_DEFAULT_TITLE);
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| "SQLite 媒体库锁已损坏，必须重启应用".to_string())?;
+        connection
+            .execute(
+                "INSERT INTO ai_chat_sessions (id,title) VALUES (?1,?2)",
+                params![id, title],
+            )
+            .map_err(|error| format!("创建对话会话失败：{error}"))?;
+        // 回读真实的时间戳，避免调用方拿到的元数据与数据库不一致。
+        connection
+            .query_row(
+                "SELECT title,created_at,updated_at FROM ai_chat_sessions WHERE id=?1",
+                [id],
+                |row| {
+                    Ok(AiChatSession {
+                        id: id.to_string(),
+                        title: row.get(0)?,
+                        created_at: row.get(1)?,
+                        updated_at: row.get(2)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|error| format!("读取新建对话会话失败：{error}"))?
+            .ok_or_else(|| "对话会话创建后读取失败".to_string())
+    }
+
+    /// 返回会话内全部消息（按写入顺序）；会话不存在时显式报错，避免空历史掩盖问题。
+    pub fn ai_chat_messages(&self, session_id: &str) -> Result<Vec<AiChatMessageRow>, String> {
+        let session_id = session_id.trim();
+        if session_id.is_empty() {
+            return Err("会话 ID 不能为空".to_string());
+        }
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| "SQLite 媒体库锁已损坏，必须重启应用".to_string())?;
+        ai_chat_messages_with(&connection, session_id)
+    }
+
+    /// 追加一条对话消息并刷新会话 updated_at；context_json 提供时必须是合法 JSON。
+    pub fn append_ai_chat_message(
+        &self,
+        id: &str,
+        session_id: &str,
+        role: &str,
+        content: &str,
+        context_json: Option<&str>,
+    ) -> Result<(), String> {
+        let id = id.trim();
+        let session_id = session_id.trim();
+        if id.is_empty() || session_id.is_empty() {
+            return Err("对话消息 ID 或会话 ID 不能为空".to_string());
+        }
+        if !matches!(role, "user" | "assistant") {
+            return Err("对话消息角色必须是 user 或 assistant".to_string());
+        }
+        if content.trim().is_empty() {
+            return Err("对话消息内容不能为空".to_string());
+        }
+        if let Some(json) = context_json {
+            serde_json::from_str::<serde_json::Value>(json)
+                .map_err(|error| format!("对话上下文快照不是合法 JSON：{error}"))?;
+        }
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| "SQLite 媒体库锁已损坏，必须重启应用".to_string())?;
+        let transaction = connection
+            .transaction()
+            .map_err(|error| format!("开始对话消息写入事务失败：{error}"))?;
+        ai_chat_ensure_session(&transaction, session_id)?;
+        transaction
+            .execute(
+                "INSERT INTO ai_chat_messages (id,session_id,role,content,context_json)
+                 VALUES (?1,?2,?3,?4,?5)",
+                params![id, session_id, role, content, context_json],
+            )
+            .map_err(|error| format!("保存对话消息失败：{error}"))?;
+        transaction
+            .execute(
+                "UPDATE ai_chat_sessions SET updated_at=CURRENT_TIMESTAMP WHERE id=?1",
+                params![session_id],
+            )
+            .map_err(|error| format!("刷新对话会话时间失败：{error}"))?;
+        transaction
+            .commit()
+            .map_err(|error| format!("提交对话消息写入事务失败：{error}"))?;
+        Ok(())
+    }
+
+    /// 删除会话及其全部消息；消息经外键级联清除（open 时已开启 foreign_keys）。
+    pub fn delete_ai_chat_session(&self, session_id: &str) -> Result<(), String> {
+        let session_id = session_id.trim();
+        if session_id.is_empty() {
+            return Err("会话 ID 不能为空".to_string());
+        }
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| "SQLite 媒体库锁已损坏，必须重启应用".to_string())?;
+        connection
+            .execute("DELETE FROM ai_chat_sessions WHERE id=?1", [session_id])
+            .map_err(|error| format!("删除对话会话失败：{error}"))?;
         Ok(())
     }
 
@@ -1199,6 +1393,50 @@ fn validate_ai_provider(settings: &AiProviderSettings) -> Result<(), String> {
     Ok(())
 }
 
+/// 校验会话存在；供消息写入与历史读取共用，未找到时报错而非返回空列表。
+fn ai_chat_ensure_session(connection: &Connection, session_id: &str) -> Result<(), String> {
+    let exists: Option<i64> = connection
+        .query_row(
+            "SELECT 1 FROM ai_chat_sessions WHERE id=?1",
+            [session_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| format!("查询对话会话失败：{error}"))?;
+    if exists.is_none() {
+        return Err("未找到指定对话会话".to_string());
+    }
+    Ok(())
+}
+
+/// 读取一个会话的全部消息，按写入顺序返回。
+fn ai_chat_messages_with(
+    connection: &Connection,
+    session_id: &str,
+) -> Result<Vec<AiChatMessageRow>, String> {
+    ai_chat_ensure_session(connection, session_id)?;
+    let mut statement = connection
+        .prepare(
+            "SELECT id,session_id,role,content,context_json,created_at
+             FROM ai_chat_messages WHERE session_id=?1 ORDER BY seq",
+        )
+        .map_err(|error| format!("读取对话历史失败：{error}"))?;
+    let rows = statement
+        .query_map([session_id], |row| {
+            Ok(AiChatMessageRow {
+                id: row.get(0)?,
+                session_id: row.get(1)?,
+                role: row.get(2)?,
+                content: row.get(3)?,
+                context_json: row.get(4)?,
+                created_at: row.get(5)?,
+            })
+        })
+        .map_err(|error| format!("读取对话历史失败：{error}"))?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("读取对话历史失败：{error}"))
+}
+
 fn media_from_row(row: &rusqlite::Row<'_>) -> Result<MediaItem, String> {
     let genres_json: String = row.get(7).map_err(row_error)?;
     let cast_json: String = row.get(10).map_err(row_error)?;
@@ -1479,5 +1717,110 @@ mod tests {
         assert_eq!(repository.upload_sessions().unwrap(), vec![session.clone()]);
         repository.delete_upload_session(&session.id).unwrap();
         assert!(repository.upload_sessions().unwrap().is_empty());
+    }
+
+    #[test]
+    fn persists_and_cascades_ai_chat_sessions_and_messages() {
+        let repository = LibraryRepository::open(Path::new(":memory:")).unwrap();
+        // 缺省标题与指定标题都可用。
+        let default_session = repository.create_ai_chat_session("s1", None).unwrap();
+        assert_eq!(default_session.title, "新对话");
+        let titled = repository
+            .create_ai_chat_session("s2", Some("  整理讨论  "))
+            .unwrap();
+        assert_eq!(titled.title, "整理讨论");
+        assert_eq!(repository.ai_chat_sessions().unwrap().len(), 2);
+
+        repository
+            .append_ai_chat_message(
+                "m1",
+                "s1",
+                "user",
+                "帮我把下载目录整理一下",
+                Some(r#"{"page":"files","folderId":"0"}"#),
+            )
+            .unwrap();
+        repository
+            .append_ai_chat_message("m2", "s1", "assistant", "可以按文件类型归档", None)
+            .unwrap();
+        let history = repository.ai_chat_messages("s1").unwrap();
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0].role, "user");
+        assert_eq!(history[0].content, "帮我把下载目录整理一下");
+        assert_eq!(
+            history[0].context_json.as_deref(),
+            Some(r#"{"page":"files","folderId":"0"}"#)
+        );
+        assert_eq!(history[1].role, "assistant");
+        assert_eq!(history[1].content, "可以按文件类型归档");
+        assert_eq!(history[1].context_json, None);
+
+        // 非法角色与空内容必须在写入前拒绝。
+        assert!(repository
+            .append_ai_chat_message("m3", "s1", "system", "x", None)
+            .is_err());
+        assert!(repository
+            .append_ai_chat_message("m4", "s1", "user", "   ", None)
+            .is_err());
+        // 上下文快照必须是合法 JSON。
+        assert!(repository
+            .append_ai_chat_message("m5", "s1", "user", "hi", Some("not-json"))
+            .is_err());
+        // 会话不存在时写入与读取都要显式报错。
+        assert!(repository
+            .append_ai_chat_message("m6", "ghost", "user", "hi", None)
+            .is_err());
+        assert!(repository.ai_chat_messages("ghost").is_err());
+
+        // 删除会话后消息经外键级联清除，其它会话不受影响。
+        repository.delete_ai_chat_session("s1").unwrap();
+        assert!(repository.ai_chat_messages("s1").is_err());
+        assert_eq!(repository.ai_chat_sessions().unwrap().len(), 1);
+        assert_eq!(repository.ai_chat_sessions().unwrap()[0].id, "s2");
+        let connection = repository.connection.lock().unwrap();
+        let orphan_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM ai_chat_messages WHERE session_id='s1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(orphan_count, 0);
+        drop(connection);
+        assert!(repository.delete_ai_chat_session(" ").is_err());
+    }
+
+    #[test]
+    fn ai_chat_migration_is_idempotent_and_preserves_existing_data() {
+        let unique = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("sirius-chat-migration-{unique}.sqlite3"));
+        {
+            let repository = LibraryRepository::open(&path).unwrap();
+            repository
+                .create_ai_chat_session("s1", Some("迁移前会话"))
+                .unwrap();
+            repository
+                .append_ai_chat_message("m1", "s1", "user", "迁移前消息", None)
+                .unwrap();
+        }
+        // 重新打开：迁移幂等重放，已有的会话与消息必须原样保留。
+        {
+            let repository = LibraryRepository::open(&path).unwrap();
+            let history = repository.ai_chat_messages("s1").unwrap();
+            assert_eq!(history.len(), 1);
+            assert_eq!(history[0].content, "迁移前消息");
+            assert_eq!(history[0].session_id, "s1");
+            // 迁移后的库必须继续可写。
+            repository
+                .append_ai_chat_message("m2", "s1", "assistant", "重新打开后仍可写入", None)
+                .unwrap();
+            assert_eq!(repository.ai_chat_messages("s1").unwrap().len(), 2);
+        }
+        let _ = fs::remove_file(&path);
+        let _ = fs::remove_file(path.with_extension("sqlite3-wal"));
+        let _ = fs::remove_file(path.with_extension("sqlite3-shm"));
     }
 }

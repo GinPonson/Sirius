@@ -72,6 +72,46 @@
 | 第三方许可材料随包分发 | 已完成 | `generate-sbom.mjs` 扩展生成 `src-tauri/THIRD-PARTY-LICENSES.md`（16 种许可证全文 + 510 个依赖逐包对照，SPDX 官方文本源，缓存至 scripts/.spdx-texts.json）；tauri.conf 新增 bundle resources 后重建 release，确认文件落入 `Contents/Resources/`；重建后复验：无 Homebrew 引用（PASS）+ 启动存活（PASS） | 2026-09-05 | 满足 AGENTS.md 第 9 节 "third-party license materials" 分发要求：涉及许可证 0BSD/Apache-2.0/BSL-1.0/CC0-1.0/CDLA-Permissive-2.0/ISC/LGPL-2.1(-or-later)/MIT/MIT-0/MPL-2.0/Unicode-3.0/Unlicense/Zlib/LLVM-exception；解析器支持 OR/AND/WITH 及旧式斜杠表达式；不可分发风险项（GPL 系）未出现 |
 | 编辑式壳层与微交互升级 | 已完成 | `npm run build` 通过；mock 模式（`?e2e-mock=1`）浏览器截图走查：网盘文件/漫画/相册/AI 四屏对比确认生效；emoji 扫描零命中（Lucide-only 规则持续满足） | 2026-09-06 | 纯 CSS 零逻辑变更：内容模式页头（品牌色短线 + clamp 26–34px 编辑式标题）；分区切换 view-enter 弹簧动效；对话框/操作条入场动效同源；文件行悬停左缘强调条生长（数据区零位移）；AI 计划行重命名/移动/删除语义色左缘条；品牌渐变芯片；侧栏活动指示条弹簧滑入；按钮按压回弹 + 主操作光影层次；漫画/相册卡片悬停浮起。新增 `src/dev-mock.ts` UI 冒烟测试基建（`?e2e-mock=1` 时模拟 Tauri IPC，打包不含真实数据）；修复登录身份选择菜单溢出 |
 
+## 2026-10-11 界面优化第一批：先决修复
+
+| 功能点 | 状态 | 验证 | 日期 | 说明 |
+| --- | --- | --- | --- | --- |
+| 文件页选择集口径修正 | 已完成 | `npm run build` 通过（2026-10-11）；人工验证见 manual-verification 第 1 组 | 2026-10-11 | 搜索词或类型筛选变化时同步清空选择（先于 250ms 防抖拉取）；批量移动/复制/删除统一以 entries ∩ selectedIds（selectedEntries memo）为口径，交集为空时禁用批量按钮 |
+| AI 执行报告计数补齐 | 已完成 | `cargo fmt/clippy(-D warnings)/test` 通过（41 项离线测试，新增 5 项）；`npm run build` 通过 | 2026-10-11 | execute_plan 全部失败路径（策略拒绝/目标准备/provider 调用）累计 report.failed，循环后 debug_assert 保证明细与汇总一致；同批修复 created_folders 恒为 0；新增 ExecutionProvider trait seam 支持离线测试（公开命令签名不变） |
+| 相册专辑筛选与大图竞态修复 | 已完成 | `npm run build` 通过（2026-10-11）；人工验证见 manual-verification 第 6 组 | 2026-10-11 | visibleMonths 按 albumFilter 逐张过滤（月份渲染/计数/预览源统一消费，空月份剔除）；原图请求改 requestSeqRef 序号守卫替换恒真的 fileId 比对，翻页同样推进序号 |
+| 媒体假展示清理 | 已完成 | `npm run build` 通过（2026-10-11）；grep 确认 0.04/「第 3 集」/DETAIL_STILLS 于 src/ 零残留 | 2026-10-11 | 无真实观看记录不渲染「最近观看」；进度条用真实 progress 且 0 时不渲染；数据层无集数字段，副标题只展示作品名；详情 hero 缺图回退品牌备援 poster-fallback.svg（DESIGN.md §14） |
+
+## 2026-10-11 界面优化第二批：基础设施
+
+| 功能点 | 状态 | 验证 | 日期 | 说明 |
+| --- | --- | --- | --- | --- |
+| 传输进度事件通道 | 已完成 | `cargo fmt/clippy(-D warnings)/test` 通过（51 项离线测试，transfer 模块新增 9 项）；`npm run build` 通过；浏览器/真机验证见 manual-verification 第 2、3 组 | 2026-10-11 | 新增 `transfer.rs`：`transfer://progress` 事件（preparing/transferring/finalizing/done/failed，camelCase 契约）；上传分片级进度、末片后「正在确认文件」、下载 200ms/1MiB 限频带速度；前端 `events.ts` + `useTransferEvents` 单例 store，云盘视图按阶段展示 |
+| 设计 token 与玻璃基座 | 已完成 | `npm run build` 通过；grep 确认 #858b94/95/858C9B 归零；浅色/暗色基准截图 `docs/screenshots/wave-f-checkpoint-*.png` | 2026-10-11 | Shell.css `:root` 唯一 token 区（颜色/间距/圆角/阴影/动效/玻璃），App.css/Workbench.css 全量消费；muted #666e7d（白底 5.13:1）；`.glass-panel` 玻璃只给顶栏/侧栏/对话框/批量栏/播放条五个固定层并带 reduced-transparency 回退；`:root[data-theme="dark"]` 暗色全量 token；`.cloud-file-pane` 容器查询基座（不能挂 .app-content：contain 会破坏 fixed 后代定位，已注释说明） |
+| 浏览器冒烟夹具扩展 | 已完成 | `npm run build` 通过；Node 测试台 22 项断言通过；53/53 服务命令全覆盖 | 2026-10-11 | dev-mock 升级为有状态内存文件系统（移动/复制/删除/建目录/回收站真实变更列表）、复刻 Tauri v2 事件投递路径模拟 `transfer://progress`、上传预置中断会话、`?theme=dark` 暗色预览、未覆盖命令 console.warn |
+
+## 2026-10-11 界面优化第三批：窗口结构与 AI 对话
+
+| 功能点 | 状态 | 验证 | 日期 | 说明 |
+| --- | --- | --- | --- | --- |
+| 窗口结构升级（侧栏双态/影视收拢/历史栈/统一搜索） | 已完成 | `npm run build` 通过；mock 浏览器走查 10 项（截图 `docs/screenshots/wp-g1/`，含暗色与持久化） | 2026-10-11 | 侧栏 80px ↔ 208px 双态（localStorage 持久化，弹簧过渡）；首页/媒体库/发现收拢为「影视」内部切换；轻量历史栈（{section, mediaId} 快照、50 条上限）覆盖主视图与详情进出；新建 TopBar 组件收拢前进/后退、范围搜索（影视=影视库、文件=当前目录）、⌘K；漫画/相册无搜索能力不显示搜索框 |
+| AI 多轮流式对话通道（Rust） | 已完成 | `cargo fmt/clippy(-D warnings)/test` 通过（69 项离线测试，新增 18 项）；前端对接见 G3 | 2026-10-11 | 迁移 `ai_chat_sessions`/`ai_chat_messages`（幂等）；`ai_chat.rs` SSE 字节级解码（跨 chunk 保 UTF-8）、协作式停止（保留部分回复与终态）、temperature 0.4 普通文本流；6 命令 create/send/stop/sessions_list/history/delete；`ai://chat-token` 事件；上下文随消息存档（32KiB 上限） |
+| AI 气泡对话面板与整理方案卡 | 已完成 | `npm run build` 通过；浏览器六项自查（17 张截图 `docs/screenshots/wp-g3/`：流式、方案卡全流程、切页提示、覆盖式面板、会话管理、暗色） | 2026-10-11 | 右下角玻璃气泡入口 → 380–420px 停靠面板（内容区 <640px ResizeObserver 切覆盖）；页面上下文注册（文件页完整接入，切页分隔提示，快照随消息存档）；方案卡=可勾选对照表+展开检查+确认执行（Rust 二次校验不变量保持）+结果卡；输入 IME 组词守卫、停止/重新生成；AI 整理独立页移除，入口迁移至气泡；dev-mock 补六命令与流模拟 |
+
+## 2026-10-11 界面优化第四批：内容模式铺开
+
+| 功能点 | 状态 | 验证 | 日期 | 说明 |
+| --- | --- | --- | --- | --- |
+| 文件页交互升级（H1） | 已完成 | `npm run build` 通过；代理无头走查 + 编排者浏览器复核（截图 `docs/screenshots/wp-h1/`：网格选中保留/统一菜单/回收站） | 2026-10-11 | 列表⇄网格双视图（容器查询自适应、选中/排序/滚动保留、视图持久化）；舒适/紧凑密度；排序（诚实口径「已加载 N 项」）；右键与行尾更多同一菜单（键盘可用、防溢出）；⌘/Shift 选择、Esc、空格=主打开动作；返回恢复滚动与排序（DirUiMemory）；长文件名中段省略保扩展名；目标选择器最近使用（5 个，localStorage）；新建文件夹与回收站面板；空状态五分类 |
+| 相册沉浸与导航（H2） | 已完成 | `npm run build` 通过；无头走查 14 张截图（`docs/screenshots/wp-h2/`）+ 编排者暗色复核 | 2026-10-11 | 照片缩略图网格三档密度（持久化）；月份吸顶；手写 SVG 年月柱图导航（口径注记「按索引快照 · 文件修改时间」）；预览适应/缩放、底部缩略图条、失败重试（保留 E3 竞态守卫）；专辑操作迁入标题旁更多菜单；空状态分类；相册页面上下文注册 |
+| 漫画书架与阅读器（H3） | 已完成 | `npm run build` 通过；无头走查 21/21 项断言（截图 `docs/screenshots/wp-h3/`） | 2026-10-11 | 书架稳定卡片（2/3 封面、等高）与整行系列展开；ComicsReader：页码输入、拖动进度条（松手提交）、适应宽/页、日式/普通方向（持久化）、下一卷、真实进度回写书架；可读/不可读格式明确区分；mock 补假页与不可读卷；漫画页面上下文注册；空状态四分类 |
+| Workbench.css 合并修复 | 已完成 | `npm run build` 通过；编排者暗色目检三页正常 | 2026-10-11 | 三分支并行追加导致 add/add 冲突，标记删除法产生区块交错且 H3 区块缺 2 个收尾括号（原位于文件末尾被 EOF 容错掩盖），吞没相册网格规则；已按干净分支区块重建并补齐括号（b56ed0a） |
+
+| 影视详情面板与播放条增强（H4） | 已完成 | `npm run build` 通过；编排者浏览器走查（截图 `docs/screenshots/wp-h4/`：播放条控件、详情浅/暗、AI 标签状态保留）；±10s 跳转实测 0:01→0:11，静音归零与拖动预览提交均验证 | 2026-10-11 | 详情迁入右侧面板并与 AI 共用区域（「详情 / AI」标签互斥显示，两方状态各自保留，打开影片自动切详情标签）；MediaDetail 改面板内紧凑布局（横幅+遮罩、真实进度条、类型标签、折叠简介、演员紧凑列表）；播放条补 ±10s、音量滑杆与静音；拖动进度条本地预览+松手/停顿 300ms 提交；清理废弃整页详情样式 |
+
+| 任务中心（H5） | 已完成 | `npm run build` 通过；编排者浏览器走查（截图 `docs/screenshots/wp-h5/`：空态、上传实时进度含分片/字节/速度与徽标计数） | 2026-10-11 | 新增 TaskDrawer：顶栏入口带进行中数量徽标，抽屉统一承载上传/下载（useTransferEvents 实时数据，含「正在确认文件」阶段）与扫描刮削任务；失败原因可见；侧栏「整理任务」入口移除，完整页仍可从抽屉头部进入 |
+| 登录与设置精修（H7） | 已完成 | `npm run build` 通过；浏览器验证两处账户入口均打开同一面板 | 2026-10-11 | 文件页底部「管理账号」改为打开与顶栏同一账户面板（原为登录首屏，两处入口不一致）；设置文案去术语（开放平台设备码授权/Token → 登录 115 网盘与钥匙串说明；libmpv → 内置播放窗口） |
+| 图表（H6） | 已完成 | `npm run build` 通过；浏览器验证容量条、计划分段条点击筛选（「仅显示保持项」）、结果分段条（已执行 2/跳过 0/失败 0，明细 2 行） | 2026-10-11 | 新增 `charts/Charts.tsx`（手写 SVG/CSS，不引图表库）：StorageBar 容量分段条、SegmentBar 可点击筛选分段条、MonthBars 月份柱图兼导航（含口径图注）；接入账户容量、AI 计划构成（点击筛选列表）、AI 执行结果；无数据不渲染、数值全部真实 |
+
 ## 后续阶段
 
 产品定位为**仅个人使用**（用户 2026-09-05 决策）：Developer ID 签名与公证不再执行（第 9 组核对清单跳过）；adhoc 签名的本地 release 包可直接使用。剩余唯一待办：用授权 115 账号登录应用，按 `docs/manual-verification.md` 第 1–8 组核对清单执行远程流程验证并回填结果（凭据请勿经对话传递）。

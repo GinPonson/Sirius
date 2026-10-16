@@ -5,6 +5,7 @@ import {
   type Cloud115UserProfile,
 } from "../services/mediaServices";
 import { Icon } from "./Icon";
+import { StorageBar } from "./charts/Charts";
 
 type Cloud115AuthModalProps = {
   account: Cloud115AccountStatus;
@@ -66,6 +67,15 @@ export function Cloud115AuthModal({ account, profile, onAccountChange, onClose }
               <span><strong>存储空间</strong><small>{profile ? `${profile.usedFormatted} / ${profile.totalFormatted}` : "正在读取容量信息"}</small></span>
               <span className="setting-value">{profile?.remainingFormatted || "—"} 可用</span>
             </div>
+            {profile && profile.totalBytes > 0 && (
+              <StorageBar
+                used={profile.usedBytes}
+                total={profile.totalBytes}
+                usedLabel={profile.usedFormatted}
+                totalLabel={profile.remainingFormatted}
+                ariaLabel="115 网盘容量使用情况"
+              />
+            )}
             <div className="cloud-setting-row">
               <span><strong>会员等级</strong><small>由 115 账号资料返回</small></span>
               <span className="setting-value">{profile?.vipLevel || "普通用户"}</span>

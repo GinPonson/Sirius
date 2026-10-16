@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
+import "./Shell.css";
+import "./Workbench.css";
 import posterFallback from "./assets/brand/poster-fallback.svg";
 import arrivalStill from "./assets/watch-stills/arrival-desert.jpg";
 import perfectDaysStill from "./assets/watch-stills/perfect-days-street.jpg";
 import severanceStill from "./assets/watch-stills/severance-office.jpg";
 import { Icon } from "./components/Icon";
 import { AlbumsView } from "./components/AlbumsView";
-import { AiOrganizeView } from "./components/AiOrganizeView";
+import { AiChatPanel } from "./components/AiChatPanel";
+import { TaskDrawer } from "./components/TaskDrawer";
 import { CloudFilesView } from "./components/CloudFilesView";
 import { ComicsView } from "./components/ComicsView";
 import {
@@ -17,13 +20,15 @@ import { Cloud115AuthModal } from "./components/Cloud115AuthModal";
 import { LoginGate } from "./components/LoginGate";
 import { MediaDetail } from "./components/MediaDetail";
 import { PosterCard } from "./components/PosterCard";
-import { Sidebar } from "./components/Sidebar";
+import { Sidebar, type SidebarNavId } from "./components/Sidebar";
+import { TopBar, type TopBarSearch, type TopBarSearchScope } from "./components/TopBar";
 import type {
   AppSection,
   LibraryTask,
   MediaItem,
   PlaybackSnapshot,
 } from "./domain/media";
+import { registerAppPageContext, notifyPageContextChanged } from "./domain/pageContext";
 import {
   AppSettingsService,
   Cloud115Service,
@@ -46,6 +51,24 @@ const IDLE_SNAPSHOT: PlaybackSnapshot = {
   volume: 80,
   error: null,
 };
+
+/** 侧栏展开态持久化键；值 "0" 表示收起，缺省视为展开。 */
+const SIDEBAR_EXPANDED_KEY = "sirius-sidebar-expanded";
+
+/** 影视单入口的三个内部视图；沿用原首页/媒体库/发现的 section 与数据逻辑。 */
+const VIDEO_MODES: Array<{ id: AppSection; label: string }> = [
+  { id: "home", label: "继续观看" },
+  { id: "library", label: "我的媒体" },
+  { id: "discover", label: "发现" },
+];
+
+/** 影视入口的三个内部视图共用一段切换 UI 与侧栏高亮。 */
+function isVideoSection(section: AppSection): section is "home" | "library" | "discover" {
+  return section === "home" || section === "library" || section === "discover";
+}
+
+/** 轻量导航历史条目：主视图 + 媒体详情两级；详情按 id 回放时重新解析。 */
+type NavHistoryEntry = { section: AppSection; mediaId: string | null };
 
 const repository = new TauriMediaRepository();
 const sourceResolver = new LocalSourceResolver();
@@ -94,11 +117,84 @@ function App() {
   const [playingCloudFileId, setPlayingCloudFileId] = useState<string | null>(null);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
+  // 侧栏双态：收起为 80px 图标轨道，展开为图标配文字；用户选择持久化。
+  const [sidebarExpanded, setSidebarExpanded] = useState(() => {
+    try {
+      return window.localStorage.getItem(SIDEBAR_EXPANDED_KEY) !== "0";
+    } catch {
+      // 存储不可用（隐私模式等）时退回内存态默认展开，不影响本次会话。
+      return true;
+    }
+  });
+  // AI 对话面板：开合与停靠/覆盖形态由应用壳持有；消息、当前会话与「详情/AI」标签由常驻面板自身保留。
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [aiPanelOverlay, setAiPanelOverlay] = useState(false);
   const lastProgressSaveAt = useRef(0);
+  // 播放条拖动：拖动中只更新本地预览位置，松手或停顿后才提交 seek（限频），避免持续发跳转请求。
+  const [seekPreview, setSeekPreview] = useState<number | null>(null);
+  const seekCommitTimer = useRef<number | null>(null);
+  const lastVolumeRef = useRef(60);
+  // 顶栏文件搜索：查询词由应用壳持有并下发到网盘文件页，防抖仍留在该页。
+  const [fileQuery, setFileQuery] = useState("");
+  // 轻量历史栈：覆盖主视图切换与媒体详情进出，不追求完整浏览器式历史。
+  const [backStack, setBackStack] = useState<NavHistoryEntry[]>([]);
+  const [forwardStack, setForwardStack] = useState<NavHistoryEntry[]>([]);
   // 首次确认账号状态时决定默认分区；用户一旦手动导航便不再自动跳转。
   const defaultSectionResolved = useRef(false);
   // 记录最近一次由播放快照设置的错误，恢复成功后只清除该条，不误伤其他错误横幅。
   const lastPlaybackError = useRef<string | null>(null);
+
+  // 顶栏搜索范围：影视页检索媒体库，网盘文件页检索当前目录；
+  // 漫画/相册等尚无搜索能力的页面返回 null，顶栏不渲染搜索框。
+  const searchScope: TopBarSearchScope | null = isVideoSection(section)
+    ? "media"
+    : section === "cloud-files"
+      ? "files"
+      : null;
+  const topBarSearch: TopBarSearch | null =
+    searchScope === null || (searchScope === "media" && selectedMedia !== null)
+      ? null
+      : searchScope === "media"
+        ? { scope: "media", value: query, placeholder: "搜索影视库", onChange: setQuery }
+        : { scope: "files", value: fileQuery, placeholder: "搜索当前目录", onChange: setFileQuery };
+
+  useEffect(() => {
+    // 展开态变化即回写 localStorage；失败只影响下次启动的初始值。
+    try {
+      window.localStorage.setItem(SIDEBAR_EXPANDED_KEY, sidebarExpanded ? "1" : "0");
+    } catch {
+      // 存储不可用时保持内存态即可。
+    }
+  }, [sidebarExpanded]);
+
+  // 应用层兜底页面上下文：视图未注册更细上下文时（影视/漫画/相册等），
+  // AI 面板仍能取到当前页面与页内作用域；文件页由 CloudFilesView 覆盖。
+  useEffect(() => {
+    registerAppPageContext(() => {
+      if (isVideoSection(section)) {
+        return selectedMedia
+          ? { page: section, scope: "影视", detail: selectedMedia.title }
+          : { page: section, scope: "影视", detail: VIDEO_MODES.find((mode) => mode.id === section)?.label };
+      }
+      if (section === "cloud-files") {
+        return { page: "cloud-files", scope: "网盘文件" };
+      }
+      const scopes: Partial<Record<AppSection, string>> = {
+        comics: "漫画",
+        albums: "相册",
+        tasks: "整理任务",
+        settings: "设置",
+      };
+      const scope = scopes[section];
+      return scope ? { page: section, scope } : null;
+    });
+    // 分区切换会换掉兜底上下文；通知面板刷新当前上下文标签。
+    notifyPageContextChanged();
+    return () => {
+      registerAppPageContext(null);
+      notifyPageContextChanged();
+    };
+  }, [section, selectedMedia]);
 
   useEffect(() => {
     let active = true;
@@ -339,6 +435,31 @@ function App() {
     }
   }
 
+  /** 相对当前进度跳转 ±10s，按 [0, duration] 截断。 */
+  function skipBy(deltaSeconds: number) {
+    const current = snapshot.positionSeconds;
+    if (current === null) return;
+    const duration = snapshot.durationSeconds;
+    const target = Math.max(0, duration === null ? current + deltaSeconds : Math.min(duration, current + deltaSeconds));
+    void seek(target);
+  }
+
+  /** 音量（0-100）与静音：静音即音量归零，恢复时回到最近一次非零音量。 */
+  async function changeVolume(volume: number) {
+    try {
+      const clamped = Math.min(100, Math.max(0, volume));
+      if (clamped > 0) lastVolumeRef.current = clamped;
+      setSnapshot(await playbackService.setVolume(clamped));
+    } catch (reason) {
+      setError(`音量调整失败：${String(reason)}`);
+    }
+  }
+
+  function toggleMute() {
+    const current = snapshot.volume;
+    void changeVolume(current > 0 ? 0 : (lastVolumeRef.current > 0 ? lastVolumeRef.current : 60));
+  }
+
   async function stopPlayback() {
     let progressError: string | null = null;
     if (
@@ -405,9 +526,57 @@ function App() {
   // 登录首屏在未登录或会话失效时接管整窗；启动确认期间展示启动画面。
   const gateVisible = cloudAccount?.connected === false || forceGate;
 
-  function navigateFromSidebar(next: AppSection) {
+  /** 记录当前视图快照并清空前进栈；主视图切换与详情进入共用。 */
+  function pushHistory() {
+    const entry: NavHistoryEntry = { section, mediaId: selectedMedia?.id ?? null };
+    setBackStack((stack) => [...stack.slice(-49), entry]);
+    setForwardStack([]);
+  }
+
+  /** 主视图切换（侧栏/影视内切换/查看全部等）；离开网盘文件时清空目录搜索词。 */
+  function navigate(next: AppSection) {
+    if (next === section && selectedMedia === null) return;
+    pushHistory();
     setSection(next);
     setSelectedMedia(null);
+    if (next !== "cloud-files") setFileQuery("");
+  }
+
+  /** 打开媒体详情：记录历史并展开右侧面板（详情标签由面板在 detailKey 变化时自动切换）。 */
+  function openMedia(item: MediaItem) {
+    if (selectedMedia?.id !== item.id) pushHistory();
+    setSelectedMedia(item);
+    setAiPanelOpen(true);
+  }
+
+  /** 将历史条目落回界面；详情条目按 id 从当前媒体列表重新解析，缺失则回退为列表态。 */
+  function applyHistoryEntry(entry: NavHistoryEntry) {
+    setSection(entry.section);
+    const nextMedia =
+      entry.mediaId ? media.find((item) => item.id === entry.mediaId) ?? null : null;
+    setSelectedMedia(nextMedia);
+    if (nextMedia) setAiPanelOpen(true);
+    if (entry.section !== "cloud-files") setFileQuery("");
+  }
+
+  /** 顶栏后退：回退到上一条视图/详情快照，当前快照进入前进栈。 */
+  function goBack() {
+    if (backStack.length === 0) return;
+    const entry = backStack[backStack.length - 1];
+    const currentEntry: NavHistoryEntry = { section, mediaId: selectedMedia?.id ?? null };
+    setBackStack((stack) => stack.slice(0, -1));
+    setForwardStack((stack) => [currentEntry, ...stack]);
+    applyHistoryEntry(entry);
+  }
+
+  /** 顶栏前进：重放前进栈顶快照，当前快照回到后退栈。 */
+  function goForward() {
+    if (forwardStack.length === 0) return;
+    const entry = forwardStack[0];
+    const currentEntry: NavHistoryEntry = { section, mediaId: selectedMedia?.id ?? null };
+    setBackStack((stack) => [...stack, currentEntry]);
+    setForwardStack((stack) => stack.slice(1));
+    applyHistoryEntry(entry);
   }
 
   /** 登录成功后进入文件工作区；退出或失效时回到登录首屏。 */
@@ -433,23 +602,59 @@ function App() {
     return <LoginGate onAccountChange={updateCloudAccount} />;
   }
 
+  const storageUsage = cloudProfile
+    && Number.isFinite(cloudProfile.totalBytes)
+    && cloudProfile.totalBytes > 0
+    && Number.isFinite(cloudProfile.usedBytes)
+    && cloudProfile.usedBytes >= 0
+    ? Math.min(100, (cloudProfile.usedBytes / cloudProfile.totalBytes) * 100)
+    : null;
+  const accountName = cloudProfile?.userName || cloudAccount.userName || "115 用户";
+
   return (
-    <div className="app-frame">
+    <div
+      className="app-frame"
+      data-sidebar-expanded={sidebarExpanded ? "true" : "false"}
+      data-ai-panel={aiPanelOpen ? "open" : "closed"}
+      data-ai-overlay={aiPanelOverlay ? "true" : "false"}
+    >
       <Sidebar
-        active={section}
+        active={activeNavId(section)}
+        expanded={sidebarExpanded}
         taskCount={attentionTaskCount}
-        query={query}
-        onQueryChange={setQuery}
-        cloudAccount={cloudAccount}
-        cloudProfile={cloudProfile}
-        onAccountClick={() => setShowCloudAccount(true)}
-        onNavigate={navigateFromSidebar}
+        onNavigate={(id) => navigate(id === "video" ? "home" : id)}
+        onToggleExpanded={() => setSidebarExpanded((value) => !value)}
       />
 
       <main className="app-content">
-        {!selectedMedia && <header className="topbar">
-          <h1>{sectionTitle(section)}</h1>
-        </header>}
+        <TopBar
+          title={selectedMedia ? selectedMedia.title : sectionTitle(section)}
+          canGoBack={backStack.length > 0}
+          canGoForward={forwardStack.length > 0}
+          onBack={goBack}
+          onForward={goForward}
+          search={topBarSearch}
+          accountName={accountName}
+          avatarUrl={cloudProfile?.avatarUrl ?? null}
+          storage={
+            cloudProfile && storageUsage !== null
+              ? {
+                  used: cloudProfile.usedFormatted,
+                  total: cloudProfile.totalFormatted,
+                  percent: storageUsage,
+                }
+              : null
+          }
+          onManageAccount={() => setShowCloudAccount(true)}
+          taskDrawer={
+            <TaskDrawer
+              tasks={tasks}
+              scanning={scanning}
+              onScan={scanDirectory}
+              onOpenFullPage={() => navigate("tasks")}
+            />
+          }
+        />
 
         {error && (
           <aside className="error-banner" role="alert">
@@ -461,53 +666,88 @@ function App() {
           </aside>
         )}
 
-        {selectedMedia ? (
-          <MediaDetail
-            media={selectedMedia}
-            busy={busyMediaId === selectedMedia.id}
-            onClose={() => setSelectedMedia(null)}
-            onPlay={playMedia}
-          />
-        ) : section === "home" ? (
-          <HomeView
-            media={visibleMedia}
-            onNavigate={setSection}
-            onOpen={setSelectedMedia}
-            onPlay={playMedia}
-          />
-        ) : section === "library" ? (
-          <LibraryView
-            loading={loading}
-            media={visibleMedia}
-            filter={filter}
-            query={query}
-            onFilter={setFilter}
-            onOpen={setSelectedMedia}
-            onPlay={playMedia}
-          />
-        ) : section === "discover" ? (
-          <DiscoverView media={visibleMedia} onOpen={setSelectedMedia} onPlay={playMedia} />
+        {isVideoSection(section) ? (
+          <>
+            <div className="video-mode-tabs" role="group" aria-label="影视视图切换">
+              {VIDEO_MODES.map((mode) => (
+                <button
+                  key={mode.id}
+                  type="button"
+                  aria-current={section === mode.id ? "true" : undefined}
+                  className={section === mode.id ? "active" : ""}
+                  onClick={() => navigate(mode.id)}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
+            {section === "home" ? (
+              <HomeView
+                media={visibleMedia}
+                onNavigate={navigate}
+                onOpen={openMedia}
+                onPlay={playMedia}
+              />
+            ) : section === "library" ? (
+              <LibraryView
+                loading={loading}
+                media={visibleMedia}
+                filter={filter}
+                query={query}
+                onFilter={setFilter}
+                onOpen={openMedia}
+                onPlay={playMedia}
+              />
+            ) : (
+              <DiscoverView media={visibleMedia} onOpen={openMedia} onPlay={playMedia} />
+            )}
+          </>
         ) : section === "comics" ? (
           <ComicsView />
         ) : section === "albums" ? (
           <AlbumsView />
         ) : section === "tasks" ? (
           <TasksView tasks={tasks} scanning={scanning} onScan={scanDirectory} />
-        ) : section === "ai-organize" ? (
-          <AiOrganizeView />
         ) : section === "cloud-files" ? (
-          <CloudFilesView account={cloudAccount} onRequireLogin={() => setForceGate(true)} onPlay={playCloudFile} />
+          <CloudFilesView
+            account={cloudAccount}
+            query={fileQuery}
+            onQueryChange={setFileQuery}
+            onRequireLogin={() => setForceGate(true)}
+            onManageAccount={() => setShowCloudAccount(true)}
+            onPlay={playCloudFile}
+          />
         ) : (
           <SettingsView
             settings={appSettings}
             saving={savingSettings}
             onChange={updateAppSettings}
-            onManageCloud={() => navigateFromSidebar("cloud-files")}
+            onManageCloud={() => navigate("cloud-files")}
             onScanLocal={scanDirectory}
             scanning={scanning}
           />
         )}
       </main>
+
+      <AiChatPanel
+        open={aiPanelOpen}
+        onToggle={() => setAiPanelOpen((value) => !value)}
+        onOverlayChange={setAiPanelOverlay}
+        playing={snapshot.initialized && playingMedia !== null}
+        detailKey={selectedMedia?.id ?? null}
+        detail={
+          selectedMedia ? (
+            <MediaDetail
+              media={selectedMedia}
+              busy={busyMediaId === selectedMedia.id}
+              onClose={() => {
+                setSelectedMedia(null);
+              }}
+              onPlay={playMedia}
+            />
+          ) : null
+        }
+      />
 
       {snapshot.initialized && playingMedia && (
         <aside className="now-playing" aria-label="当前播放">
@@ -518,8 +758,14 @@ function App() {
             <small>正在播放</small>
             <strong>{playingMedia.title}</strong>
           </div>
-          <button className="round-control" onClick={togglePause}>
+          <button className="round-control" onClick={togglePause} aria-label={snapshot.paused ? "继续播放" : "暂停"}>
             {snapshot.paused ? <Icon name="play" /> : <span className="pause-icon" />}
+          </button>
+          <button className="round-control" onClick={() => skipBy(-10)} aria-label="后退 10 秒" title="后退 10 秒">
+            <Icon name="back10" size={17} />
+          </button>
+          <button className="round-control" onClick={() => skipBy(10)} aria-label="前进 10 秒" title="前进 10 秒">
+            <Icon name="forward10" size={17} />
           </button>
           <div className="mini-progress">
             <input
@@ -528,13 +774,45 @@ function App() {
               min="0"
               max={snapshot.durationSeconds ?? 1}
               step="0.1"
-              value={snapshot.positionSeconds ?? 0}
-              onChange={(event) => seek(Number(event.currentTarget.value))}
+              value={seekPreview ?? snapshot.positionSeconds ?? 0}
+              onChange={(event) => {
+                // 拖动中：只更新本地预览，不提交跳转。
+                const value = Number(event.currentTarget.value);
+                setSeekPreview(value);
+                if (seekCommitTimer.current !== null) window.clearTimeout(seekCommitTimer.current);
+                // 停顿 300ms 视为停止拖动，提交一次跳转。
+                seekCommitTimer.current = window.setTimeout(() => {
+                  setSeekPreview(null);
+                  void seek(value);
+                }, 300);
+              }}
+              onPointerUp={(event) => {
+                // 松手立即提交，并取消停顿定时器。
+                if (seekCommitTimer.current !== null) window.clearTimeout(seekCommitTimer.current);
+                const value = Number((event.currentTarget as HTMLInputElement).value);
+                setSeekPreview(null);
+                void seek(value);
+              }}
               style={{ "--progress": `${progressPercent}%` } as React.CSSProperties}
             />
             <span>
-              {formatTime(snapshot.positionSeconds)} / {formatTime(snapshot.durationSeconds)}
+              {formatTime(seekPreview ?? snapshot.positionSeconds)} / {formatTime(snapshot.durationSeconds)}
             </span>
+          </div>
+          <div className="volume-control">
+            <button className="round-control" onClick={toggleMute} aria-label={snapshot.volume > 0 ? "静音" : "取消静音"} title={snapshot.volume > 0 ? "静音" : "取消静音"}>
+              <Icon name={snapshot.volume > 0 ? "volume" : "volumeOff"} size={17} />
+            </button>
+            <input
+              aria-label="音量"
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              value={snapshot.volume}
+              onChange={(event) => void changeVolume(Number(event.currentTarget.value))}
+              style={{ "--progress": `${snapshot.volume}%` } as React.CSSProperties}
+            />
           </div>
           <button className="stop-control" onClick={stopPlayback}>
             结束播放
@@ -554,16 +832,21 @@ function App() {
   );
 }
 
+/** 侧栏高亮归并：影视三个内部视图共用同一「影视」入口。 */
+function activeNavId(section: AppSection): SidebarNavId {
+  if (isVideoSection(section)) return "video";
+  return section;
+}
+
 function sectionTitle(section: AppSection): string {
   return {
-    home: "首页",
-    library: "媒体库",
-    discover: "发现",
+    home: "影视",
+    library: "影视",
+    discover: "影视",
     comics: "漫画",
     albums: "相册",
     "cloud-files": "网盘文件",
     tasks: "整理任务",
-    "ai-organize": "AI 整理",
     settings: "设置",
   }[section];
 }
@@ -580,11 +863,14 @@ function HomeView({
 
   return (
     <section className="page-section home-view">
-      <ContinueWatchingShelf
-        media={continueWatching.length > 0 ? continueWatching : media.slice(0, 4)}
-        onPlay={onPlay}
-        onMore={() => onNavigate("library")}
-      />
+      {/* 无真实观看记录时不渲染该区块，不使用其他影片回填。 */}
+      {continueWatching.length > 0 && (
+        <ContinueWatchingShelf
+          media={continueWatching}
+          onPlay={onPlay}
+          onMore={() => onNavigate("library")}
+        />
+      )}
       <MediaShelf
         title="最近入库"
         media={media.slice(0, 6)}
@@ -616,12 +902,15 @@ function ContinueWatchingShelf({
             <span className="continue-frame">
               <img src={WATCH_STILLS[item.id] ?? posterFallback} alt={`《${item.title}》播放画面`} />
               <span className="continue-play"><Icon name="play" size={20} /></span>
-              <span className="continue-progress">
-                <span style={{ width: `${Math.max(item.progress, 0.04) * 100}%` }} />
-              </span>
+              {item.progress > 0 && (
+                <span className="continue-progress">
+                  <span style={{ width: `${item.progress * 100}%` }} />
+                </span>
+              )}
             </span>
             <span className="continue-title">
-              {item.kind === "series" ? `${item.title} · 第 3 集` : item.title}
+              {/* 数据层尚无真实集数信息，副标题只展示作品名。 */}
+              {item.title}
             </span>
           </button>
         ))}
@@ -973,7 +1262,7 @@ function SettingsView({
           </span>
           <div>
             <strong>115 网盘</strong>
-            <p>使用开放平台设备码授权，Token 保存于 macOS 钥匙串</p>
+            <p>登录 115 网盘；登录凭据保存在 macOS 钥匙串，不会离开本机</p>
           </div>
           <button className="secondary-action" onClick={onManageCloud}>管理目录</button>
         </div>
@@ -1031,7 +1320,7 @@ function SettingsView({
         <div className="setting-row">
           <div>
             <strong>默认播放器</strong>
-            <p>使用 Sirius 内置 libmpv 播放窗口</p>
+            <p>使用 Sirius 内置播放窗口</p>
           </div>
           <span className="setting-value">内置播放器</span>
         </div>

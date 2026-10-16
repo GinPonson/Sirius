@@ -4,7 +4,7 @@ name: Sirius
 description: |
   macOS 优先的 115 第三方客户端。115 文件管理是核心，视频播放、AI 文件整理、漫画和相册是建立在同一文件模型上的内容模式。
   本文件仅保存 machine-readable 视觉 token，遵循 Google Stitch DESIGN.md 规范（alpha, 2026-04）；产品、工程与安全规则统一以根目录 AGENTS.md 为准。
-  视觉定位：表现力外壳 + 精确文件工作台。品牌首屏、模式入口与内容详情允许编辑式排版、空间层次与连续动效；文件表格、批量选择与危险操作保持稳定、可预测、零装饰。
+  视觉定位：参考夸克网盘客户端的轻量桌面工作台。窄图标导航、浅蓝紫顶栏、白色内容区与蓝色主操作形成统一界面；文件表格、批量选择与危险操作保持稳定、可预测。
 
 # ============================================================================
 # §2 COLORS — single-accent philosophy (Apple)
@@ -16,31 +16,52 @@ description: |
 # ============================================================================
 colors:
   # --- Brand & primary (single accent philosophy) ---
-  primary: "#2458d7"
+  primary: "#5969ed"
   on-primary: "#ffffff"
   accent-fg: "#ffffff"
-  primary-soft: "#eaf0ff"
-  primary-tint: "rgba(36, 88, 215, 0.06)"
+  # primary-ink：主色作为文本/图标时使用（白底 5.36:1；暗色下切换为提亮值）
+  primary-ink: "#4c5ce0"
+  # primary-lift：品牌渐变亮端（brand-mark、存储条、漫画书脊）
+  primary-lift: "#7b8aff"
+  primary-hover: "#4a59d9"
+  primary-soft: "#e9edff"
+  primary-tint: "rgba(89, 105, 237, 0.07)"
 
   # --- Foreground / text ---
-  fg: "#111114"
-  muted: "#6b6b70"
+  fg: "#303540"
+  # muted 对比度修复（2026-10-11）：原 #858c9b 白底仅 3.38:1，
+  # 现值白底 5.13:1（画布 #fafafa 上 4.92:1，浅井 #f4f6fa 上 4.74:1）。
+  muted: "#666e7d"
   fg-disabled: "#a8a8ad"
 
   # --- Surface ---
-  bg: "#fafafa"
+  bg: "#ffffff"
+  # canvas：首屏/详情纸面（detail-hero 渐隐终点与登录底色）
+  canvas: "#fafafa"
   surface: "#ffffff"
   surface-hover: "#f2f2f4"
   surface-active: "#e8e8ec"
+  # surface-sunken：表头、分段轨道、内嵌搜索等浅井
+  surface-sunken: "#f4f6fa"
   surface-elevated: "#ffffff"
   surface-stone: "#eeece7"
 
   # --- Borders / hairlines ---
-  hairline: "#edf0f4"
-  hairline-strong: "#a1a1a1"
+  hairline: "#edf0f5"
+  # hairline-strong 调整记录：原 #a1a1a1 作为控件描边过重，降为冷灰；
+  # 玻璃描边不使用此值，见 frosted-border。
+  hairline-strong: "#d5dbe6"
 
   # --- Frosted surface (Apple-inspired, for floating panels only) ---
   frosted-bg: "rgba(255, 255, 255, 0.82)"
+  # 玻璃描边与上缘高光（.glass-panel 专用，暗色下翻转）
+  frosted-border: "rgba(38, 48, 69, 0.10)"
+  frosted-highlight: "rgba(255, 255, 255, 0.60)"
+  # blur 只允许固定层：顶栏/侧栏/浮层/批量操作栏/播放条
+  frosted-blur: "blur(20px) saturate(180%)"
+  # 对话框遮罩（scrim）
+  scrim-bg: "rgba(28, 32, 39, 0.32)"
+  scrim-blur: "blur(8px)"
 
   # --- Keycap gradient (Raycast-inspired physical-key) ---
   key-bg-start: "#fdfdfd"
@@ -72,13 +93,20 @@ colors:
   tint-cream: "#f8f5e8"
   tint-gray: "#f0eeec"
 
-  # --- Semantic (DESIGN.md §9.8.1) ---
+  # --- Semantic (DESIGN.md §9.8.1)；*-ink 为文本档（白底 ≥5:1），*-soft 为软底 ---
   danger: "#c5302a"
+  danger-ink: "#c5302a"
+  danger-soft: "#fdf0f0"
   success: "#16a34a"
+  success-ink: "#2e7d54"
+  success-soft: "#e8f7ef"
   warn: "#b58800"
+  warn-ink: "#8a6500"
+  warn-soft: "#fff3d5"
 
 # ============================================================================
 # §4 LAYOUT — Apple 8-step spacing ladder (with 17px signature mid-step)
+# CSS 变量 --space-1..--space-8 一一对应；结构层消费，微调间距允许 ladder 外字面值
 # ============================================================================
 spacing:
   space-1: "4px"
@@ -91,7 +119,7 @@ spacing:
   space-8: "80px"
 
 # ============================================================================
-# §6 SHAPES — Border radius scale
+# §6 SHAPES — Border radius scale（CSS 变量 --radius-xs/sm/md/lg/xl/pill）
 # ============================================================================
 rounded:
   xs: "4px"
@@ -102,12 +130,17 @@ rounded:
   pill: "9999px"
 
 # ============================================================================
-# §5 ELEVATION & DEPTH — Single shadow reserved for product imagery (Apple)
+# §5 ELEVATION & DEPTH — 三档阴影（CSS 变量 --shadow-1/2/3，悬停变体 --shadow-2-hover）
 # ============================================================================
 shadow:
+  # --shadow-1：控件与分段活动块
+  control: "0 1px 4px rgba(34, 54, 82, 0.08)"
+  # --shadow-2：卡片/浮出菜单（原 product）
   product: "0 4px 14px rgba(34, 54, 82, 0.12)"
+  # --shadow-2-hover：悬停抬升（原 product-hover）
   product-hover: "0 10px 22px rgba(34, 54, 82, 0.20)"
-  floating: "0 8px 32px rgba(48, 70, 108, 0.08)"
+  # --shadow-3：浮层/对话框/播放条（floating 提浓至 0.12 以承载对话框）
+  floating: "0 8px 32px rgba(48, 70, 108, 0.12)"
 
 # ============================================================================
 # §3 TYPOGRAPHY — Vercel-inspired 13-step hierarchy
@@ -467,7 +500,8 @@ principles:
 # §12 COMPOSITION — 布局构图
 # ============================================================================
 composition:
-  shell: "固定侧栏（224px）+ 全幅内容画布；文件工作台占满默认视口"
+  shell: "固定窄图标栏（80px，--shell-rail-width）+ 全幅内容画布；文件工作台占满默认视口"
+  container-query: "内容容器声明 container-type: inline-size（当前挂 .cloud-file-pane；.app-content/.page-section 因含 fixed 顶栏/遮罩后代而不可用）；@container 具体重排留待后续 WP"
   entry-screen:
     composition: "非对称双区：品牌叙事舞台占 55–62%，任务操作面板占 38–45%"
     hierarchy: ["品牌标识与叙事", "主任务（扫码授权）", "状态与安全说明"]
@@ -479,7 +513,9 @@ composition:
 # ============================================================================
 material:
   canvas: "bg 单色画布承载文件工作台；沉浸区允许深色舞台（rgba(8,12,18,*)）"
-  frosted-panel: "frosted-bg + blur(20px)，仅用于浮层、顶栏与播放条"
+  glass-tiers: ".glass-panel（frosted-bg + frosted-blur + frosted-border 描边）只允许固定层：顶栏 .shell-topbar、侧栏 .app-sidebar、对话框/浮层、批量操作栏、底部播放条；文件列表/表格/表单等内容层禁用 backdrop-filter"
+  reduced-transparency: "prefers-reduced-transparency: reduce 时玻璃固定层退 --surface-elevated 实底并停用 blur（回退规则置于 Workbench.css 级联末尾）"
+  frosted-panel: "frosted-bg + frosted-blur，仅用于浮层、顶栏与播放条；暗色下底色不透明度提高至 0.86"
   hairline: "1px hairline 分隔文件数据区，禁用卡片阴影堆叠"
   deep-stage: "登录/模式首屏允许层叠径向光斑 + 缓慢漂移（blur >= 90px, opacity <= 0.5）"
 
@@ -492,13 +528,32 @@ imagery:
   aspect: ["poster 2/3", "still 16/9", "page-cover 21/9"]
 
 # ============================================================================
-# §15 MOTION — 动效
+# §15 MOTION — 动效（CSS 变量：--ease-spring / --ease-standard / --duration-fast / --duration-panel）
 # ============================================================================
 motion:
-  physics: "cubic-bezier(0.16, 1, 0.3, 1) 为主弹簧；进入 0.28–0.48s，悬停 0.16–0.32s"
+  ease-spring: "cubic-bezier(0.16, 1, 0.3, 1)      # 主弹簧，进入/位移类过渡"
+  ease-standard: "cubic-bezier(0.25, 0.1, 0.25, 1) # = ease，颜色/边框类小过渡"
+  duration-fast: "150ms   # 悬停/小过渡（规范区间 120–180ms 的中值）"
+  duration-panel: "320ms  # 面板/视图进入（规范区间 240–360ms 的中值）"
+  physics: "cubic-bezier(0.16, 1, 0.3, 1) 为主弹簧；悬停/小过渡收敛到 --duration-fast，面板进入收敛到 --duration-panel；环境循环动画（shimmer/漂移/自旋）不走 transition token"
   ambient: "登录/模式首屏允许 20s+ 缓慢空间漂移；文件表格与数据行禁止环境动效"
   shared-element: "卡片 → 详情/播放器使用共享元素过渡"
   reduced-motion: "位移与漂移取消，保留透明度与颜色反馈"
+
+# ============================================================================
+# §15.1 DARK THEME — 暗色 token 组（CSS: :root[data-theme="dark"]，切换夹具由后续 WP 接线）
+# ============================================================================
+dark-theme:
+  switch: "根元素设 data-theme=\"dark\" 即生效；CSS 只响应属性选择器，color-scheme 同步翻转"
+  canvas: "#101318（bg/canvas）"
+  card: "#191d25（surface）系：hover #20252f / active #262c37 / sunken #1a1f28 / elevated #1d222c"
+  text: "正文 #f1f4f8（16.9:1）、次级 #a6afbd（8.4:1，对画布）、禁用 #566070"
+  hairline: "行分隔 #2a303c、控件描边 #3d4454"
+  primary: "实底填充保持 #5969ed（白字 4.5:1）；文本/图标用提亮 --primary-ink #a3adfc（8.8:1）"
+  status: "危险/警示/成功实底与语义不变，文本用 *-ink 提亮档（danger-ink #ff8a8f、warn-ink #f2c94c、success-ink #6fdd9a）"
+  glass: "frosted-bg rgba(23, 27, 35, 0.86)，底色不透明度高于浅色（0.82）；描边翻转为 rgba(255, 255, 255, 0.12)"
+  shadow: "三档换算为纯黑高不透明度（0.40–0.55）"
+  stage: "登录舞台、漫画阅读器、海报影像本就是深色素材，两主题共享，不做二次赋值"
 
 # ============================================================================
 # §16 MODE THEMES — 模式主题（同源可辨识；未实施模式仅记录方向，不加导航占位）

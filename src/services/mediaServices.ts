@@ -172,6 +172,8 @@ export type Cloud115FileEntry = {
   sizeBytes: number;
   modifiedAt: number;
   pickCode: string;
+  /** 115 返回的展示缩略图；旧缓存和演示数据可能没有这个字段。 */
+  thumbUrl?: string | null;
   children: number | null;
 };
 export type Cloud115FilePage = {
