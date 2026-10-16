@@ -125,10 +125,14 @@ function App() {
       return true;
     }
   });
-  // AI 对话面板：开合与停靠/覆盖形态由应用壳持有；消息与当前会话由常驻面板自身保留。
+  // AI 对话面板：开合与停靠/覆盖形态由应用壳持有；消息、当前会话与「详情/AI」标签由常驻面板自身保留。
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [aiPanelOverlay, setAiPanelOverlay] = useState(false);
   const lastProgressSaveAt = useRef(0);
+  // 播放条拖动：拖动中只更新本地预览位置，松手或停顿后才提交 seek（限频），避免持续发跳转请求。
+  const [seekPreview, setSeekPreview] = useState<number | null>(null);
+  const seekCommitTimer = useRef<number | null>(null);
+  const lastVolumeRef = useRef(60);
   // 顶栏文件搜索：查询词由应用壳持有并下发到网盘文件页，防抖仍留在该页。
   const [fileQuery, setFileQuery] = useState("");
   // 轻量历史栈：覆盖主视图切换与媒体详情进出，不追求完整浏览器式历史。
@@ -430,6 +434,31 @@ function App() {
     }
   }
 
+  /** 相对当前进度跳转 ±10s，按 [0, duration] 截断。 */
+  function skipBy(deltaSeconds: number) {
+    const current = snapshot.positionSeconds;
+    if (current === null) return;
+    const duration = snapshot.durationSeconds;
+    const target = Math.max(0, duration === null ? current + deltaSeconds : Math.min(duration, current + deltaSeconds));
+    void seek(target);
+  }
+
+  /** 音量（0-100）与静音：静音即音量归零，恢复时回到最近一次非零音量。 */
+  async function changeVolume(volume: number) {
+    try {
+      const clamped = Math.min(100, Math.max(0, volume));
+      if (clamped > 0) lastVolumeRef.current = clamped;
+      setSnapshot(await playbackService.setVolume(clamped));
+    } catch (reason) {
+      setError(`音量调整失败：${String(reason)}`);
+    }
+  }
+
+  function toggleMute() {
+    const current = snapshot.volume;
+    void changeVolume(current > 0 ? 0 : (lastVolumeRef.current > 0 ? lastVolumeRef.current : 60));
+  }
+
   async function stopPlayback() {
     let progressError: string | null = null;
     if (
@@ -512,19 +541,20 @@ function App() {
     if (next !== "cloud-files") setFileQuery("");
   }
 
-  /** 打开媒体详情并记录历史，供顶栏后退返回列表。 */
+  /** 打开媒体详情：记录历史并展开右侧面板（详情标签由面板在 detailKey 变化时自动切换）。 */
   function openMedia(item: MediaItem) {
-    if (selectedMedia?.id === item.id) return;
-    pushHistory();
+    if (selectedMedia?.id !== item.id) pushHistory();
     setSelectedMedia(item);
+    setAiPanelOpen(true);
   }
 
   /** 将历史条目落回界面；详情条目按 id 从当前媒体列表重新解析，缺失则回退为列表态。 */
   function applyHistoryEntry(entry: NavHistoryEntry) {
     setSection(entry.section);
-    setSelectedMedia(
-      entry.mediaId ? media.find((item) => item.id === entry.mediaId) ?? null : null,
-    );
+    const nextMedia =
+      entry.mediaId ? media.find((item) => item.id === entry.mediaId) ?? null : null;
+    setSelectedMedia(nextMedia);
+    if (nextMedia) setAiPanelOpen(true);
     if (entry.section !== "cloud-files") setFileQuery("");
   }
 
@@ -627,15 +657,7 @@ function App() {
           </aside>
         )}
 
-        {selectedMedia ? (
-          <MediaDetail
-            media={selectedMedia}
-            busy={busyMediaId === selectedMedia.id}
-            // 详情返回优先走历史栈；栈为空（理论不可达）时退回直接关闭。
-            onClose={() => (backStack.length > 0 ? goBack() : setSelectedMedia(null))}
-            onPlay={playMedia}
-          />
-        ) : isVideoSection(section) ? (
+        {isVideoSection(section) ? (
           <>
             <div className="video-mode-tabs" role="group" aria-label="影视视图切换">
               {VIDEO_MODES.map((mode) => (
@@ -702,6 +724,19 @@ function App() {
         onToggle={() => setAiPanelOpen((value) => !value)}
         onOverlayChange={setAiPanelOverlay}
         playing={snapshot.initialized && playingMedia !== null}
+        detailKey={selectedMedia?.id ?? null}
+        detail={
+          selectedMedia ? (
+            <MediaDetail
+              media={selectedMedia}
+              busy={busyMediaId === selectedMedia.id}
+              onClose={() => {
+                setSelectedMedia(null);
+              }}
+              onPlay={playMedia}
+            />
+          ) : null
+        }
       />
 
       {snapshot.initialized && playingMedia && (
@@ -713,8 +748,14 @@ function App() {
             <small>正在播放</small>
             <strong>{playingMedia.title}</strong>
           </div>
-          <button className="round-control" onClick={togglePause}>
+          <button className="round-control" onClick={togglePause} aria-label={snapshot.paused ? "继续播放" : "暂停"}>
             {snapshot.paused ? <Icon name="play" /> : <span className="pause-icon" />}
+          </button>
+          <button className="round-control" onClick={() => skipBy(-10)} aria-label="后退 10 秒" title="后退 10 秒">
+            <Icon name="back10" size={17} />
+          </button>
+          <button className="round-control" onClick={() => skipBy(10)} aria-label="前进 10 秒" title="前进 10 秒">
+            <Icon name="forward10" size={17} />
           </button>
           <div className="mini-progress">
             <input
@@ -723,13 +764,45 @@ function App() {
               min="0"
               max={snapshot.durationSeconds ?? 1}
               step="0.1"
-              value={snapshot.positionSeconds ?? 0}
-              onChange={(event) => seek(Number(event.currentTarget.value))}
+              value={seekPreview ?? snapshot.positionSeconds ?? 0}
+              onChange={(event) => {
+                // 拖动中：只更新本地预览，不提交跳转。
+                const value = Number(event.currentTarget.value);
+                setSeekPreview(value);
+                if (seekCommitTimer.current !== null) window.clearTimeout(seekCommitTimer.current);
+                // 停顿 300ms 视为停止拖动，提交一次跳转。
+                seekCommitTimer.current = window.setTimeout(() => {
+                  setSeekPreview(null);
+                  void seek(value);
+                }, 300);
+              }}
+              onPointerUp={(event) => {
+                // 松手立即提交，并取消停顿定时器。
+                if (seekCommitTimer.current !== null) window.clearTimeout(seekCommitTimer.current);
+                const value = Number((event.currentTarget as HTMLInputElement).value);
+                setSeekPreview(null);
+                void seek(value);
+              }}
               style={{ "--progress": `${progressPercent}%` } as React.CSSProperties}
             />
             <span>
-              {formatTime(snapshot.positionSeconds)} / {formatTime(snapshot.durationSeconds)}
+              {formatTime(seekPreview ?? snapshot.positionSeconds)} / {formatTime(snapshot.durationSeconds)}
             </span>
+          </div>
+          <div className="volume-control">
+            <button className="round-control" onClick={toggleMute} aria-label={snapshot.volume > 0 ? "静音" : "取消静音"} title={snapshot.volume > 0 ? "静音" : "取消静音"}>
+              <Icon name={snapshot.volume > 0 ? "volume" : "volumeOff"} size={17} />
+            </button>
+            <input
+              aria-label="音量"
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              value={snapshot.volume}
+              onChange={(event) => void changeVolume(Number(event.currentTarget.value))}
+              style={{ "--progress": `${snapshot.volume}%` } as React.CSSProperties}
+            />
           </div>
           <button className="stop-control" onClick={stopPlayback}>
             结束播放

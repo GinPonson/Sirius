@@ -19,6 +19,8 @@ import {
   Search,
   SendHorizontal,
   Settings,
+  SkipBack,
+  SkipForward,
   Sparkles,
   Square,
   Star,
@@ -26,6 +28,8 @@ import {
   TriangleAlert,
   Upload,
   User,
+  Volume2,
+  VolumeX,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -58,7 +62,11 @@ export type IconName =
   | "images"
   | "send"
   | "stop"
-  | "refresh";
+  | "refresh"
+  | "back10"
+  | "forward10"
+  | "volume"
+  | "volumeOff";
 
 const ICONS: Record<IconName, LucideIcon> = {
   home: House,
@@ -89,6 +97,10 @@ const ICONS: Record<IconName, LucideIcon> = {
   send: SendHorizontal,
   stop: Square,
   refresh: RefreshCw,
+  back10: SkipBack,
+  forward10: SkipForward,
+  volume: Volume2,
+  volumeOff: VolumeX,
 };
 
 type IconProps = {

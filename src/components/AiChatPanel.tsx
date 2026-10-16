@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
 } from "react";
 import {
   AiChatService,
@@ -62,6 +63,10 @@ type AiChatPanelProps = {
   onOverlayChange: (overlay: boolean) => void;
   /** 底部播放条可见时面板与气泡整体抬起避让。 */
   playing: boolean;
+  /** 详情内容（媒体详情）；传入时面板顶部显示「详情 / AI」标签，两者共用同一区域。 */
+  detail?: ReactNode;
+  /** 详情对象标识；变化时自动切到「详情」标签。 */
+  detailKey?: string | null;
 };
 
 /** 快捷问题：文件页走目录上下文；其他页面给通用整理咨询。 */
@@ -100,7 +105,7 @@ function scopeLabel(context: AiPageContext): string {
   return context.detail ? `${context.scope} / ${context.detail}` : context.scope;
 }
 
-export function AiChatPanel({ open, onToggle, onOverlayChange, playing }: AiChatPanelProps) {
+export function AiChatPanel({ open, onToggle, onOverlayChange, playing, detail, detailKey }: AiChatPanelProps) {
   const [sessions, setSessions] = useState<AiChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [entries, setEntries] = useState<ChatEntry[]>([]);
@@ -114,6 +119,8 @@ export function AiChatPanel({ open, onToggle, onOverlayChange, playing }: AiChat
   const [contextVersion, setContextVersion] = useState(0);
   /** 内容区过窄时的覆盖式形态；同步给应用壳以取消内容列避让。 */
   const [overlay, setOverlay] = useState(false);
+  /** 面板内标签：传入详情时默认「详情」，否则始终为 AI 对话。 */
+  const [activeTab, setActiveTab] = useState<"detail" | "ai">("ai");
 
   // 懒初始化的流聚合器与各处镜像 ref：事件回调与异步流程始终读取最新状态。
   const aggregatorRef = useRef<AiChatStreamAggregator | null>(null);
@@ -166,6 +173,11 @@ export function AiChatPanel({ open, onToggle, onOverlayChange, playing }: AiChat
   useEffect(() => {
     if (open) setUnseen(false);
   }, [open]);
+
+  // 打开新的详情对象时自动切到「详情」标签；详情消失时回到 AI。
+  useEffect(() => {
+    setActiveTab(detailKey ? "detail" : "ai");
+  }, [detailKey]);
 
   /** 加载会话历史并重建对话流（含随消息存档的上下文快照与切页分隔）。 */
   const loadHistory = useCallback(async (sessionId: string) => {
@@ -522,11 +534,35 @@ export function AiChatPanel({ open, onToggle, onOverlayChange, playing }: AiChat
         data-open={open ? "true" : "false"}
         data-mode={overlay ? "overlay" : "dock"}
         data-lift={playing ? "true" : "false"}
-        aria-label="AI 助手"
+        data-tab={detail ? activeTab : "ai"}
+        aria-label={detail && activeTab === "detail" ? "媒体详情" : "AI 助手"}
         aria-hidden={!open}
         inert={!open}
       >
         <header className="ai-chat-header">
+          {detail && (
+            <div role="tablist" aria-label="面板内容" className="ai-chat-tabs">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === "detail"}
+                className={activeTab === "detail" ? "active" : ""}
+                onClick={() => setActiveTab("detail")}
+              >
+                详情
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === "ai"}
+                className={activeTab === "ai" ? "active" : ""}
+                onClick={() => setActiveTab("ai")}
+              >
+                <Icon name="sparkles" size={14} />
+                AI
+              </button>
+            </div>
+          )}
           <div className="ai-chat-session-anchor">
             <button
               type="button"
@@ -584,7 +620,13 @@ export function AiChatPanel({ open, onToggle, onOverlayChange, playing }: AiChat
           </button>
         </header>
 
-        <div className="ai-chat-stream" ref={streamRef} onScroll={() => {
+        {detail && (
+          <div className="ai-chat-detail-slot" data-active={activeTab === "detail" ? "true" : "false"}>
+            {detail}
+          </div>
+        )}
+
+        <div className="ai-chat-stream" data-active={activeTab === "ai" ? "true" : "false"} ref={streamRef} onScroll={() => {
           const element = streamRef.current;
           if (!element) return;
           pinnedRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48;
@@ -665,7 +707,7 @@ export function AiChatPanel({ open, onToggle, onOverlayChange, playing }: AiChat
           })}
         </div>
 
-        <div className="ai-chat-composer">
+        <div className="ai-chat-composer" data-active={activeTab === "ai" ? "true" : "false"}>
           {sendError && (
             <div className="ai-chat-error-line" role="alert">
               <Icon name="alert" size={13} />

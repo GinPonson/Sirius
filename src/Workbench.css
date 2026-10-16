@@ -3268,3 +3268,296 @@
   color: var(--fg);
   font-weight: 600;
 }
+
+/* ============================================================================
+   WP H4 影视详情面板与播放条增强
+   详情迁入右侧面板（与 AI 共用区域，标签切换）；播放条补音量/静音/±10s 与拖动预览。
+   仅追加影视与播放条相关 class；消费 Shell.css token，不引入新硬编码色。
+   ========================================================================== */
+
+/* 面板内「详情 / AI」标签：与对话会话按钮同排 */
+.ai-chat-tabs {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  margin-right: 4px;
+  padding: 3px;
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+}
+
+.ai-chat-tabs button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard);
+}
+
+.ai-chat-tabs button:hover { color: var(--fg); }
+
+.ai-chat-tabs button.active {
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: var(--shadow-1);
+}
+
+/* 详情槽：与对话流共用面板主体，仅激活者可见（切换不丢状态） */
+.ai-chat-detail-slot {
+  display: none;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.ai-chat-detail-slot[data-active="true"] { display: block; }
+
+.ai-chat-stream[data-active="false"] { display: none; }
+
+/* —— 详情紧凑布局（面板内） —— */
+.detail-panel {
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+}
+
+.detail-panel-head {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 8px 10px;
+}
+
+.detail-panel-head .detail-back {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transform: rotate(180deg);
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
+}
+
+.detail-panel-head .detail-back:hover { background: var(--surface-hover); color: var(--fg); }
+
+.detail-panel-head strong {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-panel-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: 0 14px 20px;
+}
+
+/* 横幅：面板宽度内的适中高度，底部遮罩保证文字可读（DESIGN.md §14 影像遮罩） */
+.detail-banner {
+  position: relative;
+  overflow: hidden;
+  min-height: 220px;
+  border-radius: var(--radius-lg);
+  background: var(--poster-tone) var(--detail-hero-image) center/cover no-repeat;
+}
+
+.detail-banner-shade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, transparent 18%, rgba(8, 12, 18, 0.72) 88%);
+  pointer-events: none;
+}
+
+.detail-banner-copy {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+}
+
+.detail-banner-copy h1 {
+  margin: 0;
+  color: var(--on-primary);
+  font-size: 21px;
+  font-weight: 620;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.detail-banner-copy .detail-original {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+}
+
+.detail-banner-copy .detail-kicker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  color: rgba(255, 255, 255, 0.82);
+  font: 12px ui-monospace, SFMono-Regular, monospace;
+}
+
+.detail-banner-copy .primary-action { align-self: flex-start; margin-top: 4px; }
+
+/* 观看进度条（真实 progress；0 时不渲染） */
+.detail-progress {
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--hairline-strong);
+}
+
+.detail-progress span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--primary);
+}
+
+.detail-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.detail-tags span {
+  padding: 3px 9px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-pill);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* 简介：默认 4 行，展开后完整显示 */
+.detail-overview p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.6;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+.detail-overview p.expanded { display: block; -webkit-line-clamp: unset; }
+
+.detail-overview-toggle {
+  margin-top: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.detail-overview-toggle:hover { text-decoration: underline; }
+
+.detail-section-heading h2 { margin: 0 0 8px; font-size: 13px; font-weight: 620; color: var(--muted); }
+
+.cast-list { display: flex; flex-direction: column; gap: 2px; }
+
+.cast-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 4px;
+  border-radius: var(--radius-sm);
+}
+
+.cast-row:hover { background: var(--surface-hover); }
+
+.cast-row .cast-avatar {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  color: var(--muted);
+}
+
+.cast-row strong { display: block; font-size: 13px; font-weight: 500; }
+.cast-row small { color: var(--muted); font-size: 12px; }
+
+.empty-state.compact {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 12px;
+  border: 1px dashed var(--hairline-strong);
+  border-radius: var(--radius-md);
+  color: var(--muted);
+}
+
+.empty-state.compact p { margin: 0; font-size: 12px; line-height: 1.5; }
+
+.detail-panel-foot {
+  display: flex;
+  gap: 10px;
+  padding-top: 4px;
+  border-top: 1px solid var(--hairline);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* —— 播放条：音量与跳转 —— */
+.volume-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.volume-control input {
+  width: 72px;
+  height: 3px;
+  appearance: none;
+  border-radius: 2px;
+  background: linear-gradient(to right, var(--primary) var(--progress), var(--hairline-strong) var(--progress));
+  cursor: pointer;
+}
+
+.volume-control input::-webkit-slider-thumb {
+  width: 10px;
+  height: 10px;
+  appearance: none;
+  border-radius: 50%;
+  background: var(--primary);
+}
+
+/* 播放条容纳更多控件：窄屏允许换行 */
+@media (max-width: 1180px) {
+  .now-playing {
+    grid-template-columns: 42px minmax(110px, 180px) 34px 34px 34px minmax(140px, 1fr) auto auto;
+  }
+}
+
+/* 详情标签激活时隐藏 AI 输入区（对话状态仍保留在内存中） */
+.ai-chat-composer[data-active="false"] { display: none; }
