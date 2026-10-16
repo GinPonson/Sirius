@@ -714,6 +714,7 @@ function App() {
             query={fileQuery}
             onQueryChange={setFileQuery}
             onRequireLogin={() => setForceGate(true)}
+            onManageAccount={() => setShowCloudAccount(true)}
             onPlay={playCloudFile}
           />
         ) : (
@@ -1261,7 +1262,7 @@ function SettingsView({
           </span>
           <div>
             <strong>115 网盘</strong>
-            <p>使用开放平台设备码授权，Token 保存于 macOS 钥匙串</p>
+            <p>登录 115 网盘；登录凭据保存在 macOS 钥匙串，不会离开本机</p>
           </div>
           <button className="secondary-action" onClick={onManageCloud}>管理目录</button>
         </div>
@@ -1319,7 +1320,7 @@ function SettingsView({
         <div className="setting-row">
           <div>
             <strong>默认播放器</strong>
-            <p>使用 Sirius 内置 libmpv 播放窗口</p>
+            <p>使用 Sirius 内置播放窗口</p>
           </div>
           <span className="setting-value">内置播放器</span>
         </div>

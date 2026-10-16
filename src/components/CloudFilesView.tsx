@@ -33,6 +33,8 @@ type CloudFilesViewProps = {
   query: string;
   onQueryChange: (value: string) => void;
   onRequireLogin: () => void;
+  /** 打开 115 账户面板（与顶栏「管理 115 账号」同一入口）。 */
+  onManageAccount: () => void;
   onPlay: (entry: Cloud115FileEntry) => Promise<void>;
 };
 
@@ -201,7 +203,7 @@ function formatTransferBytes(bytes: number): string {
 }
 
 /** 115 网盘真实文件浏览页；批量移动/复制的目标策略由 Rust 侧统一校验。 */
-export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, onPlay }: CloudFilesViewProps) {
+export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, onManageAccount, onPlay }: CloudFilesViewProps) {
   const [path, setPath] = useState<FolderPick[]>([{ id: ROOT_ID, name: "115 网盘" }]);
   const [entries, setEntries] = useState<Cloud115FileEntry[]>([]);
   const [filter, setFilter] = useState<CloudFileFilter>("all");
@@ -1531,7 +1533,7 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
       <div className="cloud-status-strip">
         <span><i />{account.userName ? `${account.userName} · 已连接` : "115 已连接"}</span>
         <span>{total} 个项目</span>
-        <button onClick={onRequireLogin}>管理账号</button>
+        <button onClick={onManageAccount}>管理账号</button>
       </div>
 
       {paneMenu && (
