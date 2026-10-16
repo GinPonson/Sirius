@@ -3746,3 +3746,138 @@
     backdrop-filter: none;
   }
 }
+
+/* ============================================================================
+   WP H6 图表组件（手写 SVG/CSS，无图表库）
+   数字与口径优先于装饰；图注注明数据范围与来源；无数据不渲染。
+   ========================================================================== */
+
+.chart-storage { display: flex; flex-direction: column; gap: 6px; }
+
+.chart-storage-track {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--hairline-strong);
+}
+
+.chart-storage-track span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--primary);
+  transition: width var(--duration-panel) var(--ease-spring);
+}
+
+.chart-storage-legend {
+  display: flex;
+  gap: 14px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.chart-storage-legend span { display: inline-flex; align-items: center; gap: 5px; }
+
+.swatch {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--muted);
+}
+
+.swatch.used { background: var(--primary); }
+.swatch.free { background: var(--hairline-strong); }
+.swatch.primary { background: var(--primary); }
+.swatch.success { background: var(--success); }
+.swatch.warn { background: var(--warn); }
+.swatch.danger { background: var(--danger); }
+.swatch.muted { background: var(--muted); }
+
+.chart-segments { display: flex; flex-direction: column; gap: 8px; }
+
+.chart-segments-track {
+  display: flex;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 4px;
+  gap: 2px;
+}
+
+.chart-segment {
+  position: relative;
+  min-width: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.chart-segment:disabled { cursor: default; }
+
+.chart-segment-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: 2px;
+  background: var(--muted);
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+.chart-segment.primary .chart-segment-fill { background: var(--primary); }
+.chart-segment.success .chart-segment-fill { background: var(--success); }
+.chart-segment.warn .chart-segment-fill { background: var(--warn); }
+.chart-segment.danger .chart-segment-fill { background: var(--danger); }
+
+.chart-segment:hover .chart-segment-fill { opacity: 0.82; }
+.chart-segment.active .chart-segment-fill { outline: 2px solid var(--fg); outline-offset: 1px; }
+
+.chart-segments-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.chart-segments-legend li { display: inline-flex; align-items: center; gap: 5px; }
+.chart-segments-legend li.active { color: var(--fg); }
+.chart-segments-legend strong { color: var(--fg); font-weight: 600; }
+
+.chart-months { display: flex; flex-direction: column; gap: 6px; }
+
+.chart-months-bars {
+  display: flex;
+  height: 48px;
+  align-items: flex-end;
+  gap: 3px;
+}
+
+.chart-month {
+  display: flex;
+  height: 100%;
+  min-width: 6px;
+  flex: 1 1 0;
+  align-items: flex-end;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.chart-month:disabled { cursor: default; }
+
+.chart-month span {
+  display: block;
+  width: 100%;
+  border-radius: 2px 2px 0 0;
+  background: var(--hairline-strong);
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.chart-month:hover span { background: var(--muted); }
+.chart-month.active span { background: var(--primary); }
+
+.chart-caption { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }

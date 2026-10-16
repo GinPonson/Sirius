@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type {
   AiExecutionDetail,
   AiExecutionReport,
@@ -6,6 +6,15 @@ import type {
   AiPlanItem,
 } from "../services/aiServices";
 import { Icon, type IconName } from "./Icon";
+import { SegmentBar, type SegmentDatum } from "./charts/Charts";
+
+/** 计划动作构成：与 AiPlanAction 一一对应，语义色沿用计划行既有约定。 */
+const PLAN_SEGMENTS: Array<Omit<SegmentDatum, "value">> = [
+  { key: "rename", label: "重命名", tone: "primary" },
+  { key: "move", label: "移动", tone: "success" },
+  { key: "delete", label: "删除", tone: "danger" },
+  { key: "keep", label: "保持", tone: "muted" },
+];
 
 /** 方案卡状态机：分析中 → 可确认 → 执行中 → 结果；error 保留原因并允许重试。 */
 export type PlanCardState = {
@@ -58,6 +67,9 @@ type AiPlanCardProps = {
 
 /** 对话流内的整理方案卡：勾选对照表 + 展开检查 + 确认执行；执行后原位变结果卡。 */
 export function AiPlanCard({ state, compact, onToggleItem, onExpand, onConfirm, onRetry }: AiPlanCardProps) {
+  // 动作构成分段条的筛选状态；必须位于早退分支之前以保持 Hook 顺序稳定。
+  const [actionFilter, setActionFilter] = useState<string | null>(null);
+
   if (state.phase === "analyzing") {
     return (
       <div className="ai-chat-plan-card" role="status">
@@ -100,11 +112,28 @@ export function AiPlanCard({ state, compact, onToggleItem, onExpand, onConfirm, 
         {plan.truncated ? " · 目录较大，仅分析前 200 项" : ""} · {plan.analyzedCount} 项 · 模型 {plan.model}
       </p>
 
+      {/* 动作构成分段条：点击分段筛选下方列表（口径=本次计划项，非整个目录） */}
+      <SegmentBar
+        data={PLAN_SEGMENTS.map((segment) => ({
+          ...segment,
+          value: plan.items.filter((item) => item.action === segment.key).length,
+        }))}
+        ariaLabel="整理计划动作构成"
+        activeKey={actionFilter}
+        onSelect={(key) => setActionFilter((current) => (current === key ? null : key))}
+      />
+      {actionFilter && (
+        <p className="ai-chat-plan-filter-note">
+          仅显示「{PLAN_SEGMENTS.find((segment) => segment.key === actionFilter)?.label}」项
+          <button type="button" onClick={() => setActionFilter(null)}>清除筛选</button>
+        </p>
+      )}
+
       {plan.items.length === 0 ? (
         <div className="ai-chat-plan-empty">该目录已足够规范，模型没有提出调整建议。</div>
       ) : compact ? (
         <div className="ai-chat-plan-list">
-          {plan.items.map((item) => {
+          {plan.items.filter((item) => !actionFilter || item.action === actionFilter).map((item) => {
             const executable = item.action !== "keep";
             return (
               <article
@@ -134,7 +163,7 @@ export function AiPlanCard({ state, compact, onToggleItem, onExpand, onConfirm, 
         </div>
       ) : (
         <div className="ai-plan-list">
-          {plan.items.map((item) => {
+          {plan.items.filter((item) => !actionFilter || item.action === actionFilter).map((item) => {
             const executable = item.action !== "keep";
             return (
               <article
@@ -196,6 +225,15 @@ function AiReportCard({ report, folderName }: { report: AiExecutionReport; folde
         {report.deletedToRecycleBin > 0 ? ` · ${report.deletedToRecycleBin} 项移入回收站` : ""}
         {report.createdFolders > 0 ? ` · 新建 ${report.createdFolders} 个文件夹` : ""}
       </p>
+      {/* 结果构成分段条：三类互斥（删除项计入已执行，不重复相加），口径即明细行数 */}
+      <SegmentBar
+        data={[
+          { key: "executed", label: "已执行", value: report.executed, tone: "success" },
+          { key: "skipped", label: "跳过", value: report.skipped, tone: "muted" },
+          { key: "failed", label: "失败", value: report.failed, tone: "danger" },
+        ]}
+        ariaLabel="整理执行结果构成"
+      />
       {report.details.length > 0 && (
         <div className={`ai-chat-report-list${report.details.length > 6 ? " scrollable" : ""}`}>
           {report.details.map((detail) => (
