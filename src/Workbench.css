@@ -3561,3 +3561,188 @@
 
 /* 详情标签激活时隐藏 AI 输入区（对话状态仍保留在内存中） */
 .ai-chat-composer[data-active="false"] { display: none; }
+
+/* ============================================================================
+   WP H5 任务中心（顶栏抽屉）
+   统一承载上传 / 下载 / 扫描索引 / AI 执行四类任务；入口保留进行中数量。
+   仅追加任务中心相关 class；消费 Shell.css token，不引入新硬编码色。
+   ========================================================================== */
+
+.task-drawer-toggle {
+  position: relative;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
+}
+
+.task-drawer-toggle:hover { background: var(--surface-hover); color: var(--fg); }
+
+.task-drawer-badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-pill);
+  background: var(--primary);
+  color: var(--on-primary);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+}
+
+.task-drawer {
+  position: fixed;
+  top: calc(var(--shell-header-height) + 6px);
+  right: 12px;
+  z-index: 5;
+  display: flex;
+  width: 400px;
+  max-width: calc(100vw - 24px);
+  max-height: min(560px, calc(100vh - var(--shell-header-height) - 100px));
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--frosted-border);
+  border-radius: var(--radius-lg);
+  background: var(--frosted-bg);
+  -webkit-backdrop-filter: var(--frosted-blur);
+  backdrop-filter: var(--frosted-blur);
+  box-shadow: var(--shadow-3), inset 0 1px 0 var(--frosted-highlight);
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition:
+    opacity var(--duration-fast) var(--ease-standard),
+    transform var(--duration-panel) var(--ease-spring),
+    visibility 0s linear var(--duration-panel);
+}
+
+.task-drawer[data-open="true"] {
+  visibility: visible;
+  opacity: 1;
+  transform: translateY(0);
+  transition-delay: 0s;
+}
+
+.task-drawer-head {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 10px 10px 14px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.task-drawer-head strong { flex: 1 1 auto; font-size: 13px; font-weight: 620; }
+
+.task-drawer-head button {
+  height: 26px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
+}
+
+.task-drawer-head button:hover { background: var(--surface-hover); color: var(--fg); }
+
+.task-drawer-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.task-drawer-row {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 8px;
+  border-radius: var(--radius-md);
+}
+
+.task-drawer-row:hover { background: var(--surface-hover); }
+
+.task-drawer-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  color: var(--muted);
+}
+
+.task-drawer-icon.running { color: var(--primary); }
+.task-drawer-icon.done { color: var(--success); }
+.task-drawer-icon.failed { color: var(--danger); }
+
+.task-drawer-copy { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+
+.task-drawer-copy strong {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-drawer-copy small { color: var(--muted); font-size: 12px; }
+
+.task-drawer-progress {
+  height: 3px;
+  margin-top: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--hairline-strong);
+}
+
+.task-drawer-progress span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--primary);
+  transition: width var(--duration-fast) var(--ease-standard);
+}
+
+.task-drawer-stage {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font: 11px ui-monospace, SFMono-Regular, monospace;
+}
+
+.task-drawer-stage.done { color: var(--success); }
+.task-drawer-stage.failed { color: var(--danger); }
+
+.task-drawer-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 28px 20px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.task-drawer-empty p { margin: 0; font-size: 12px; line-height: 1.6; }
+
+@media (prefers-reduced-transparency: reduce) {
+  .task-drawer {
+    background: var(--surface-elevated);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}

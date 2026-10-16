@@ -9,6 +9,7 @@ import severanceStill from "./assets/watch-stills/severance-office.jpg";
 import { Icon } from "./components/Icon";
 import { AlbumsView } from "./components/AlbumsView";
 import { AiChatPanel } from "./components/AiChatPanel";
+import { TaskDrawer } from "./components/TaskDrawer";
 import { CloudFilesView } from "./components/CloudFilesView";
 import { ComicsView } from "./components/ComicsView";
 import {
@@ -645,6 +646,14 @@ function App() {
               : null
           }
           onManageAccount={() => setShowCloudAccount(true)}
+          taskDrawer={
+            <TaskDrawer
+              tasks={tasks}
+              scanning={scanning}
+              onScan={scanDirectory}
+              onOpenFullPage={() => navigate("tasks")}
+            />
+          }
         />
 
         {error && (

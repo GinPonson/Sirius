@@ -25,7 +25,6 @@ const NAVIGATION: Array<{
   group: "workspace" | "content";
 }> = [
   { id: "cloud-files", label: "网盘文件", icon: "cloud", group: "workspace" },
-  { id: "tasks", label: "整理任务", icon: "tasks", group: "workspace" },
   { id: "video", label: "影视", icon: "play", group: "content" },
   { id: "comics", label: "漫画", icon: "book", group: "content" },
   { id: "albums", label: "相册", icon: "images", group: "content" },

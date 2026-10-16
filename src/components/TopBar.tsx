@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Icon } from "./Icon";
 
 /** 顶栏搜索范围：media=影视库检索，files=网盘当前目录检索。 */
@@ -30,6 +30,8 @@ type TopBarProps = {
   avatarUrl: string | null;
   storage: TopBarStorage | null;
   onManageAccount: () => void;
+  /** 任务中心入口（含抽屉本体）；由应用壳注入，位置固定在账号区左侧。 */
+  taskDrawer?: ReactNode;
 };
 
 /** 壳层顶栏（玻璃固定层）：前进/后退、页面标题、统一搜索与 115 账号区。 */
@@ -44,6 +46,7 @@ export function TopBar({
   avatarUrl,
   storage,
   onManageAccount,
+  taskDrawer,
 }: TopBarProps) {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchVisible = search !== null;
@@ -116,6 +119,7 @@ export function TopBar({
       )}
 
       <div className="shell-account-area">
+        {taskDrawer}
         {storage && (
           <div className="shell-storage" title={`已用 ${storage.used}，总容量 ${storage.total}`}>
             <span>{storage.used}<span> / {storage.total}</span></span>
