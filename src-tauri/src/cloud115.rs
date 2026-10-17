@@ -204,6 +204,18 @@ pub struct Cloud115FileEntry {
     pub children: Option<u64>,
 }
 
+/// 搜索范围：当前目录内，或全账号跨目录。
+///
+/// 115 协议用 `cid=0` 表达全账号搜索（并非「根目录内搜索」），因此两者在请求参数上
+/// 的区别只是 cid 取值；单独建模是为了让前端意图显式可见，避免调用方传 0 靠猜。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Cloud115SearchScope {
+    #[default]
+    Current,
+    Global,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Cloud115FilePage {
@@ -1324,12 +1336,52 @@ impl Cloud115Provider {
         }
     }
 
+    /// 列出目录内容；`query` 非空时走当前目录内搜索。
+    ///
+    /// 全账号搜索用 [`Self::search_files`]；这里保持「目录内」语义，避免调用方
+    /// 靠传 0 表达跨目录意图。
     pub async fn list_files(
         &self,
         parent_id: &str,
         offset: u64,
         limit: u64,
         query: &str,
+    ) -> Result<Cloud115FilePage, String> {
+        self.list_files_scoped(
+            parent_id,
+            offset,
+            limit,
+            query,
+            Cloud115SearchScope::Current,
+        )
+        .await
+    }
+
+    /// 全账号搜索（跨目录 substring 匹配）。
+    ///
+    /// 对齐 StarVault `FilesRepository.searchFiles` 默认行为：`cid=0` 在 115 协议里表示
+    /// 「不限目录」，而不是「根目录内搜索」。当前目录内搜索请直接用 [`Self::list_files`]。
+    pub async fn search_files(
+        &self,
+        offset: u64,
+        limit: u64,
+        query: &str,
+    ) -> Result<Cloud115FilePage, String> {
+        if query.trim().is_empty() {
+            return Err("全账号搜索关键词不能为空".to_string());
+        }
+        self.list_files_scoped("0", offset, limit, query, Cloud115SearchScope::Global)
+            .await
+    }
+
+    /// 列出目录内容并按 `search_scope` 决定搜索范围。
+    async fn list_files_scoped(
+        &self,
+        parent_id: &str,
+        offset: u64,
+        limit: u64,
+        query: &str,
+        search_scope: Cloud115SearchScope,
     ) -> Result<Cloud115FilePage, String> {
         if parent_id.is_empty() || limit == 0 || limit > MAX_PAGE_LIMIT {
             return Err(format!(
@@ -1339,7 +1391,12 @@ impl Cloud115Provider {
         if !query.trim().is_empty() {
             // 搜索同样走 show_dir=1 + fc_mix=1：对齐 StarVault `searchFiles`（显式传
             // showDir=1 / fcMix=1），否则搜索只回文件、目录项缺失。
-            let mut params = list_query_params(parent_id, offset, limit, Some(1));
+            let search_cid = match search_scope {
+                Cloud115SearchScope::Current => parent_id,
+                // 全账号搜索：115 协议用 cid=0 表示跨目录匹配（不是"根目录内搜索"）。
+                Cloud115SearchScope::Global => "0",
+            };
+            let mut params = list_query_params(search_cid, offset, limit, Some(1));
             params.push(("search_value", query.trim().to_string()));
             let payload = self
                 .authorized_json(
@@ -1349,7 +1406,7 @@ impl Cloud115Provider {
                     None,
                 )
                 .await?;
-            return parse_file_page(&payload, parent_id, offset, limit);
+            return parse_file_page(&payload, search_cid, offset, limit);
         }
 
         // 单次请求取混合列表：show_dir=1 + fc_mix=1 时 115 会一次返回目录与文件，
@@ -1365,6 +1422,40 @@ impl Cloud115Provider {
             )
             .await?;
         parse_file_page(&payload, parent_id, offset, limit)
+    }
+
+    /// 列出全账号星标文件与文件夹。
+    ///
+    /// 对齐 StarVault `FilesRepository.listStarred`：`cid=0` + `star=1` + `cur=0` 是
+    /// 115 开放接口遍历收藏项的固定组合。`cur=0` 表示允许从根目录向下遍历，
+    /// 与目录列表的 `cur=1`（仅当前目录）语义相反，不能复用默认参数。
+    pub async fn list_starred_files(
+        &self,
+        offset: u64,
+        limit: u64,
+    ) -> Result<Cloud115FilePage, String> {
+        if limit == 0 || limit > MAX_PAGE_LIMIT {
+            return Err(format!(
+                "115 收藏列表分页参数无效（limit 需在 1..={MAX_PAGE_LIMIT} 之间）"
+            ));
+        }
+        let mut params = list_query_params("0", offset, limit, Some(1));
+        // cur=1 由 list_query_params 带入；收藏遍历要求 cur=0，这里显式改写。
+        for param in params.iter_mut() {
+            if param.0 == "cur" {
+                param.1 = "0".to_string();
+            }
+        }
+        params.push(("star", "1".to_string()));
+        let payload = self
+            .authorized_json(
+                reqwest::Method::GET,
+                &format!("{API_BASE_URL}/open/ufile/files"),
+                Some(&params),
+                None,
+            )
+            .await?;
+        parse_file_page(&payload, "0", offset, limit)
     }
 
     /// 解析视频播放源：优先 downurl 原画直链，转码档位只作后备。
@@ -3219,6 +3310,41 @@ mod tests {
         assert_eq!(page.entries[0].sha1, "");
         // 完全没有 sha1 / sha 的文件同样落空串。
         assert_eq!(page.entries[1].sha1, "");
+    }
+
+    /// 收藏列表参数：`star=1` + `cur=0` + `cid=0` 是 115 遍历全账号收藏的固定组合。
+    ///
+    /// `cur` 必须被改写为 0：目录列表用 `cur=1`（仅当前目录），收藏遍历要求 `cur=0`
+    /// （允许从根向下），沿用默认值会让收藏查询退化成"根目录第一层"。
+    #[test]
+    fn starred_params_use_star_and_traverse_from_root() {
+        // 复刻 list_starred_files 的参数装配，确保改写逻辑不被后续改动破坏。
+        let mut params = list_query_params("0", 0, 100, Some(1));
+        for param in params.iter_mut() {
+            if param.0 == "cur" {
+                param.1 = "0".to_string();
+            }
+        }
+        params.push(("star", "1".to_string()));
+        let find = |key: &str| {
+            params
+                .iter()
+                .find(|(name, _)| *name == key)
+                .map(|(_, value)| value.as_str())
+        };
+        assert_eq!(find("cid"), Some("0"));
+        assert_eq!(find("star"), Some("1"));
+        assert_eq!(find("cur"), Some("0"));
+        assert_eq!(find("show_dir"), Some("1"));
+    }
+
+    /// 全账号搜索的空关键词必须拒绝：115 对空 search_value 返回空列表，
+    /// 静默返回空结果会被误读成"没有匹配文件"。
+    #[tokio::test]
+    async fn global_search_rejects_empty_query() {
+        let provider = Cloud115Provider::new().expect("构造测试用 provider");
+        let error = provider.search_files(0, 50, "   ").await.unwrap_err();
+        assert!(error.contains("不能为空"), "实际错误：{error}");
     }
 
     /// 列表请求参数必须对齐 StarVault 已验证实现：

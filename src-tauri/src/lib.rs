@@ -20,7 +20,7 @@ use cloud115::{
     Cloud115AccountStatus, Cloud115AuthChallenge, Cloud115AuthPoll, Cloud115ClientApp,
     Cloud115DownloadResult, Cloud115DownloadSource, Cloud115FileMetadata, Cloud115FilePage,
     Cloud115FolderResult, Cloud115PlaybackSource, Cloud115Provider, Cloud115RecyclePage,
-    Cloud115SubtitleStream, Cloud115UploadResult, Cloud115UserProfile,
+    Cloud115SearchScope, Cloud115SubtitleStream, Cloud115UploadResult, Cloud115UserProfile,
 };
 use library::{
     AiChatMessageRow, AiChatSession, AppSettings, LibraryRepository, LibraryTask, MediaInfo,
@@ -88,16 +88,35 @@ async fn cloud115_user_profile(
     provider.user_profile().await
 }
 
-/// 分页读取指定 115 目录；query 非空时使用官方搜索端点。
+/// 列出目录内容；query 非空时在当前目录内搜索。
+///
+/// `search_scope` 为 "global" 时改为全账号跨目录搜索（对齐 StarVault 默认行为）；
+/// 缺省按当前目录，保持旧调用方行为不变。
 #[tauri::command]
 async fn cloud115_list_files(
     parent_id: String,
     offset: u64,
     limit: u64,
     query: String,
+    search_scope: Option<Cloud115SearchScope>,
     provider: State<'_, Arc<Cloud115Provider>>,
 ) -> Result<Cloud115FilePage, String> {
-    provider.list_files(&parent_id, offset, limit, &query).await
+    match search_scope.unwrap_or_default() {
+        Cloud115SearchScope::Current => {
+            provider.list_files(&parent_id, offset, limit, &query).await
+        }
+        Cloud115SearchScope::Global => provider.search_files(offset, limit, &query).await,
+    }
+}
+
+/// 列出全账号星标文件与文件夹（115 `star=1` + `cur=0` 组合）。
+#[tauri::command]
+async fn cloud115_list_starred_files(
+    offset: u64,
+    limit: u64,
+    provider: State<'_, Arc<Cloud115Provider>>,
+) -> Result<Cloud115FilePage, String> {
+    provider.list_starred_files(offset, limit).await
 }
 
 /// 把视频 pick_code 换成短时效 HTTPS 播放直链。
@@ -964,6 +983,7 @@ pub fn run() {
             cloud115_sign_out,
             cloud115_user_profile,
             cloud115_list_files,
+            cloud115_list_starred_files,
             cloud115_playback_source,
             cloud115_video_subtitles,
             cloud115_download_source,

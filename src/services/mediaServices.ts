@@ -195,6 +195,9 @@ export type Cloud115FileEntry = {
   thumbUrl?: string | null;
   children: number | null;
 };
+/** 搜索范围：当前目录内，或全账号跨目录。 */
+export type Cloud115SearchScope = "current" | "global";
+
 export type Cloud115FilePage = {
   entries: Cloud115FileEntry[];
   total: number;
@@ -306,8 +309,25 @@ export class Cloud115Service {
     return invoke("cloud115_user_profile");
   }
 
-  listFiles(parentId: string, query: string, offset = 0, limit = 100): Promise<Cloud115FilePage> {
-    return invoke("cloud115_list_files", { parentId, query, offset, limit });
+  /**
+   * 分页读取目录内容；query 非空时搜索。
+   *
+   * @param scope 搜索范围：`current` 仅当前目录，`global` 全账号跨目录
+   *   （115 协议用 cid=0 表达，对齐 StarVault 默认搜索行为）。缺省当前目录。
+   */
+  listFiles(
+    parentId: string,
+    query: string,
+    offset = 0,
+    limit = 100,
+    scope: Cloud115SearchScope = "current",
+  ): Promise<Cloud115FilePage> {
+    return invoke("cloud115_list_files", { parentId, query, offset, limit, searchScope: scope });
+  }
+
+  /** 读取全账号星标文件与文件夹（115 star=1 + cur=0 组合）。 */
+  listStarredFiles(offset = 0, limit = 100): Promise<Cloud115FilePage> {
+    return invoke("cloud115_list_starred_files", { offset, limit });
   }
 
   playbackSource(pickCode: string): Promise<Cloud115PlaybackSource> {

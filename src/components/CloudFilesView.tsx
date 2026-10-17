@@ -5,6 +5,7 @@ import {
   type Cloud115AccountStatus,
   type Cloud115FileEntry,
   type Cloud115RecycleItem,
+  type Cloud115SearchScope,
   type Cloud115UploadSession,
 } from "../services/mediaServices";
 import { isTransferActive } from "../services/events";
@@ -331,7 +332,10 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
     (transfer) => transfer.kind === "download" && isTransferActive(transfer.stage),
   );
   const currentFolderId = path[path.length - 1].id;
-  const requestKey = `${currentFolderId}\u0000${query.trim()}`;
+  // 搜索范围：缺省当前目录；切到全账号后 115 用 cid=0 做跨目录匹配。
+  // 它参与 requestKey，范围变化必须重新取第一页，不能复用目录内结果。
+  const [searchScope, setSearchScope] = useState<Cloud115SearchScope>("current");
+  const requestKey = `${currentFolderId}\u0000${query.trim()}\u0000${searchScope}`;
   const requestKeyRef = useRef(requestKey);
   requestKeyRef.current = requestKey;
 
@@ -365,7 +369,7 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
     }
     setLoadingMore(false);
     const timeout = window.setTimeout(() => {
-      cloud115.listFiles(currentFolderId, query.trim(), 0, PAGE_LIMIT)
+      cloud115.listFiles(currentFolderId, query.trim(), 0, PAGE_LIMIT, searchScope)
         .then((page) => {
           if (!active) return;
           setEntries(page.entries);
@@ -393,7 +397,7 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
     };
     // entries.length 仅用于判断首次加载后的刷新场景，不作为触发条件。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [account?.connected, currentFolderId, query, reloadNonce]);
+  }, [account?.connected, currentFolderId, query, searchScope, reloadNonce]);
 
   // 搜索词由顶栏下发：口径变化立即清空选择，避免批量操作作用于即将不可见的文件。
   useEffect(() => {
@@ -703,7 +707,7 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
     setLoadingMore(true);
     setError(null);
     try {
-      const page = await cloud115.listFiles(currentFolderId, query.trim(), offset, PAGE_LIMIT);
+      const page = await cloud115.listFiles(currentFolderId, query.trim(), offset, PAGE_LIMIT, searchScope);
       // 目录或搜索词变化后丢弃旧页，防止把上一目录的数据追加到新列表。
       if (requestKeyRef.current !== activeRequestKey) return;
       setEntries((current) => [...current, ...page.entries]);
@@ -1600,6 +1604,26 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
                   ))}
                 </nav>
                 <div className="cloud-filter-options">
+                  {/* 搜索范围：仅在搜索激活时出现。当前目录 / 全账号是 115 的两种真实语义，
+                      不把「全账号」伪装成筛选，避免用户误以为只搜当前目录。 */}
+                  {query.trim() !== "" && (
+                    <div className="segmented-control cloud-scope-toggle" role="group" aria-label="搜索范围">
+                      <button
+                        className={searchScope === "current" ? "active" : ""}
+                        aria-pressed={searchScope === "current"}
+                        onClick={() => setSearchScope("current")}
+                      >
+                        当前目录
+                      </button>
+                      <button
+                        className={searchScope === "global" ? "active" : ""}
+                        aria-pressed={searchScope === "global"}
+                        onClick={() => setSearchScope("global")}
+                      >
+                        全账号
+                      </button>
+                    </div>
+                  )}
                   {/* 类型筛选：只作用于已加载项，与排序/查重同一口径，不触发重新请求。 */}
                   <div className="segmented-control cloud-type-filter" role="group" aria-label="按类型筛选">
                     {FILE_FILTERS.map((option) => (
