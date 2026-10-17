@@ -210,6 +210,8 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
+  /** 同目录刷新（重命名/上传/回收站操作后）：保留旧列表并叠加刷新指示，避免清空闪烁。 */
+  const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [renameEntry, setRenameEntry] = useState<Cloud115FileEntry | null>(null);
@@ -271,12 +273,23 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
   /** 目录级排序与滚动记忆；跨目录往返保留，不持久化历史栈。 */
   const dirUiMemoryRef = useRef(new Map<string, DirUiMemory>());
 
+  /** 上一次成功加载的「目录 + 查询」键；相同键的重新加载视为刷新而非切换。 */
+  const loadedKeyRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!account?.connected) return;
     let active = true;
-    setLoading(true);
+    // 同目录/同查询的重新加载（操作后刷新）保留旧列表，仅叠加刷新指示；
+    // 目录或搜索条件变化才清空并显示骨架，避免内容错位与页面跳动。
+    const isRefresh = loadedKeyRef.current === requestKey && entries.length > 0;
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+      setEntries([]);
+      setTotal(0);
+    }
     setLoadingMore(false);
-    setEntries([]);
     const timeout = window.setTimeout(() => {
       cloud115.listFiles(currentFolderId, query.trim(), 0, PAGE_LIMIT)
         .then((page) => {
@@ -284,18 +297,28 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
           setEntries(page.entries);
           setTotal(page.total);
           setHasMore(page.hasMore);
+          loadedKeyRef.current = requestKey;
         })
         .catch((reason) => {
           if (!active) return;
           setEntries([]);
+          // 失败时清空总数，避免沿用上一个目录的分母造成误导。
+          setTotal(0);
+          loadedKeyRef.current = null;
           setError(`读取 115 文件失败：${String(reason)}`);
         })
-        .finally(() => active && setLoading(false));
+        .finally(() => {
+          if (!active) return;
+          setLoading(false);
+          setRefreshing(false);
+        });
     }, query.trim() ? 250 : 0);
     return () => {
       active = false;
       window.clearTimeout(timeout);
     };
+    // entries.length 仅用于判断首次加载后的刷新场景，不作为触发条件。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [account?.connected, currentFolderId, query, reloadNonce]);
 
   // 搜索词由顶栏下发：口径变化立即清空选择，避免批量操作作用于即将不可见的文件。
@@ -1074,9 +1097,13 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
         : "directory-empty";
 
   /** 计数口径说明：明确「已加载」边界，排序与批量操作都不作用于未加载分页。 */
-  const loadedCountLabel = filter === "all"
-    ? `已加载 ${entries.length} / ${total} 项`
-    : `已加载 ${entries.length} / ${total} 项 · 筛选命中 ${visibleEntries.length} 项`;
+  const loadedCountLabel = loading
+    ? "正在读取…"
+    : refreshing
+      ? "正在刷新…"
+      : filter === "all"
+        ? `已加载 ${entries.length} / ${total} 项`
+        : `已加载 ${entries.length} / ${total} 项 · 筛选命中 ${visibleEntries.length} 项`;
 
   if (!account?.connected) {
     return (
@@ -1307,7 +1334,15 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
               )}
             </div>
           ) : viewMode === "list" ? (
-            <div className="file-table" role="table" aria-label="网盘文件" onClick={handleContainerBlankClick}>
+            <div
+              className="file-table"
+              role="table"
+              aria-label="网盘文件"
+              data-refreshing={refreshing ? "true" : "false"}
+              aria-busy={refreshing}
+              onClick={handleContainerBlankClick}
+            >
+              {refreshing && <div className="file-refresh-bar" role="status" aria-label="正在刷新文件列表" />}
               <div className="file-table-head" role="row">
                 <input
                   type="checkbox"
@@ -1444,7 +1479,16 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
               )}
             </div>
           ) : (
-            <div className="file-grid" role="listbox" aria-multiselectable="true" aria-label="网盘文件网格" onClick={handleContainerBlankClick}>
+            <div
+              className="file-grid"
+              role="listbox"
+              aria-multiselectable="true"
+              aria-label="网盘文件网格"
+              data-refreshing={refreshing ? "true" : "false"}
+              aria-busy={refreshing}
+              onClick={handleContainerBlankClick}
+            >
+              {refreshing && <div className="file-refresh-bar" role="status" aria-label="正在刷新文件列表" />}
               {loading ? <FileGridSkeleton compact={density === "compact"} /> : visibleEntries.length > 0 ? visibleEntries.map((entry, index) => {
                 const presentation = getFilePresentation(entry);
                 const selected = selectedIds.has(entry.id);

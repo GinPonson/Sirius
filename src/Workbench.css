@@ -387,9 +387,99 @@
   font-size: 11px;
 }
 
+/* 首次加载骨架：与真实行同高，带呼吸微光，明确表达「正在读取」而非空行 */
+.cloud-file-skeleton {
+  display: flex;
+  flex-direction: column;
+}
+
 .cloud-file-skeleton span {
   height: 50px;
-  border-color: var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--primary) 5%, transparent) 42%,
+    color-mix(in srgb, var(--primary) 9%, transparent) 50%,
+    color-mix(in srgb, var(--primary) 5%, transparent) 58%,
+    transparent 100%
+  );
+  background-size: 240% 100%;
+  animation: skeleton-sweep 1.5s var(--ease-standard) infinite;
+}
+
+.cloud-file-skeleton span:nth-child(2) { animation-delay: 0.08s; }
+.cloud-file-skeleton span:nth-child(3) { animation-delay: 0.16s; }
+.cloud-file-skeleton span:nth-child(4) { animation-delay: 0.24s; }
+.cloud-file-skeleton span:nth-child(5) { animation-delay: 0.32s; }
+
+@keyframes skeleton-sweep {
+  0% { background-position: 140% 0; }
+  100% { background-position: -40% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cloud-file-skeleton span {
+    animation: none;
+    background: color-mix(in srgb, var(--primary) 4%, transparent);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   刷新态：同目录重新加载时保留旧列表，叠加顶部进度条并淡化内容，
+   避免清空成空表 + 「已加载 0 / N」造成的闪烁与误导。
+   --------------------------------------------------------------------------- */
+.file-table[data-refreshing="true"],
+.file-grid[data-refreshing="true"] {
+  position: relative;
+}
+
+/* 旧列表淡化并屏蔽交互，防止刷新期间误点/误拖 */
+.file-table[data-refreshing="true"] > .file-row,
+.file-table[data-refreshing="true"] > .cloud-file-skeleton,
+.file-grid[data-refreshing="true"] > [data-entry-id] {
+  opacity: 0.5;
+  pointer-events: none;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+/* 顶部不确定进度条：仅刷新时出现，2px，不占布局高度 */
+.file-refresh-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: 3px;
+  margin-bottom: -3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+}
+
+.file-refresh-bar::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 38%;
+  height: 100%;
+  border-radius: 1px;
+  background: var(--primary);
+  animation: file-refresh-sweep 1.05s var(--ease-standard) infinite;
+}
+
+@keyframes file-refresh-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(365%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* 尊重减少动态效果：进度条改为静态半亮条，仍保留「正在刷新」的可见信号 */
+  .file-refresh-bar::after {
+    width: 100%;
+    opacity: 0.45;
+    animation: none;
+    transform: none;
+  }
 }
 
 .upload-resume-bar {

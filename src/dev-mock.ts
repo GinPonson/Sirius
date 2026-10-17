@@ -1224,6 +1224,28 @@ const LIBRARY_ITEMS = [
 // 命令处理器
 // ---------------------------------------------------------------------------
 
+/** 目录读取的纯实现；供 handler 直接调用或经 ?slow=1 延迟包装。 */
+function listFilesImpl(args: Record<string, unknown>) {
+  const parentId = str(args.parentId, ROOT_ID) || ROOT_ID;
+  assertFolderId(parentId, "目录");
+  const keyword = str(args.query).trim().toLowerCase();
+  const matched = childrenOf(parentId)
+    .filter((entry) => keyword === "" || entry.name.toLowerCase().includes(keyword))
+    .sort((a, b) => {
+      const folderBias = (entry: MockEntry) => (entry.kind === "folder" ? 0 : 1);
+      return folderBias(a) - folderBias(b) || a.name.localeCompare(b.name, "zh-Hans-CN");
+    });
+  const offset = Math.max(0, Math.trunc(num(args.offset)));
+  const limit = Math.trunc(num(args.limit, 100)) || 100;
+  return {
+    entries: matched.slice(offset, offset + limit).map(toEntryView),
+    total: matched.length,
+    offset,
+    limit,
+    hasMore: offset + limit < matched.length,
+  };
+}
+
 const HANDLERS: Record<string, CmdHandler> = {
   // ----- 账号与认证 -----
   cloud115_account_status: () => ({ ...accountState }),
@@ -1281,24 +1303,10 @@ const HANDLERS: Record<string, CmdHandler> = {
 
   // ----- 文件浏览与元数据 -----
   cloud115_list_files: (args) => {
-    const parentId = str(args.parentId, ROOT_ID) || ROOT_ID;
-    assertFolderId(parentId, "目录");
-    const keyword = str(args.query).trim().toLowerCase();
-    const matched = childrenOf(parentId)
-      .filter((entry) => keyword === "" || entry.name.toLowerCase().includes(keyword))
-      .sort((a, b) => {
-        const folderBias = (entry: MockEntry) => (entry.kind === "folder" ? 0 : 1);
-        return folderBias(a) - folderBias(b) || a.name.localeCompare(b.name, "zh-Hans-CN");
-      });
-    const offset = Math.max(0, Math.trunc(num(args.offset)));
-    const limit = Math.trunc(num(args.limit, 100)) || 100;
-    return {
-      entries: matched.slice(offset, offset + limit).map(toEntryView),
-      total: matched.length,
-      offset,
-      limit,
-      hasMore: offset + limit < matched.length,
-    };
+    // ?slow=1 让每次目录读取延迟 1.5s，便于观察加载/刷新态。
+    const slow = new URLSearchParams(window.location.search).get("slow") === "1";
+    if (!slow) return listFilesImpl(args);
+    return new Promise((resolve) => setTimeout(() => resolve(listFilesImpl(args)), 1500));
   },
   cloud115_file_metadata: (args) => {
     const entry = entryById(str(args.fileId));
