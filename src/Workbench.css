@@ -387,6 +387,102 @@
   font-size: 11px;
 }
 
+/* ---------------------------------------------------------------------------
+   加载指示：品牌星体 + 扩散光环 + 呼吸旋转。
+   用品牌符号承担加载语义，比灰条更有辨识度；不假装内容形状。
+   --------------------------------------------------------------------------- */
+.file-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 44px 0 28px;
+}
+
+.file-loading-mark {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 92px;
+  height: 92px;
+}
+
+.file-loading-mark .brand-mark-art {
+  position: relative;
+  z-index: 1;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  animation: file-loading-breathe 2.4s var(--ease-standard) infinite;
+}
+
+/* 两圈错峰扩散的光环，形成向外辐射的节奏 */
+.file-loading-ring {
+  position: absolute;
+  inset: 0;
+  border: 1px solid color-mix(in srgb, var(--primary) 32%, transparent);
+  border-radius: 50%;
+  animation: file-loading-pulse 2.4s var(--ease-standard) infinite;
+}
+
+.file-loading-ring-late { animation-delay: 1.2s; }
+
+.file-loading-text {
+  color: var(--muted);
+  font-size: 13px;
+  letter-spacing: -0.01em;
+}
+
+/* 三点呼吸，进一步强化「进行中」的节奏 */
+.file-loading-dots {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.file-loading-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--primary);
+  opacity: 0.35;
+  animation: file-loading-dot 1.2s var(--ease-standard) infinite;
+}
+
+.file-loading-dots i:nth-child(2) { animation-delay: 0.15s; }
+.file-loading-dots i:nth-child(3) { animation-delay: 0.3s; }
+
+.file-loading-compact { padding: 32px 0 24px; gap: 8px; }
+
+@keyframes file-loading-breathe {
+  0%, 100% { transform: scale(0.94) rotate(0deg); opacity: 0.82; }
+  50% { transform: scale(1.04) rotate(90deg); opacity: 1; }
+}
+
+@keyframes file-loading-pulse {
+  0% { transform: scale(0.42); opacity: 0.55; }
+  70% { opacity: 0.12; }
+  100% { transform: scale(1); opacity: 0; }
+}
+
+@keyframes file-loading-dot {
+  0%, 100% { opacity: 0.28; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-2px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-loading-mark .brand-mark-art,
+  .file-loading-ring,
+  .file-loading-dots i {
+    animation: none;
+  }
+  .file-loading-ring { opacity: 0.2; }
+  .file-loading-dots i { opacity: 0.6; }
+}
+
+/* 辅助行：星体指示下方保留少量淡行，维持版面高度，避免加载完成后跳动 */
+.skeleton-row-faint { opacity: 0.3; }
+
 /* 首次加载骨架：与真实行同构（图标块 + 文件名条 + 各列占位），统一扫光。
    形状接近真实内容，用户能预期即将出现的表格结构，而不是看几条空横线。 */
 .cloud-file-skeleton {
@@ -3204,16 +3300,28 @@
 }
 
 .cloud-file-grid-skeleton {
+  display: flex;
+  flex-direction: column;
   min-height: 240px;
 }
 
+/* 网格卡片占位：与星体加载指示同一套扫光与色阶 */
 .file-grid-skeleton-card {
   display: block;
   aspect-ratio: 3 / 4;
   border-radius: var(--radius-md);
-  background: linear-gradient(100deg, var(--surface-sunken) 25%, var(--surface) 40%, var(--surface-sunken) 55%);
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--fg) 8%, var(--surface)) 25%,
+    color-mix(in srgb, var(--fg) 13%, var(--surface)) 40%,
+    color-mix(in srgb, var(--fg) 8%, var(--surface)) 55%
+  );
   background-size: 220% 100%;
-  animation: shimmer 1.4s infinite;
+  animation: shimmer 1.4s var(--ease-standard) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-grid-skeleton-card { animation: none; }
 }
 
 @media (max-width: 980px) {

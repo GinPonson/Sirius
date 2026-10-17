@@ -10,6 +10,7 @@ import {
 import { isTransferActive } from "../services/events";
 import { useTransferEvents, type TransferState } from "../hooks/useTransferEvents";
 import { registerViewPageContext, notifyPageContextChanged, type AiPageContext } from "../domain/pageContext";
+import { BrandMark } from "./BrandMark";
 import { Icon } from "./Icon";
 import { FileTypeIcon } from "./FileTypeIcon";
 import { FileThumbnail } from "./FileThumbnail";
@@ -1651,12 +1652,31 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
   );
 }
 
-/** 与真实列表行同构的骨架：图标块 + 文件名条 + 各列占位，统一扫光。 */
+/**
+ * 加载指示：用品牌星体本身作为加载符号——缓慢旋转的四芒星 + 向外扩散的光环。
+ * 比灰条骨架更有辨识度，且不假装内容形状（读取中不应暗示即将出现什么）。
+ */
+function FileLoadingState({ compact = false }: { compact?: boolean }) {
+  return (
+    <div className={`file-loading${compact ? " file-loading-compact" : ""}`} role="status" aria-label="正在读取文件">
+      <span className="file-loading-mark" aria-hidden="true">
+        <span className="file-loading-ring" />
+        <span className="file-loading-ring file-loading-ring-late" />
+        <BrandMark size={compact ? 30 : 38} />
+      </span>
+      <span className="file-loading-text">正在读取文件</span>
+      <span className="file-loading-dots" aria-hidden="true"><i /><i /><i /></span>
+    </div>
+  );
+}
+
+/** 列表视图的加载占位：星体指示居中，同时保留少量行占位维持版面高度。 */
 function FileRowsSkeleton() {
   return (
-    <div className="cloud-file-skeleton" aria-label="正在读取文件" role="status">
-      {Array.from({ length: 6 }, (_, index) => (
-        <div className="skeleton-row" key={index}>
+    <div className="cloud-file-skeleton">
+      <FileLoadingState />
+      {Array.from({ length: 3 }, (_, index) => (
+        <div className="skeleton-row skeleton-row-faint" key={index}>
           <span className="skeleton-check" />
           <span className="skeleton-name">
             <span className="skeleton-icon" />
@@ -1672,13 +1692,16 @@ function FileRowsSkeleton() {
   );
 }
 
-/** 网格视图的骨架：与卡片同形的占位块，切换视图时不跳动。 */
+/** 网格视图的加载占位：星体指示 + 卡片占位，切换视图时不跳动。 */
 function FileGridSkeleton({ compact }: { compact: boolean }) {
   return (
-    <div className="file-grid cloud-file-grid-skeleton" aria-label="正在读取文件">
-      {Array.from({ length: compact ? 10 : 8 }, (_, index) => (
-        <span key={index} className="file-grid-skeleton-card" data-compact={compact ? "true" : undefined} />
-      ))}
+    <div className="cloud-file-grid-skeleton">
+      <FileLoadingState compact />
+      <div className="file-grid">
+        {Array.from({ length: compact ? 10 : 8 }, (_, index) => (
+          <span key={index} className="file-grid-skeleton-card" data-compact={compact ? "true" : undefined} />
+        ))}
+      </div>
     </div>
   );
 }
