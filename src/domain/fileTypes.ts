@@ -7,7 +7,8 @@ export type FileVisualKind =
 type FileDisplayInput = {
   name: string;
   extension?: string | null;
-  kind?: "folder" | "video" | "subtitle" | "file";
+  /** 服务端已识别的类型；image 由 `getFilePresentation` 直接映射到视觉分组 image。 */
+  kind?: "folder" | "video" | "subtitle" | "image" | "file";
 };
 
 const LABELS: Record<FileVisualKind, string> = {
@@ -41,7 +42,7 @@ for (const [kind, extensions] of Object.entries(EXTENSION_GROUPS)) {
 
 /** 目录和服务端已识别的媒体类型优先；其余文件按大小写不敏感的后缀展示。 */
 export function getFilePresentation(file: FileDisplayInput): { kind: FileVisualKind; label: string } {
-  if (file.kind === "folder" || file.kind === "video" || file.kind === "subtitle") {
+  if (file.kind === "folder" || file.kind === "video" || file.kind === "subtitle" || file.kind === "image") {
     return { kind: file.kind, label: LABELS[file.kind] };
   }
 

@@ -372,6 +372,8 @@ mod tests {
             size_bytes: 1024,
             modified_at,
             pick_code: String::new(),
+            // 测试夹具不涉及内容去重，sha1 留空即可满足契约。
+            sha1: String::new(),
             thumb_url: thumb_url.map(str::to_string),
             children: None,
         }

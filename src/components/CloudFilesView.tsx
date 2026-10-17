@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Cloud115Service,
   MediaInfoService,
@@ -15,8 +15,35 @@ import { FileTypeIcon } from "./FileTypeIcon";
 import { FileThumbnail } from "./FileThumbnail";
 import { FileContextMenu, type FileMenuItem } from "./FileContextMenu";
 import { getFilePresentation } from "../domain/fileTypes";
+import { isAudioFile } from "./AudioPlayerBar";
+import { ImageLightbox, type ImageLightboxItem } from "./ImageLightbox";
+import {
+  DUPLICATE_DELETE_BATCH_SIZE,
+  DUPLICATE_SCAN_MAX_ENTRIES,
+  DUPLICATE_SCAN_PAGE_LIMIT,
+  defaultDuplicateSelectionIds,
+  defaultRetainedEntry,
+  findDuplicateGroups,
+  groupsFullySelected,
+  hasCopyMarker,
+  removeDeletedEntriesFromGroups,
+  type DuplicateGroup,
+  type DuplicateReason,
+} from "../domain/duplicates";
 
-type CloudFileFilter = "all" | "folder" | "video" | "subtitle";
+/** 类型筛选：与 Rust 侧 kind 一一对应，用户可按目录/视频/图片/音频/字幕/其它文件收窄列表。 */
+type CloudFileFilter = "all" | "folder" | "video" | "image" | "audio" | "subtitle" | "file";
+
+/** 筛选标签与顺序：目录排最前后依次是媒体类型，最后是未分类文件。 */
+const FILE_FILTERS: Array<{ id: CloudFileFilter; label: string }> = [
+  { id: "all", label: "全部" },
+  { id: "folder", label: "文件夹" },
+  { id: "video", label: "视频" },
+  { id: "image", label: "图片" },
+  { id: "audio", label: "音频" },
+  { id: "subtitle", label: "字幕" },
+  { id: "file", label: "其它" },
+];
 type FolderPick = { id: string; name: string };
 type FolderPicker = {
   mode: "move" | "copy";
@@ -70,6 +97,12 @@ const DENSITY_KEY = "sirius-files-density";
 const RECENT_TARGETS_KEY = "sirius-files-recent-targets";
 const DEFAULT_SORT: SortState = { field: "name", order: "asc" };
 const SORT_FIELD_LABELS: Record<SortField, string> = { name: "文件名", size: "大小", modifiedAt: "修改时间" };
+/** 重复原因的人读标签：与 domain/duplicates 的 reason 一一对应，不发明额外含义。 */
+const DUPLICATE_REASON_LABELS: Record<DuplicateReason, string> = {
+  name: "同名",
+  content: "内容相同",
+  both: "同名且内容相同",
+};
 
 function readStoredViewMode(): ViewMode {
   try {
@@ -113,7 +146,14 @@ function describeRecycleTargets(targets: Cloud115RecycleItem[]): string {
   return `“${targets[0].name}”、“${targets[1].name}”等 ${targets.length} 项`;
 }
 
-/** 已加载项的客户端排序：目录始终在前；同值回退文件名，保证顺序稳定。 */
+/**
+ * 已加载项的客户端排序：目录始终在前；同值回退文件名，保证顺序稳定。
+ *
+ * 注意与分页的关系：115 按 `o`/`asc`（当前 user_utime 降序）在服务端切片，
+ * 这里的重排只影响已加载项，因此排序切换到「大小/修改时间」时，后续页会按
+ * 服务端顺序追加而非全局有序。UI 已在排序菜单与计数标签上标注「只作用于
+ * 已加载项」，不隐藏该限制。
+ */
 function compareEntries(a: Cloud115FileEntry, b: Cloud115FileEntry, sort: SortState): number {
   const folderBias = (entry: Cloud115FileEntry) => (entry.kind === "folder" ? 0 : 1);
   const byFolder = folderBias(a) - folderBias(b);
@@ -230,6 +270,11 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
   const [sort, setSort] = useState<SortState>(DEFAULT_SORT);
   // 统一浮层菜单（右键 / 行尾更多 / 排序）。
   const [paneMenu, setPaneMenu] = useState<PaneMenu | null>(null);
+  /**
+   * 图片查看器状态：items 是打开瞬间的可视图片清单快照，index 为当前项。
+   * 快照而非实时联动，避免查看期间列表刷新（重命名/删除）让下标漂移。
+   */
+  const [lightbox, setLightbox] = useState<{ items: ImageLightboxItem[]; index: number } | null>(null);
   // 新建文件夹：行内对话框命名，成功后刷新当前目录。
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
@@ -244,6 +289,32 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
   const [recyclePurgeTargets, setRecyclePurgeTargets] = useState<Cloud115RecycleItem[]>([]);
   // 目标选择器「最近使用」：最近 5 个目标目录，持久化 localStorage。
   const [recentTargets, setRecentTargets] = useState<RecentTarget[]>(readRecentTargets);
+  // 查重面板：只扫当前目录（不含子目录）与当前目录的「目录 ID」，切换目录即作废。
+  const [duplicateOpen, setDuplicateOpen] = useState(false);
+  /** 扫描态：progress 为已读取条目数，占位期间不伪造结果。 */
+  const [duplicateScanning, setDuplicateScanning] = useState(false);
+  const [duplicateScanProgress, setDuplicateScanProgress] = useState<{ loaded: number; total: number } | null>(null);
+  /** 扫描结果：null 表示还没结果（未扫或扫描中），空数组才是「未发现重复文件」。 */
+  const [duplicateGroups, setDuplicateGroups] = useState<DuplicateGroup[] | null>(null);
+  const [duplicateScannedCount, setDuplicateScannedCount] = useState(0);
+  /** 扫描结果所属目录 ID：目录变化后旧结果不再是当前上下文，不允许直接删除。 */
+  const [duplicateFolderId, setDuplicateFolderId] = useState<string | null>(null);
+  const [duplicateSelected, setDuplicateSelected] = useState<Set<string>>(new Set());
+  const [duplicateConfirmOpen, setDuplicateConfirmOpen] = useState(false);
+  /** 分批删除进度：completed/total 为本次确认待删项，失败时保留真实已完成数量。 */
+  const [duplicateDeleting, setDuplicateDeleting] = useState<{ completed: number; total: number } | null>(null);
+  /**
+   * 面板级错误/校验提示：扫描与删除失败、以及「每组至少保留 1 项」这类拒绝都要显示在
+   * 对话框内——页面级 error 横幅会被遮罩挡住，而且会被空目录逻辑误判成列表读取失败。
+   */
+  const [duplicatePanelError, setDuplicatePanelError] = useState<string | null>(null);
+  /** 扫描取消与竞态：cancelRequested 由「取消」置位，requestSeq 丢弃迟到的分页响应。 */
+  const duplicateScanCancelRef = useRef(false);
+  const duplicateScanSeqRef = useRef(0);
+  /** 查重对话框容器：打开时承接焦点，Esc 与 Tab 才会落在对话框内。 */
+  const duplicateDialogRef = useRef<HTMLElement | null>(null);
+  /** 删除确认框容器：焦点必须从面板移进来，否则 Esc 会关掉背后的整个面板。 */
+  const duplicateConfirmRef = useRef<HTMLElement | null>(null);
   // 键盘选择矩阵：Shift 连选锚点 + 当前行焦点（行内 roving tabindex）。
   const anchorIdRef = useRef<string | null>(null);
   const [activeRowId, setActiveRowId] = useState<string | null>(null);
@@ -329,6 +400,20 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
     setSelectedIds(new Set());
   }, [query]);
 
+  // 目录变化时作废查重扫描：结果与「当前目录」强绑定，混用会让删除落到别的目录。
+  // 面板遮罩本身会挡住导航，这里只作防御性兜底（如外部触发目录重置）。
+  useEffect(() => {
+    if (!duplicateOpen) return;
+    if (duplicateFolderId === null || duplicateFolderId === currentFolderId) return;
+    cancelDuplicateScan();
+    setDuplicateGroups(null);
+    setDuplicateFolderId(null);
+    setDuplicateSelected(new Set());
+    setDuplicatePanelError("目录已变化，请重新扫描后再删除。");
+    // 仅响应目录切换；其余状态不参与触发。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentFolderId]);
+
   // 视图与密度选择即时回写 localStorage；失败只影响下次启动的初始值。
   useEffect(() => {
     try {
@@ -359,11 +444,28 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
     pendingDirScrollRef.current = null;
   }, [loading, entries]);
 
+  /**
+   * 类型筛选。
+   *
+   * 音频没有独立的 `kind`（Rust 侧 `kind` 只区分 folder/video/subtitle/image/file），
+   * 因此「音频」按扩展名判定，与双击播放用的 `isAudioFile` 保持同一口径；
+   * 「其它」则排除所有已单独成项的媒体类型，避免音频同时出现在两个筛选里。
+   */
+  const matchesFilter = useCallback(
+    (entry: Cloud115FileEntry) => {
+      if (filter === "all") return true;
+      if (filter === "audio") return entry.kind !== "folder" && isAudioFile(entry);
+      if (filter === "file") {
+        return entry.kind === "file" && !isAudioFile(entry);
+      }
+      return entry.kind === filter;
+    },
+    [filter],
+  );
+
   const visibleEntries = useMemo(
-    () => entries
-      .filter((entry) => filter === "all" || entry.kind === filter)
-      .sort((a, b) => compareEntries(a, b, sort)),
-    [entries, filter, sort],
+    () => entries.filter(matchesFilter).sort((a, b) => compareEntries(a, b, sort)),
+    [entries, matchesFilter, sort],
   );
 
   /** 批量操作的统一取数口径：选择集与当前列表的交集，防止误操作不可见文件。 */
@@ -520,7 +622,7 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
     setViewMode(next);
   }
 
-  /** 行的主打开动作：文件夹进入、视频播放；其余类型没有内置查看器，不做假预览，交给更多菜单。 */
+  /** 行的主打开动作：文件夹进入、视频/音频播放、图片查看；其余类型交给更多菜单。 */
   function openEntryPrimary(entry: Cloud115FileEntry, rowElement?: HTMLElement | null) {
     if (entry.kind === "folder") {
       openFolder(entry);
@@ -530,10 +632,38 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
       void playEntry(entry);
       return;
     }
+    // 音频同样走播放链路（应用壳在内部分流到底部播放条），双击即播而不是弹菜单。
+    if (isAudioFile(entry)) {
+      void playEntry(entry);
+      return;
+    }
+    if (entry.kind === "image") {
+      openImagePreview(entry);
+      return;
+    }
     if (rowElement) {
       const rect = rowElement.getBoundingClientRect();
       openPaneMenu(entry, rect.left + rect.width / 2, rect.bottom + 4, rowElement);
     }
+  }
+
+  /**
+   * 打开图片查看器。
+   *
+   * 切换清单沿用当前「已加载 + 已筛选 + 已排序」的可视顺序，因此查看器内的
+   * 左右翻页与列表所见一致；未加载的分页不会被拉取，避免查看器触发额外请求。
+   *
+   * @param entry 要查看的图片条目；必须出现在当前可视清单中（否则忽略）
+   */
+  function openImagePreview(entry: Cloud115FileEntry) {
+    const items: ImageLightboxItem[] = visibleEntries
+      .filter((item) => item.kind === "image")
+      .map((item) => ({ id: item.id, name: item.name, pickCode: item.pickCode, thumbUrl: item.thumbUrl }));
+    const index = items.findIndex((item) => item.id === entry.id);
+    if (index < 0) return;
+    // 菜单可能正开着：先收起，避免浮层盖在查看器之上。
+    closePaneMenu();
+    setLightbox({ items, index });
   }
 
   /** 离开目录前记录该目录的滚动与排序，供返回时恢复。 */
@@ -695,6 +825,258 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
     } finally {
       setBusyAction(false);
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 查重面板：扫描当前目录 → 并查集分组 → 默认勾选待删项 → 分批移入回收站。
+  // 算法全部在 src/domain/duplicates.ts（纯函数）；这里只负责取数、状态与提交。
+  // ---------------------------------------------------------------------------
+
+  /**
+   * 循环分页拉取当前目录的全部条目，直到 hasMore 为 false。
+   *
+   * 与浏览用的分页加载相互独立：查重必须看到完整目录，否则漏掉的大文件不会被发现。
+   * 同一 requestSeq 参与竞态守卫，目录切换或用户取消后迟到的分页会被丢弃。
+   *
+   * @param folderId 目标目录 ID。
+   * @param seq 本次扫描的序号；与 duplicateScanSeqRef 不一致即视为过期。
+   * @returns 完整条目列表；被取消或过期时返回 null。
+   * @throws 分页请求失败时向上抛错（不静默降级为部分结果）。
+   */
+  async function fetchAllEntriesForDuplicateScan(
+    folderId: string,
+    seq: number,
+  ): Promise<Cloud115FileEntry[] | null> {
+    const collected = new Map<string, Cloud115FileEntry>();
+    let offset = 0;
+    let hasMore = true;
+    let total = 0;
+    while (hasMore) {
+      const page = await cloud115.listFiles(folderId, "", offset, DUPLICATE_SCAN_PAGE_LIMIT);
+      // 迟到的分页不再属于当前扫描：直接放弃，避免把旧目录数据混进新结果。
+      if (duplicateScanSeqRef.current !== seq || duplicateScanCancelRef.current) return null;
+      total = page.total;
+      for (const entry of page.entries) {
+        // 同一文件可能被服务端在翻页边界重复返回（目录变动时），按 ID 去重。
+        collected.set(entry.id, entry);
+      }
+      setDuplicateScanProgress({ loaded: collected.size, total });
+      // 服务端给出的上限说明：超过上限立即中止，不做无界扫描。
+      if (total > DUPLICATE_SCAN_MAX_ENTRIES) {
+        throw new Error(
+          `当前目录共 ${total} 项，超过查重上限 ${DUPLICATE_SCAN_MAX_ENTRIES} 项；请进入更小的子目录后再查重`,
+        );
+      }
+      if (collected.size > DUPLICATE_SCAN_MAX_ENTRIES) {
+        throw new Error(
+          `已读取超过查重上限 ${DUPLICATE_SCAN_MAX_ENTRIES} 项，已停止扫描；请进入更小的子目录后再查重`,
+        );
+      }
+      // 服务端声明还有下一页却返回空页：继续翻会得到同一空页。这类分页异常不能当成
+      // 「目录到头」静默接受，否则查重会在不完整的数据上给出结论。
+      if (page.hasMore && page.entries.length === 0) {
+        throw new Error(`读取目录时服务端返回空页但声明仍有更多（偏移 ${offset}），扫描已中止，请重试`);
+      }
+      hasMore = page.hasMore;
+      offset = page.offset + page.entries.length;
+    }
+    return [...collected.values()];
+  }
+
+  /**
+   * 扫描当前目录并计算重复分组。
+   *
+   * 结果只在扫描序号仍然有效时落地；取消或切换目录后不写入任何状态。
+   * 失败时写入面板级 error 并保持「无结果」，绝不伪造「未发现重复文件」。
+   *
+   * @param folderId 目标目录；默认取当前目录。
+   */
+  async function scanDuplicates(folderId: string = currentFolderId) {
+    const seq = duplicateScanSeqRef.current + 1;
+    duplicateScanSeqRef.current = seq;
+    duplicateScanCancelRef.current = false;
+    setDuplicateScanning(true);
+    setDuplicateScanProgress(null);
+    setDuplicateGroups(null);
+    setDuplicateSelected(new Set());
+    setDuplicatePanelError(null);
+    setError(null);
+    try {
+      const allEntries = await fetchAllEntriesForDuplicateScan(folderId, seq);
+      if (allEntries === null || duplicateScanSeqRef.current !== seq) return;
+      const groups = findDuplicateGroups(allEntries);
+      setDuplicateGroups(groups);
+      setDuplicateScannedCount(allEntries.filter((entry) => entry.kind !== "folder").length);
+      setDuplicateFolderId(folderId);
+      setDuplicateSelected(defaultDuplicateSelectionIds(groups));
+    } catch (reason) {
+      if (duplicateScanSeqRef.current !== seq) return;
+      // 扫描失败必须暴露：面板保持「无结果」而不是显示空结果。
+      // 不写页面级 error——那个通道会把空目录的 emptyKind 误判成「文件列表读取失败」。
+      setDuplicateGroups(null);
+      setDuplicatePanelError(`查重扫描失败：${String(reason)}`);
+    } finally {
+      if (duplicateScanSeqRef.current === seq) {
+        setDuplicateScanning(false);
+        setDuplicateScanProgress(null);
+      }
+    }
+  }
+
+  /** 打开查重面板并立即开始扫描；回收站视图下入口不可用（扫描对象是当前普通目录）。 */
+  function openDuplicatePanel() {
+    if (recycleView) return;
+    setDuplicateOpen(true);
+    setDuplicatePanelError(null);
+    void scanDuplicates();
+  }
+
+  // 面板 / 确认框打开后把焦点交给对应的对话框：Esc 关闭与键盘操作都依赖焦点在对话框内。
+  // 确认框优先：它打开时焦点从面板移入，避免 Escape 落到背后的面板上。
+  useEffect(() => {
+    if (duplicateConfirmOpen) {
+      duplicateConfirmRef.current?.focus();
+      return;
+    }
+    if (!duplicateOpen) return;
+    duplicateDialogRef.current?.focus();
+  }, [duplicateOpen, duplicateConfirmOpen]);
+
+  /**
+   * 取消扫描：作废序号让在途分页的响应被丢弃，并关闭面板。
+   *
+   * 面板关闭即放弃本次结果；不做「后台继续扫」的隐藏行为。
+   */
+  function cancelDuplicateScan() {
+    duplicateScanCancelRef.current = true;
+    duplicateScanSeqRef.current += 1;
+    setDuplicateScanning(false);
+    setDuplicateScanProgress(null);
+  }
+
+  /** 关闭查重面板：扫描中先取消，避免关闭后仍有分页回调写状态。 */
+  function closeDuplicatePanel() {
+    if (duplicateScanning) cancelDuplicateScan();
+    setDuplicateOpen(false);
+    setDuplicateGroups(null);
+    setDuplicateScannedCount(0);
+    setDuplicateFolderId(null);
+    setDuplicateSelected(new Set());
+    setDuplicatePanelError(null);
+    setDuplicateConfirmOpen(false);
+  }
+
+  /**
+   * 切换单项勾选；命中「整组会被删光」时拒绝并提示，保证每组至少保留 1 项。
+   *
+   * @param group 该条目所属的重复组。
+   * @param entryId 被点击的文件 ID。
+   */
+  function toggleDuplicateSelected(group: DuplicateGroup, entryId: string) {
+    const next = new Set(duplicateSelected);
+    if (next.has(entryId)) {
+      next.delete(entryId);
+    } else {
+      next.add(entryId);
+      if (group.entries.every((entry) => next.has(entry.id))) {
+        // 保持原选择不变，并明确说明原因（不静默忽略点击）。
+        setDuplicatePanelError("不能把一组重复文件全部删除，每组至少需要保留 1 项。");
+        return;
+      }
+    }
+    setDuplicatePanelError(null);
+    setDuplicateSelected(next);
+  }
+
+  /** 恢复默认勾选建议（干净名字优先、否则最早 mtime）。 */
+  function resetDuplicateSelection() {
+    if (duplicateGroups === null) return;
+    setDuplicateSelected(defaultDuplicateSelectionIds(duplicateGroups));
+    setDuplicatePanelError(null);
+  }
+
+  /** 打开删除确认对话框；勾选为空或会删光整组时拒绝，并说明原因。 */
+  function requestDuplicateDelete() {
+    if (duplicateGroups === null) return;
+    if (duplicateSelected.size === 0) {
+      setDuplicatePanelError("请先勾选要移入回收站的重复文件。");
+      return;
+    }
+    const emptied = groupsFullySelected(duplicateGroups, duplicateSelected);
+    if (emptied.length > 0) {
+      setDuplicatePanelError(`有 ${emptied.length} 组会被全部删除，每组至少需要保留 1 项。`);
+      return;
+    }
+    setDuplicatePanelError(null);
+    setDuplicateConfirmOpen(true);
+  }
+
+  /**
+   * 分批把勾选项移入回收站：100 项一批，首个失败批次即停，并如实上报已完成数量。
+   *
+   * 失败后仍把已确认成功的批次从分组中移除并重新计算剩余重复关系，让面板回到
+   * 可继续操作的状态；用户既可以再点「移入回收站」，也可以点「重新扫描」取最新目录。
+   * 失败原因与已确认成功数量一并写入面板错误提示，不做静默降级。
+   */
+  async function confirmDuplicateDelete() {
+    if (duplicateGroups === null || duplicateSelected.size === 0) return;
+    const ids = [...duplicateSelected];
+    setDuplicateConfirmOpen(false);
+    setDuplicateDeleting({ completed: 0, total: ids.length });
+    setDuplicatePanelError(null);
+    setError(null);
+
+    const confirmedIds = new Set<string>();
+    let failure: string | null = null;
+    for (let index = 0; index < ids.length; index += DUPLICATE_DELETE_BATCH_SIZE) {
+      const batch = ids.slice(index, index + DUPLICATE_DELETE_BATCH_SIZE);
+      try {
+        await cloud115.deleteFiles(batch);
+      } catch (reason) {
+        failure = String(reason);
+        break;
+      }
+      for (const id of batch) confirmedIds.add(id);
+      setDuplicateDeleting({ completed: confirmedIds.size, total: ids.length });
+    }
+
+    // 无论成功与否都同步本地视图：已确认删除的条目确实已不在当前目录。
+    if (confirmedIds.size > 0) {
+      setEntries((current) => current.filter((entry) => !confirmedIds.has(entry.id)));
+      setTotal((current) => Math.max(0, current - confirmedIds.size));
+      setSelectedIds((current) => {
+        const next = new Set(current);
+        for (const id of confirmedIds) next.delete(id);
+        return next;
+      });
+    }
+
+    if (failure === null) {
+      // 全部成功：关闭面板并用页面级提示收尾，避免停在「未发现重复文件」的空结果上误导用户。
+      setDuplicateOpen(false);
+      setDuplicateGroups(null);
+      setDuplicateScannedCount(0);
+      setDuplicateFolderId(null);
+      setDuplicateSelected(new Set());
+      setDuplicatePanelError(null);
+      setNotice(`已将 ${confirmedIds.size} 个重复文件移入回收站，可在回收站还原`);
+    } else {
+      // 失败批次之后的条目状态未确认：保留它们，只剔除已确认成功的部分。
+      const remainingGroups = removeDeletedEntriesFromGroups(duplicateGroups, confirmedIds);
+      // 分组重算后可能整组消失（只剩 1 项就不再是重复组）。勾选集必须同步收敛到
+      // 「仍在某个重复组里」的条目，否则重试会把已不再重复的文件当成重复项删掉。
+      const liveIds = new Set(remainingGroups.flatMap((group) => group.entries.map((entry) => entry.id)));
+      setDuplicateGroups(remainingGroups);
+      // 参与比对的件数同步扣减，避免计数包含已被确认删除的项。
+      setDuplicateScannedCount((current) => Math.max(0, current - confirmedIds.size));
+      setDuplicateSelected((current) => new Set([...current].filter((id) => liveIds.has(id))));
+      setDuplicatePanelError(
+        confirmedIds.size > 0
+          ? `已成功移入回收站 ${confirmedIds.size} / ${ids.length} 项；后续批次失败：${failure}`
+          : `删除失败，未确认任何项目被移入回收站：${failure}`,
+      );
+    }
+    setDuplicateDeleting(null);
   }
 
   /** 打开目标文件夹选择器；条目来自批量选择集或菜单单条，目标冲突由 Rust 校验。 */
@@ -973,6 +1355,10 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
       items.push({ id: "open", label: "打开", icon: "chevron", hint: "进入此文件夹", onSelect: () => { close(); openFolder(entry); } });
     } else if (entry.kind === "video") {
       items.push({ id: "play", label: "播放", icon: "play", hint: "用内置播放器播放", onSelect: () => { close(); void playEntry(entry); } });
+    } else if (entry.kind === "image") {
+      // 图片的「查看」直接复用双击行为：同一份清单、同一套竞态与回退逻辑。
+      // 不在这里调 close()：openImagePreview 内部会先收起菜单，避免两次关闭互相覆盖焦点。
+      items.push({ id: "preview", label: "查看", icon: "images", hint: "打开大图预览", onSelect: () => openImagePreview(entry) });
     }
     if (entry.kind !== "folder") {
       items.push({ id: "download", label: "下载", icon: "download", onSelect: () => { close(); void downloadEntry(entry); } });
@@ -1214,6 +1600,19 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
                   ))}
                 </nav>
                 <div className="cloud-filter-options">
+                  {/* 类型筛选：只作用于已加载项，与排序/查重同一口径，不触发重新请求。 */}
+                  <div className="segmented-control cloud-type-filter" role="group" aria-label="按类型筛选">
+                    {FILE_FILTERS.map((option) => (
+                      <button
+                        key={option.id}
+                        className={filter === option.id ? "active" : ""}
+                        aria-pressed={filter === option.id}
+                        onClick={() => setFilter(option.id)}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
                   <div className="segmented-control cloud-view-toggle" role="group" aria-label="视图切换">
                     <button
                       className={viewMode === "list" ? "active" : ""}
@@ -1265,6 +1664,14 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
                   <span>{loadedCountLabel}</span>
                 </div>
                 <div className="cloud-toolbar-actions">
+                  <button
+                    className="secondary-action cloud-dedupe-action"
+                    title="扫描当前目录，找出同名或内容相同的文件"
+                    onClick={openDuplicatePanel}
+                  >
+                    <Icon name="tasks" size={15} />
+                    查重
+                  </button>
                   <button
                     className="secondary-action cloud-newfolder-action"
                     title="在当前目录新建文件夹"
@@ -1446,11 +1853,11 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
                     />
                     <button
                       className="file-name"
-                      aria-disabled={entry.kind !== "folder" && entry.kind !== "video"}
-                      title={entry.kind === "folder" ? "打开文件夹" : entry.kind === "video" ? "播放视频" : undefined}
+                      aria-disabled={entry.kind !== "folder" && entry.kind !== "video" && entry.kind !== "image"}
+                      title={entry.kind === "folder" ? "打开文件夹" : entry.kind === "video" ? "播放视频" : entry.kind === "image" ? "查看大图" : undefined}
                       onClick={(event) => {
                         event.stopPropagation();
-                        if (entry.kind !== "folder" && entry.kind !== "video") return;
+                        if (entry.kind !== "folder" && entry.kind !== "video" && entry.kind !== "image") return;
                         selectOnly(entry);
                         const row = event.currentTarget.closest<HTMLElement>("[data-entry-id]");
                         openEntryPrimary(entry, row);
@@ -1613,6 +2020,14 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
 
       </div>
 
+      {lightbox && (
+        <ImageLightbox
+          items={lightbox.items}
+          initialIndex={lightbox.index}
+          onClose={() => setLightbox(null)}
+        />
+      )}
+
       {paneMenu && (
         <FileContextMenu
           x={paneMenu.x}
@@ -1628,6 +2043,178 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
       {newFolderOpen && <div className="cloud-operation-backdrop" onPointerDown={(event) => event.target === event.currentTarget && !busyAction && setNewFolderOpen(false)}><form className="cloud-operation-dialog" onSubmit={(event) => { event.preventDefault(); void submitNewFolder(); }}><strong>新建文件夹</strong><span>在“{path[path.length - 1].name}”中创建；同名冲突由 115 校验。</span><input autoFocus placeholder="文件夹名称" value={newFolderName} onChange={(event) => setNewFolderName(event.currentTarget.value)} /><div><button type="button" className="secondary-action" disabled={busyAction} onClick={() => setNewFolderOpen(false)}>取消</button><button type="submit" className="primary-action" disabled={busyAction || !newFolderName.trim()}>创建</button></div></form></div>}
       {recyclePurgeTargets.length > 0 && <div className="cloud-operation-backdrop" onPointerDown={(event) => event.target === event.currentTarget && !busyAction && setRecyclePurgeTargets([])}><section className="cloud-operation-dialog"><strong>{recyclePurgeTargets.length === 1 ? "彻底删除 1 项？" : `彻底删除 ${recyclePurgeTargets.length} 项？`}</strong><span>{describeRecycleTargets(recyclePurgeTargets)}将从回收站永久移除，此操作不可恢复。</span><div><button className="secondary-action" disabled={busyAction} onClick={() => setRecyclePurgeTargets([])}>取消</button><button className="danger-action" disabled={busyAction} onClick={() => void confirmRecyclePurge()}>{busyAction ? "正在删除" : "彻底删除"}</button></div></section></div>}
       {deleteTargets.length > 0 && <div className="cloud-operation-backdrop" onPointerDown={(event) => event.target === event.currentTarget && !busyAction && setDeleteTargets([])}><section className="cloud-operation-dialog"><strong>{deleteTargets.length === 1 ? "移入回收站？" : `移入回收站 ${deleteTargets.length} 项？`}</strong><span>{describeTargets(deleteTargets)}将从当前目录移除，可稍后在回收站恢复。</span><div><button className="secondary-action" disabled={busyAction} onClick={() => setDeleteTargets([])}>取消</button><button className="danger-action" disabled={busyAction} onClick={() => void confirmDelete()}>{busyAction ? "正在删除" : "删除"}</button></div></section></div>}
+      {duplicateOpen && (
+        <div className="cloud-operation-backdrop" onPointerDown={(event) => {
+          // 删除进行中不允许点击遮罩关闭，避免中途丢失进度反馈。
+          if (event.target === event.currentTarget && duplicateDeleting === null) closeDuplicatePanel();
+        }}>
+          <section
+            ref={duplicateDialogRef}
+            tabIndex={-1}
+            className="cloud-operation-dialog dedupe-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label="查找重复文件"
+            onKeyDown={(event) => {
+              if (event.key !== "Escape") return;
+              // 删除进行中不响应 Escape：中途关闭会丢失「已删除 N / M」的进度反馈。
+              if (duplicateDeleting !== null) return;
+              event.stopPropagation();
+              closeDuplicatePanel();
+            }}
+          >
+            <strong>查找重复文件</strong>
+            <span className="dedupe-subtitle">
+              扫描“{path[path.length - 1].name}”当前目录（不含子目录，忽略搜索与类型筛选）：文件名完全相同，
+              或 SHA1 与文件大小完全相同，都会被归为重复。
+            </span>
+
+            <div className="dedupe-toolbar">
+              {duplicateScanning ? (
+                <>
+                  <span role="status">
+                    正在扫描…
+                    {duplicateScanProgress
+                      ? ` 已读取 ${duplicateScanProgress.loaded}${duplicateScanProgress.total > 0 ? ` / ${duplicateScanProgress.total}` : ""} 项`
+                      : ""}
+                  </span>
+                  <button className="secondary-action" onClick={cancelDuplicateScan}>取消扫描</button>
+                </>
+              ) : (
+                <>
+                  <span role="status">
+                    {duplicateGroups === null
+                      ? "尚未完成扫描"
+                      : duplicateGroups.length === 0
+                        ? "未发现重复文件"
+                        : `发现 ${duplicateGroups.length} 组重复，共 ${duplicateGroups.reduce((sum, group) => sum + group.entries.length, 0)} 项；参与比对 ${duplicateScannedCount} 个文件`}
+                  </span>
+                  <div className="dedupe-toolbar-actions">
+                    <button className="secondary-action" onClick={() => void scanDuplicates()}>重新扫描</button>
+                    {duplicateGroups !== null && duplicateGroups.length > 0 && (
+                      <button className="secondary-action" onClick={resetDuplicateSelection}>恢复默认勾选</button>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {duplicateDeleting !== null && (
+              <div className="dedupe-progress" role="status">
+                正在删除 {duplicateDeleting.completed} / {duplicateDeleting.total} 项…
+              </div>
+            )}
+            {duplicatePanelError !== null && (
+              <div className="dedupe-error" role="alert">{duplicatePanelError}</div>
+            )}
+
+            <div className="dedupe-groups">
+              {duplicateScanning ? (
+                <div className="dedupe-empty" role="status">正在读取完整目录，请稍候…</div>
+              ) : duplicateGroups === null ? (
+                <div className="dedupe-empty" role="status">扫描没有完成，暂时没有可判断的结果；可点击“重新扫描”重试。</div>
+              ) : duplicateGroups.length === 0 ? (
+                <div className="dedupe-empty" role="status">
+                  <Icon name="check" size={20} />
+                  <strong>未发现重复文件</strong>
+                  <span>当前目录中没有文件名相同或内容相同的文件。</span>
+                </div>
+              ) : duplicateGroups.map((group) => {
+                const retained = defaultRetainedEntry(group);
+                return (
+                  <section className="dedupe-group" key={group.id} aria-label={`重复组，${group.entries.length} 项`}>
+                    <header>
+                      <strong>{group.entries.length} 项重复</strong>
+                      <span className="dedupe-reason" data-reason={group.reason}>
+                        {DUPLICATE_REASON_LABELS[group.reason]}
+                      </span>
+                      {retained && <small>建议保留：{retained.name}{hasCopyMarker(retained.name) ? "" : "（干净名字）"}</small>}
+                    </header>
+                    <ul>
+                      {group.entries.map((entry) => {
+                        const checked = duplicateSelected.has(entry.id);
+                        const isRetained = retained?.id === entry.id;
+                        return (
+                          <li key={entry.id} className={checked ? "checked" : ""}>
+                            <label>
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                disabled={duplicateDeleting !== null}
+                                onChange={() => toggleDuplicateSelected(group, entry.id)}
+                              />
+                              <FileThumbnail
+                                // 只按名称/后缀取视觉类型：不依赖 entry.kind 的联合类型，
+                                // 避免 provider 新增 kind（如图片/音频）时此处出现类型耦合。
+                                kind={getFilePresentation({ name: entry.name, extension: entry.extension }).kind}
+                                src={entry.thumbUrl}
+                                size={24}
+                              />
+                              <span className="dedupe-entry-name" title={entry.name}>{entry.name}</span>
+                              <span className="dedupe-entry-meta">
+                                {formatBytes(entry.sizeBytes)} · {formatModifiedAt(entry.modifiedAt)}
+                                {entry.sha1.trim() !== "" ? ` · SHA1 ${entry.sha1.slice(0, 8).toUpperCase()}` : " · 无 SHA1"}
+                              </span>
+                              {isRetained && <span className="dedupe-retained">建议保留</span>}
+                            </label>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </section>
+                );
+              })}
+            </div>
+
+            <div className="dedupe-footer">
+              <span>
+                {duplicateGroups !== null && duplicateGroups.length > 0
+                  ? `已勾选 ${duplicateSelected.size} 项移入回收站`
+                  : ""}
+              </span>
+              <div>
+                <button className="secondary-action" disabled={duplicateDeleting !== null} onClick={closeDuplicatePanel}>
+                  {duplicateScanning ? "关闭" : "完成"}
+                </button>
+                <button
+                  className="danger-action"
+                  disabled={duplicateDeleting !== null || duplicateGroups === null || duplicateGroups.length === 0 || duplicateSelected.size === 0}
+                  onClick={requestDuplicateDelete}
+                >
+                  移入回收站
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+      {duplicateConfirmOpen && (
+        <div
+          className="cloud-operation-backdrop"
+          onPointerDown={(event) => event.target === event.currentTarget && setDuplicateConfirmOpen(false)}
+        >
+          <section
+            ref={duplicateConfirmRef}
+            tabIndex={-1}
+            className="cloud-operation-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-label="确认移入回收站"
+            onKeyDown={(event) => {
+              if (event.key !== "Escape") return;
+              event.stopPropagation();
+              setDuplicateConfirmOpen(false);
+            }}
+          >
+            <strong>移入回收站 {duplicateSelected.size} 项？</strong>
+            <span>这些文件将从“{path[path.length - 1].name}”移除并进入 115 回收站，可在此后从回收站还原；每组至少保留 1 项。</span>
+            <div>
+              <button className="secondary-action" onClick={() => setDuplicateConfirmOpen(false)}>取消</button>
+              <button className="danger-action" onClick={() => void confirmDuplicateDelete()}>删除</button>
+            </div>
+          </section>
+        </div>
+      )}
       {picker && (
         <div className="cloud-operation-backdrop" onPointerDown={(event) => event.target === event.currentTarget && !busyAction && setPicker(null)}>
           <section className="cloud-operation-dialog picker-dialog">

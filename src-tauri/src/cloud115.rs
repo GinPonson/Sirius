@@ -28,6 +28,12 @@ use tokio::{fs::OpenOptions, io::AsyncWriteExt, sync::Mutex as AsyncMutex, time:
 const AUTH_BASE_URL: &str = "https://qrcodeapi.115.com";
 const PASSPORT_BASE_URL: &str = "https://passportapi.115.com";
 const API_BASE_URL: &str = "https://proapi.115.com";
+/// 115 文件列表单页上限（p115client 实测、StarVault `MAX_PAGE_SIZE` 同值）。
+///
+/// 需要一次读全目录的场景（全选取 ID、移动目标选择器）用这个值可省掉多次分页；
+/// 每次分页在 1 r/s 限速下都是 1 秒，请求数直接决定等待时长。
+const MAX_PAGE_LIMIT: u64 = 1150;
+
 /// 控制面限速：两次 OpenAPI 请求之间至少间隔 1 秒（经验值 1 请求/秒且不允许 burst）。
 const CONTROL_REQUEST_MIN_INTERVAL: Duration = Duration::from_secs(1);
 const CODE_VERIFIER: &str = "0000000000000000000000000000000000000000000000000000000000000000";
@@ -44,6 +50,8 @@ const DEV_TOKEN_FILE: &str = "sirius-desktop-cloud115-dev.json";
 const MULTIPART_PART_BYTES: u64 = 20 * 1024 * 1024;
 /// 115 preid 固定取文件首 128 KiB 的 SHA-1。
 const PRE_SHA1_SAMPLE_BYTES: usize = 128 * 1024;
+/// 原画线路的画质名称；前端据此展示当前播放的是无损直链而非转码流。
+const ORIGINAL_QUALITY: &str = "原画";
 
 /// StarVault 已验证的 115 开放平台应用身份；授权页由用户主动选择。
 #[derive(Debug, Clone, Serialize)]
@@ -188,6 +196,9 @@ pub struct Cloud115FileEntry {
     pub size_bytes: u64,
     pub modified_at: u64,
     pub pick_code: String,
+    /// 文件 SHA-1；115 在文件条目上返回 `sha1`（部分响应为 `sha`），文件夹为空串。
+    /// 原样返回服务端取值、不做大小写归一，归一交给依赖它的去重逻辑。
+    pub sha1: String,
     /// 115 服务端缩略图地址；可能缺失，仅用于展示。
     pub thumb_url: Option<String>,
     pub children: Option<u64>,
@@ -203,11 +214,37 @@ pub struct Cloud115FilePage {
     pub has_more: bool,
 }
 
+/// 视频播放源：默认走 downurl 原画直链，转码档位只作为后备线路。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Cloud115PlaybackSource {
+    /// 当前最佳播放地址；优先原画直链，原画不可用时才是转码 m3u8。
     pub url: String,
     pub user_agent: String,
+    /// `url` 对应的画质名："原画" 或 115 返回的档位名（如 "1080P"）。
+    pub quality: String,
+    /// 可作为后备/切换的其它线路（不含 `url` 自身），按 115 返回顺序排列。
+    /// 每条都带档位名，前端才能把「切换画质」渲染成有意义的选项而不是一串无名 URL。
+    pub fallback_options: Vec<Cloud115PlaybackOptionView>,
+}
+
+/// 可切换的画质档位（对外暴露的视图结构）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Cloud115PlaybackOptionView {
+    /// 带签名的 m3u8 地址。
+    pub url: String,
+    /// 画质名；服务端未给名字时为空串，前端显示为「备用线路」而不编造档位。
+    pub quality: String,
+}
+
+/// 115 转码档位：`/open/video/play` 返回的单条 HLS 线路。
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Cloud115PlaybackOption {
+    /// 带签名的 m3u8 地址。
+    url: String,
+    /// 画质名，来自 `desc` / `title` / `definition` 映射。
+    name: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -511,9 +548,11 @@ impl Cloud115Provider {
             user_id: value_u64(data.get("user_id"))
                 .ok_or_else(|| "115 用户资料缺少 user_id".to_string())?,
             user_name: required_string(data, "user_name", "115 用户资料")?,
+            // 头像尺寸优先级对齐 StarVault：列表头像只有 28~38px，中尺寸 m 足够清晰
+            // 且比 l 更省流量；缺失时按 l → s 回退。
             avatar_url: value_string(
-                data.get("user_face_l")
-                    .or_else(|| data.get("user_face_m"))
+                data.get("user_face_m")
+                    .or_else(|| data.get("user_face_l"))
                     .or_else(|| data.get("user_face_s")),
             )
             .unwrap_or_default(),
@@ -1292,11 +1331,15 @@ impl Cloud115Provider {
         limit: u64,
         query: &str,
     ) -> Result<Cloud115FilePage, String> {
-        if parent_id.is_empty() || limit == 0 || limit > 200 {
-            return Err("115 目录 ID 或分页参数无效".to_string());
+        if parent_id.is_empty() || limit == 0 || limit > MAX_PAGE_LIMIT {
+            return Err(format!(
+                "115 目录 ID 或分页参数无效（limit 需在 1..={MAX_PAGE_LIMIT} 之间）"
+            ));
         }
         if !query.trim().is_empty() {
-            let mut params = list_query_params(parent_id, offset, limit, None);
+            // 搜索同样走 show_dir=1 + fc_mix=1：对齐 StarVault `searchFiles`（显式传
+            // showDir=1 / fcMix=1），否则搜索只回文件、目录项缺失。
+            let mut params = list_query_params(parent_id, offset, limit, Some(1));
             params.push(("search_value", query.trim().to_string()));
             let payload = self
                 .authorized_json(
@@ -1324,10 +1367,30 @@ impl Cloud115Provider {
         parse_file_page(&payload, parent_id, offset, limit)
     }
 
+    /// 解析视频播放源：优先 downurl 原画直链，转码档位只作后备。
+    ///
+    /// 对齐 StarVault `PreviewVideoViewModel`（已验证实现）：原画直链无转码排队、画质无损，
+    /// 是默认播放线路；`/open/video/play` 的 m3u8 仅在原画解析失败时承担首播，成功时作为
+    /// 可降级/切换的备选档位一并返回。
+    ///
+    /// 两路请求并发发起（而非串行等待）：控制面限速本身已把它们隔开约 1 秒，串行执行会让
+    /// 起播额外多等一个完整网络往返；并发时总耗时约等于较慢的那一路。
     pub async fn playback_source(&self, pick_code: &str) -> Result<Cloud115PlaybackSource, String> {
         if pick_code.trim().is_empty() {
             return Err("115 视频缺少 pick_code，无法解析播放地址".to_string());
         }
+        let (original, transcoded) = tokio::join!(
+            self.resolve_downurl(pick_code, "解析 115 视频原画地址"),
+            self.playback_options(pick_code),
+        );
+        compose_playback_source(original, transcoded)
+    }
+
+    /// 拉取 `/open/video/play` 的转码档位列表，只负责网络与解析，不做兜底决策。
+    async fn playback_options(
+        &self,
+        pick_code: &str,
+    ) -> Result<Vec<Cloud115PlaybackOption>, String> {
         let query = [("pick_code", pick_code.trim().to_string())];
         let payload = self
             .authorized_json(
@@ -1337,25 +1400,7 @@ impl Cloud115Provider {
                 None,
             )
             .await?;
-        if !state_ok(payload.get("state")) {
-            return Err(api_business_error(&payload, "解析 115 播放地址"));
-        }
-        let url = payload
-            .get("data")
-            .and_then(Value::as_object)
-            .and_then(|data| data.get("video_url"))
-            .and_then(Value::as_array)
-            .and_then(|items| {
-                items
-                    .iter()
-                    .find_map(|item| item.get("url").and_then(Value::as_str))
-            })
-            .filter(|value| value.starts_with("https://") || value.starts_with("http://"))
-            .ok_or_else(|| "115 视频播放响应缺少 HTTP(S) 地址".to_string())?;
-        Ok(Cloud115PlaybackSource {
-            url: url.to_string(),
-            user_agent: USER_AGENT.to_string(),
-        })
+        parse_playback_options(&payload)
     }
 
     /// 返回 115 已提取的外挂字幕；autoload 的对象/数组两种合法形态均兼容。
@@ -1428,6 +1473,23 @@ impl Cloud115Provider {
         if pick_code.trim().is_empty() {
             return Err("115 文件缺少 pick_code，无法获取下载地址".to_string());
         }
+        let url = self
+            .resolve_downurl(pick_code, "解析 115 文件下载地址")
+            .await?;
+        Ok(Cloud115DownloadSource {
+            url,
+            user_agent: USER_AGENT.to_string(),
+        })
+    }
+
+    /// 调用 `POST /open/ufile/downurl` 取文件的短时效签名直链。
+    ///
+    /// 下载与视频播放共用这一条链路（StarVault 同样以 downurl 作为原画/原图来源），因此
+    /// 请求、状态校验与 data 形态兼容都收敛在此，避免两处重复实现而漂移。
+    ///
+    /// - `pick_code`：115 文件下载码，调用方负责保证非空。
+    /// - `action`：出错时拼进业务错误信息，用于区分「下载地址」与「视频原画地址」两条调用路径。
+    async fn resolve_downurl(&self, pick_code: &str, action: &str) -> Result<String, String> {
         let form = [("pick_code", pick_code.trim().to_string())];
         let payload = self
             .authorized_json(
@@ -1437,30 +1499,7 @@ impl Cloud115Provider {
                 Some(&form),
             )
             .await?;
-        if !state_ok(payload.get("state")) {
-            return Err(api_business_error(&payload, "解析 115 文件下载地址"));
-        }
-        let items: Vec<&Value> = match payload.get("data") {
-            Some(Value::Object(values)) => values.values().collect(),
-            Some(Value::Array(values)) => values.iter().collect(),
-            _ => return Err("115 文件下载响应的 data 结构无效".to_string()),
-        };
-        let url = items
-            .into_iter()
-            .find_map(|item| {
-                item.get("url").and_then(|value| {
-                    value
-                        .get("url")
-                        .and_then(Value::as_str)
-                        .or_else(|| value.as_str())
-                })
-            })
-            .filter(|value| value.starts_with("https://") || value.starts_with("http://"))
-            .ok_or_else(|| "115 文件下载响应缺少 HTTP(S) 地址".to_string())?;
-        Ok(Cloud115DownloadSource {
-            url: url.to_string(),
-            user_agent: USER_AGENT.to_string(),
-        })
+        parse_downurl_payload(&payload, action)
     }
 
     /// 将文件下载到本地目录。存在 `.sirius-part` 临时文件时按 Range 续传；
@@ -2042,6 +2081,12 @@ fn auth_poll(
 }
 
 /// 生成文件列表公共参数；show_dir 为 Some 时限制为当前目录的文件夹或文件。
+///
+/// 参数语义对齐 StarVault `OpenFileApiService.listFiles`（已验证实现）：
+/// - `custom_order=1` 让 `o` / `asc` 真正生效且文件夹置顶；**缺省该参数时 115 会用
+///   账号记忆排序并静默忽略 `o` / `asc`**，分页顺序与前端排序不一致会出现重复或漏项。
+/// - `show_dir=1` + `fc_mix=1` + `cur=1` 由服务端返回当前目录的目录与文件混合列表。
+/// - `count_folders=1` 让响应 `count` 计入目录，保证混合列表总数口径正确。
 fn list_query_params(
     parent_id: &str,
     offset: u64,
@@ -2051,8 +2096,9 @@ fn list_query_params(
     let mut params = vec![
         ("aid", "1".to_string()),
         ("cid", parent_id.to_string()),
-        ("o", "file_name".to_string()),
-        ("asc", "1".to_string()),
+        ("o", "user_utime".to_string()),
+        ("asc", "0".to_string()),
+        ("custom_order", "1".to_string()),
         ("offset", offset.to_string()),
         ("limit", limit.to_string()),
         ("fc_mix", "1".to_string()),
@@ -2100,6 +2146,16 @@ fn parse_entries(payload: &Value, parent_id: &str) -> Result<Vec<Cloud115FileEnt
         .collect()
 }
 
+/// 解析一页文件列表。
+///
+/// `has_more` 判定对齐 StarVault `FileListResponse.hasMore()`，顺序为：
+/// 1) 本页原始条目数 < limit → 服务端已返回短页，必定到底（不受 count 是否可靠影响）
+/// 2) count > 0 时按 `offset + 本页条数 ≥ count` 判定到底
+/// 3) 其余保守认为可能还有下一页
+///
+/// 先看短页再看 count：115 的 `count` 在部分筛选组合下不可靠，只依赖算术语会
+/// 在“count 偏大但已返回空页”时让前端无限续页；反过来若 count 偏小则会提前截断。
+/// 短页优先可同时规避这两种异常。
 fn parse_file_page(
     payload: &Value,
     parent_id: &str,
@@ -2108,8 +2164,21 @@ fn parse_file_page(
 ) -> Result<Cloud115FilePage, String> {
     let total = response_count(payload)?;
     let entries = parse_entries(payload, parent_id)?;
+    // 原始条目数取响应 data 长度，而不是解析成功条数：解析失败项不应让分页提前结束。
+    let raw_count = payload
+        .get("data")
+        .and_then(Value::as_array)
+        .map(|items| items.len() as u64)
+        .unwrap_or(entries.len() as u64);
+    let has_more = if raw_count < limit {
+        false
+    } else if total > 0 {
+        offset.saturating_add(raw_count) < total
+    } else {
+        true
+    };
     Ok(Cloud115FilePage {
-        has_more: offset.saturating_add(entries.len() as u64) < total,
+        has_more,
         entries,
         total,
         offset,
@@ -2166,12 +2235,16 @@ fn parse_file_entry(value: &Value, requested_parent_id: &str) -> Result<Cloud115
         .filter(|value| !value.is_empty())
         .unwrap_or(inferred_extension)
         .to_lowercase();
+    // 分类顺序固定为 folder → video → subtitle → image → file：视频与字幕优先于图片，
+    // 避免同后缀歧义（如 `ts` 既是视频也是 TypeScript）把已有能力改判成新类型。
     let kind = if is_folder {
         "folder"
     } else if is_video_extension(&extension) {
         "video"
     } else if is_subtitle_extension(&extension) {
         "subtitle"
+    } else if is_image_extension(&extension) {
+        "image"
     } else {
         "file"
     };
@@ -2192,9 +2265,23 @@ fn parse_file_entry(value: &Value, requested_parent_id: &str) -> Result<Cloud115
         .unwrap_or(0),
         pick_code: value_string(object.get("pick_code").or_else(|| object.get("pc")))
             .unwrap_or_default(),
-        // 115 在新旧列表与搜索响应中都可能返回缩略图地址；缺失时按 None 处理。
-        thumb_url: value_string(object.get("thumb_url").or_else(|| object.get("thumb")))
-            .filter(|value| value.starts_with("http")),
+        // SHA-1：115 列表在文件上返回 `sha1`，部分响应形态用 `sha`；文件夹两者都没有，
+        // 因此落空即空串（不是 None，前端契约按 string 使用）。取值原样保留、不做大小写
+        // 归一——归一策略属于去重逻辑，放在解析层会丢掉服务端原始信息。
+        sha1: if is_folder {
+            String::new()
+        } else {
+            value_string(object.get("sha1").or_else(|| object.get("sha"))).unwrap_or_default()
+        },
+        // 缩略图地址：对齐 StarVault，列表响应为 `thumb`，部分响应形态用 `u`；
+        // 两种都可能是带签名的 115 CDN 直链。非 http 前缀（如空串/占位）按 None 处理。
+        thumb_url: value_string(
+            object
+                .get("thumb_url")
+                .or_else(|| object.get("thumb"))
+                .or_else(|| object.get("u")),
+        )
+        .filter(|value| value.starts_with("http")),
         // fl 是文件标签数组，不是子项列表；OpenAPI 列表响应没有可靠的子项计数。
         children: None,
     })
@@ -2243,6 +2330,176 @@ fn envelope_data<'a>(payload: &'a Value, action: &str) -> Result<&'a Value, Stri
     payload
         .get("data")
         .ok_or_else(|| format!("{action}响应缺少 data"))
+}
+
+/// 从 downurl 响应中取出签名直链，兼容 Map 与数组两种 data 形态。
+///
+/// 115 的 `data` 既可能是 `{file_id: {...}}` 映射，也可能是数组；两种形态下 url 又可能是
+/// `{url: "..."}` 嵌套对象或裸字符串，因此逐层兼容。
+///
+/// - `payload`：downurl 的完整 JSON 响应。
+/// - `action`：失败信息前缀，用于区分下载与视频原画两条调用路径。
+fn parse_downurl_payload(payload: &Value, action: &str) -> Result<String, String> {
+    if !state_ok(payload.get("state")) {
+        return Err(api_business_error(payload, action));
+    }
+    let items: Vec<&Value> = match payload.get("data") {
+        Some(Value::Object(values)) => values.values().collect(),
+        Some(Value::Array(values)) => values.iter().collect(),
+        _ => return Err(format!("{action}响应的 data 结构无效")),
+    };
+    items
+        .into_iter()
+        .find_map(|item| {
+            item.get("url").and_then(|value| {
+                value
+                    .get("url")
+                    .and_then(Value::as_str)
+                    .or_else(|| value.as_str())
+            })
+        })
+        .filter(|value| is_http_url(value))
+        .map(str::to_string)
+        .ok_or_else(|| format!("{action}响应缺少 HTTP(S) 地址"))
+}
+
+/// 解析 `/open/video/play` 的转码档位列表；按画质名去重并保持服务端顺序。
+///
+/// 115 可能为同一清晰度下发多个签名 URL，重复展示没有意义（StarVault
+/// `distinctPlaybackQualities` 同策略），所以在此收敛。画质名优先取 `desc`，其次 `title`，
+/// 都缺失时按 `definition` 映射（1 标清 / 2 高清 / 3 超清 / 4 1080P / 5 4K / 100 原画）。
+fn parse_playback_options(payload: &Value) -> Result<Vec<Cloud115PlaybackOption>, String> {
+    if !state_ok(payload.get("state")) {
+        return Err(api_business_error(payload, "解析 115 播放地址"));
+    }
+    let items = payload
+        .get("data")
+        .and_then(Value::as_object)
+        .and_then(|data| data.get("video_url"))
+        .and_then(Value::as_array)
+        .ok_or_else(|| "115 视频播放响应缺少 video_url 数组".to_string())?;
+    let mut options: Vec<Cloud115PlaybackOption> = Vec::new();
+    for item in items {
+        let Some(url) = value_string(item.get("url")).filter(|value| is_http_url(value)) else {
+            continue;
+        };
+        let name = value_string(item.get("desc").or_else(|| item.get("title")))
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .or_else(|| {
+                value_i64(item.get("definition"))
+                    .and_then(definition_label)
+                    .map(str::to_string)
+            })
+            .unwrap_or_default();
+        // 同档位去重：无名字时退回按 URL 区分，避免把两条无法确认相同的线路合并。
+        let duplicated = options.iter().any(|existing| {
+            if name.is_empty() || existing.name.is_empty() {
+                existing.url == url
+            } else {
+                existing.name == name
+            }
+        });
+        if !duplicated {
+            options.push(Cloud115PlaybackOption { url, name });
+        }
+    }
+    if options.is_empty() {
+        return Err("115 视频播放响应缺少 HTTP(S) 地址".to_string());
+    }
+    Ok(options)
+}
+
+/// 115 清晰度编号到展示名称的映射；未知编号返回 None。
+fn definition_label(definition: i64) -> Option<&'static str> {
+    match definition {
+        1 => Some("标清"),
+        2 => Some("高清"),
+        3 => Some("超清"),
+        4 => Some("1080P"),
+        5 => Some("4K"),
+        100 => Some("原画"),
+        _ => None,
+    }
+}
+
+fn is_http_url(value: &str) -> bool {
+    value.starts_with("https://") || value.starts_with("http://")
+}
+
+/// 合并两路解析结果，决定播放主线路与后备档位。
+///
+/// 决策顺序对齐 StarVault：原画成功即为主线路，转码档位降级为后备（不改变首播源）；
+/// 原画失败时让第一档转码承担首播，并如实标注画质名；两者都失败才报错，且错误信息
+/// 同时保留两条失败原因，便于定位是签名失效还是转码服务不可用。
+///
+/// - `original`：downurl 原画直链解析结果。
+/// - `transcoded`：`/open/video/play` 档位解析结果。
+fn compose_playback_source(
+    original: Result<String, String>,
+    transcoded: Result<Vec<Cloud115PlaybackOption>, String>,
+) -> Result<Cloud115PlaybackSource, String> {
+    match (original, transcoded) {
+        (Ok(url), Ok(options)) => {
+            let mut fallback_options: Vec<Cloud115PlaybackOptionView> = Vec::new();
+            for option in options {
+                // 原画档位若与主线路同址，不应重复出现在后备里；同址只保留首次出现。
+                if option.url == url || fallback_options.iter().any(|kept| kept.url == option.url) {
+                    continue;
+                }
+                fallback_options.push(Cloud115PlaybackOptionView {
+                    url: option.url,
+                    quality: option.name,
+                });
+            }
+            Ok(Cloud115PlaybackSource {
+                url,
+                user_agent: USER_AGENT.to_string(),
+                quality: ORIGINAL_QUALITY.to_string(),
+                fallback_options,
+            })
+        }
+        // 原画失败但转码可用：首播交给第一档，不能把画质标成"原画"。
+        (Err(original_error), Ok(options)) => {
+            // 本项目暂无日志框架，用 eprintln 直接落 stderr，保证降级原因不被吞掉。
+            eprintln!("115 原画直链解析失败，降级到转码线路：{original_error}");
+            let primary = options
+                .first()
+                .ok_or_else(|| "115 播放档位为空".to_string())?;
+            Ok(Cloud115PlaybackSource {
+                url: primary.url.clone(),
+                user_agent: USER_AGENT.to_string(),
+                quality: if primary.name.is_empty() {
+                    // 服务端未给档位名时，明确表达"转码档位"而不是冒充原画。
+                    "转码".to_string()
+                } else {
+                    primary.name.clone()
+                },
+                fallback_options: options
+                    .iter()
+                    .skip(1)
+                    .map(|option| Cloud115PlaybackOptionView {
+                        url: option.url.clone(),
+                        quality: option.name.clone(),
+                    })
+                    .collect(),
+            })
+        }
+        // 原画可用就足够播放，转码档位只是"锦上添花"的后备：此处不得因为后备失效
+        // 而拒绝可用的原画线路。降级信息同样要留痕，不能静默。
+        (Ok(url), Err(transcoded_error)) => {
+            eprintln!("115 转码档位解析失败，仅提供原画线路：{transcoded_error}");
+            Ok(Cloud115PlaybackSource {
+                url,
+                user_agent: USER_AGENT.to_string(),
+                quality: ORIGINAL_QUALITY.to_string(),
+                fallback_options: Vec::new(),
+            })
+        }
+        (Err(original_error), Err(transcoded_error)) => Err(format!(
+            "115 视频播放地址解析失败：原画直链不可用（{original_error}）；转码档位不可用（{transcoded_error}）"
+        )),
+    }
 }
 
 fn api_business_error(payload: &Value, action: &str) -> String {
@@ -2522,6 +2779,24 @@ fn is_subtitle_extension(extension: &str) -> bool {
     matches!(extension, "srt" | "ass" | "ssa" | "vtt" | "sub")
 }
 
+/// 判断扩展名是否为图片；`extension` 必须已小写（`parse_file_entry` 已归一）。
+///
+/// 覆盖 115 网盘常见位图格式与 WebView 可直接渲染的 svg：
+/// - 位图：jpg/jpeg/png/gif/bmp/webp/heic/heif/tiff/tif
+/// - 矢量：svg
+///
+/// 注意：heic/heif/tiff 依赖系统解码能力，WebKit 可能拒绝渲染；调用方必须按
+/// 「原图加载失败 → 回退缩略图」处理，不能假定这里声明的类型一定可显示。
+///
+/// @param extension 小写扩展名（不含点），空串返回 false
+/// @return 是图片返回 true
+fn is_image_extension(extension: &str) -> bool {
+    matches!(
+        extension,
+        "jpg" | "jpeg" | "png" | "gif" | "bmp" | "webp" | "heic" | "heif" | "tiff" | "tif" | "svg"
+    )
+}
+
 /// 组装下载进度数值；远端大小未知时省略 total_bytes。
 fn download_progress_update(transferred_bytes: u64, expected_size_bytes: u64) -> TransferUpdate {
     TransferUpdate {
@@ -2788,6 +3063,92 @@ mod tests {
         assert_eq!(folder.thumb_url, None);
     }
 
+    /// 图片分类：新列表（`fn`/`ico`）、旧列表（`n`/后缀推断）两条路径都要归为 image。
+    #[test]
+    fn classifies_image_entries() {
+        let payload = serde_json::json!({
+            "state": true,
+            "code": 0,
+            "count": 3,
+            "data": [
+                {"fn": "IMG_0001.jpg", "fc": 1, "fid": "21", "cid": "0", "ico": "jpg"},
+                {"fn": "截图.png", "fc": 1, "fid": "22", "cid": "0", "ico": "png"},
+                {"fn": "矢量.svg", "fc": 1, "fid": "23", "cid": "0", "ico": "svg"}
+            ]
+        });
+        let page = parse_file_page(&payload, "0", 0, 100).expect("image page should parse");
+        assert_eq!(page.entries.len(), 3);
+        for entry in &page.entries {
+            assert_eq!(entry.kind, "image", "{} 应归为图片", entry.name);
+        }
+
+        // 旧列表形态没有 `ico`：必须从文件名后缀推断，同样归为 image。
+        let legacy = serde_json::json!({"n": "旅行.JPEG", "fid": "24", "cid": "0"});
+        let legacy = parse_file_entry(&legacy, "0").expect("legacy image should parse");
+        assert_eq!(legacy.kind, "image");
+        assert_eq!(legacy.extension, "jpeg");
+    }
+
+    /// 大小写不敏感：115 的 `ico` 与文件名后缀都可能是大写，分类结果不受影响。
+    #[test]
+    fn classifies_image_extension_case_insensitively() {
+        let payload = serde_json::json!({
+            "state": true,
+            "code": 0,
+            "count": 3,
+            "data": [
+                {"fn": "A.WEBP", "fc": 1, "fid": "31", "cid": "0", "ico": "WEBP"},
+                {"fn": "B.HEIC", "fc": 1, "fid": "32", "cid": "0"},
+                {"fn": "无扩展名", "fc": 1, "fid": "33", "cid": "0", "ico": "TIFF"}
+            ]
+        });
+        let page = parse_file_page(&payload, "0", 0, 100).expect("image page should parse");
+        assert_eq!(page.entries[0].kind, "image");
+        assert_eq!(page.entries[0].extension, "webp");
+        assert_eq!(page.entries[1].kind, "image");
+        assert_eq!(page.entries[1].extension, "heic");
+        // `ico` 优先于文件名：即使文件名没有后缀也按服务端类型分类。
+        assert_eq!(page.entries[2].kind, "image");
+    }
+
+    /// 非图片回落 file：文本、压缩包、无后缀文件都不能被误判为 image。
+    #[test]
+    fn non_image_entries_stay_file() {
+        let payload = serde_json::json!({
+            "state": true,
+            "code": 0,
+            "count": 4,
+            "data": [
+                {"fn": "笔记.txt", "fc": 1, "fid": "41", "cid": "0"},
+                {"fn": "打包.zip", "fc": 1, "fid": "42", "cid": "0"},
+                {"fn": "无后缀", "fc": 1, "fid": "43", "cid": "0", "ico": ""},
+                {"fn": "readme", "fc": 1, "fid": "44", "cid": "0"}
+            ]
+        });
+        let page = parse_file_page(&payload, "0", 0, 100).expect("plain page should parse");
+        for entry in &page.entries {
+            assert_eq!(entry.kind, "file", "{} 不应归为图片", entry.name);
+        }
+    }
+
+    /// 分类顺序约束：视频/字幕优先于图片，`ts` 作为视频不能被图片规则抢走；
+    /// `srt` 仍是字幕而不是图片。
+    #[test]
+    fn video_and_subtitle_win_over_image_classification() {
+        let payload = serde_json::json!({
+            "state": true,
+            "code": 0,
+            "count": 2,
+            "data": [
+                {"fn": "clip.ts", "fc": 1, "fid": "51", "cid": "0", "ico": "ts"},
+                {"fn": "Arrival.chs.srt", "fc": 1, "fid": "52", "cid": "0", "ico": "srt"}
+            ]
+        });
+        let page = parse_file_page(&payload, "0", 0, 100).expect("media page should parse");
+        assert_eq!(page.entries[0].kind, "video");
+        assert_eq!(page.entries[1].kind, "subtitle");
+    }
+
     /// 单次 show_dir=1 + fc_mix=1 请求返回目录与文件混合列表：
     /// 必须按 fc/fid 正确区分两类条目，且总数取 115 返回的 count。
     #[test]
@@ -2809,6 +3170,279 @@ mod tests {
         assert_eq!(page.entries[1].kind, "video");
         assert_eq!(page.entries[1].name, "Arrival.mkv");
         assert!(!page.has_more);
+    }
+
+    // -----------------------------------------------------------------------
+    // 文件 SHA-1：解析口径与大小写策略
+    // -----------------------------------------------------------------------
+
+    /// `sha1` 字段优先，且必须原样保留大小写（大小写归一是去重逻辑的职责）。
+    #[test]
+    fn parses_sha1_preserving_server_case() {
+        let payload = serde_json::json!({
+            "state": true, "code": 0, "count": 1,
+            "data": [{
+                "fn": "movie.mkv", "fc": 1, "fid": "9", "cid": "0",
+                "sha1": "A1B2C3d4E5f60718293a4b5c6d7e8f9012345678"
+            }]
+        });
+        let page = parse_file_page(&payload, "0", 0, 100).unwrap();
+        assert_eq!(
+            page.entries[0].sha1,
+            "A1B2C3d4E5f60718293a4b5c6d7e8f9012345678"
+        );
+    }
+
+    /// 部分响应形态只给 `sha`，必须回退解析，否则去重会整目录失效。
+    #[test]
+    fn parses_sha1_falling_back_to_sha_field() {
+        let payload = serde_json::json!({
+            "state": true, "code": 0, "count": 1,
+            "data": [{"fn": "clip.mp4", "fc": 1, "fid": "10", "cid": "0", "sha": "deadBEEF"}]
+        });
+        let page = parse_file_page(&payload, "0", 0, 100).unwrap();
+        assert_eq!(page.entries[0].sha1, "deadBEEF");
+    }
+
+    /// 文件夹没有内容摘要：契约上必须是空串（不是 None），前端类型按 string 使用。
+    #[test]
+    fn folder_entries_have_empty_sha1() {
+        let payload = serde_json::json!({
+            "state": true, "code": 0, "count": 2,
+            "data": [
+                {"fn": "电影", "fc": 0, "cid": "42", "pid": "0", "sha1": "should-be-ignored"},
+                {"fn": "plain.txt", "fc": 1, "fid": "11", "cid": "42"}
+            ]
+        });
+        let page = parse_file_page(&payload, "0", 0, 100).unwrap();
+        assert_eq!(page.entries[0].kind, "folder");
+        assert_eq!(page.entries[0].sha1, "");
+        // 完全没有 sha1 / sha 的文件同样落空串。
+        assert_eq!(page.entries[1].sha1, "");
+    }
+
+    /// 列表请求参数必须对齐 StarVault 已验证实现：
+    /// `custom_order=1` 是让 `o` / `asc` 生效的前提，缺省时 115 会用账号记忆排序
+    /// 并静默忽略排序参数，导致分页顺序与前端排序不一致。
+    #[test]
+    fn list_params_align_with_starvault() {
+        let params = list_query_params("42", 0, 100, Some(1));
+        let find = |key: &str| {
+            params
+                .iter()
+                .find(|(name, _)| *name == key)
+                .map(|(_, value)| value.as_str())
+        };
+        assert_eq!(find("aid"), Some("1"));
+        assert_eq!(find("cid"), Some("42"));
+        assert_eq!(find("custom_order"), Some("1"));
+        assert_eq!(find("fc_mix"), Some("1"));
+        assert_eq!(find("count_folders"), Some("1"));
+        assert_eq!(find("show_dir"), Some("1"));
+        assert_eq!(find("cur"), Some("1"));
+        assert_eq!(find("o"), Some("user_utime"));
+        assert_eq!(find("asc"), Some("0"));
+
+        // 搜索端点（show_dir=None）不应带 show_dir / cur，但仍需 custom_order。
+        let search_params = list_query_params("0", 0, 50, None);
+        assert!(!search_params.iter().any(|(name, _)| *name == "show_dir"));
+        assert!(!search_params.iter().any(|(name, _)| *name == "cur"));
+        assert!(search_params
+            .iter()
+            .any(|(name, _)| *name == "custom_order"));
+    }
+
+    /// 分页到底判定：短页（本页条数 < limit）必须优先于 count 算术，
+    /// 否则 count 不可靠时会重复请求同一页或无限续页。
+    #[test]
+    fn page_has_more_prioritises_short_page() {
+        // 短页 + count 偏大（声称还有 999 条）→ 仍然到底。
+        let short_page = serde_json::json!({
+            "state": true,
+            "code": 0,
+            "count": 999,
+            "data": [{"fn": "a.txt", "fc": 1, "fid": "1", "cid": "0", "s": "1"}]
+        });
+        let page = parse_file_page(&short_page, "0", 0, 100).expect("short page should parse");
+        assert!(!page.has_more, "短页必须判定为到底，不受 count 影响");
+
+        // 满页 + count 大于已取数目 → 还有下一页。
+        let full_data: Vec<Value> = (0..100)
+            .map(|index| {
+                serde_json::json!({"fn": format!("f{index}.txt"), "fc": 1, "fid": index.to_string(), "cid": "0", "s": "1"})
+            })
+            .collect();
+        let full_page = serde_json::json!({
+            "state": true, "code": 0, "count": 250, "data": full_data
+        });
+        let page = parse_file_page(&full_page, "0", 0, 100).expect("full page should parse");
+        assert!(page.has_more);
+        assert_eq!(page.total, 250);
+
+        // 满页且已取满 count → 到底。
+        let last_page = serde_json::json!({
+            "state": true, "code": 0, "count": 150,
+            "data": (0..100).map(|index| {
+                serde_json::json!({"fn": format!("f{index}.txt"), "fc": 1, "fid": index.to_string(), "cid": "0", "s": "1"})
+            }).collect::<Vec<Value>>()
+        });
+        let page = parse_file_page(&last_page, "0", 100, 100).expect("last page should parse");
+        assert!(!page.has_more, "offset+本页条数 已达 count 时应到底");
+    }
+
+    /// 缩略图字段：`thumb` 优先，回退 `u`；非 http 前缀按缺失处理。
+    #[test]
+    fn parses_thumbnail_from_thumb_and_u_fields() {
+        let thumb_payload = serde_json::json!({
+            "state": true, "code": 0, "count": 1,
+            "data": [{"fn": "a.jpg", "fc": 1, "fid": "1", "cid": "0", "thumb": "https://thumb.115.com/a_100"}]
+        });
+        let page = parse_file_page(&thumb_payload, "0", 0, 100).unwrap();
+        assert_eq!(
+            page.entries[0].thumb_url.as_deref(),
+            Some("https://thumb.115.com/a_100")
+        );
+
+        let u_payload = serde_json::json!({
+            "state": true, "code": 0, "count": 1,
+            "data": [{"fn": "b.jpg", "fc": 1, "fid": "2", "cid": "0", "u": "https://thumb.115.com/b_100"}]
+        });
+        let page = parse_file_page(&u_payload, "0", 0, 100).unwrap();
+        assert_eq!(
+            page.entries[0].thumb_url.as_deref(),
+            Some("https://thumb.115.com/b_100")
+        );
+
+        // 占位值不是 http 直链，必须忽略而不是原样透出给前端。
+        let placeholder_payload = serde_json::json!({
+            "state": true, "code": 0, "count": 1,
+            "data": [{"fn": "c.jpg", "fc": 1, "fid": "3", "cid": "0", "thumb": ""}]
+        });
+        let page = parse_file_page(&placeholder_payload, "0", 0, 100).unwrap();
+        assert_eq!(page.entries[0].thumb_url, None);
+    }
+
+    // -----------------------------------------------------------------------
+    // 视频播放源：原画优先 + 转码档位兜底
+    // -----------------------------------------------------------------------
+
+    /// 原画直链与转码档位都可用时：主线路必须是原画，转码档位按服务端顺序进入 fallback。
+    #[test]
+    fn playback_source_prefers_original_and_keeps_transcoded_fallbacks() {
+        let original = Ok("https://cdn.115.com/original.mkv".to_string());
+        let transcoded = Ok(vec![
+            Cloud115PlaybackOption {
+                url: "https://cdn.115.com/1080p.m3u8".to_string(),
+                name: "1080P".to_string(),
+            },
+            Cloud115PlaybackOption {
+                url: "https://cdn.115.com/720p.m3u8".to_string(),
+                name: "720P".to_string(),
+            },
+        ]);
+        let source = compose_playback_source(original, transcoded).unwrap();
+        assert_eq!(source.url, "https://cdn.115.com/original.mkv");
+        assert_eq!(source.quality, "原画");
+        // 后备线路必须带档位名，前端才能渲染「切换画质」选项。
+        assert_eq!(
+            source
+                .fallback_options
+                .iter()
+                .map(|option| (option.quality.as_str(), option.url.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("1080P", "https://cdn.115.com/1080p.m3u8"),
+                ("720P", "https://cdn.115.com/720p.m3u8"),
+            ]
+        );
+        assert_eq!(source.user_agent, USER_AGENT);
+    }
+
+    /// 原画失败、转码可用：首播改用第一档，且画质名必须是真实档位名而不是"原画"。
+    #[test]
+    fn playback_source_falls_back_to_transcoded_when_original_fails() {
+        let original = Err("解析 115 视频原画地址失败（990001）：签名获取失败".to_string());
+        let transcoded = Ok(vec![
+            Cloud115PlaybackOption {
+                url: "https://cdn.115.com/1080p.m3u8".to_string(),
+                name: "1080P".to_string(),
+            },
+            Cloud115PlaybackOption {
+                url: "https://cdn.115.com/720p.m3u8".to_string(),
+                name: "720P".to_string(),
+            },
+        ]);
+        let source = compose_playback_source(original, transcoded).unwrap();
+        assert_eq!(source.url, "https://cdn.115.com/1080p.m3u8");
+        assert_eq!(source.quality, "1080P");
+        assert_eq!(
+            source
+                .fallback_options
+                .iter()
+                .map(|option| (option.quality.as_str(), option.url.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("720P", "https://cdn.115.com/720p.m3u8")]
+        );
+    }
+
+    /// 原画与转码两路都失败：错误信息必须同时包含两条失败原因，便于定位问题侧。
+    #[test]
+    fn playback_source_reports_both_failures_when_nothing_resolves() {
+        let original = Err("原画签名过期".to_string());
+        let transcoded = Err("转码服务不可用".to_string());
+        let error = compose_playback_source(original, transcoded).unwrap_err();
+        assert!(error.contains("原画签名过期"), "实际错误：{error}");
+        assert!(error.contains("转码服务不可用"), "实际错误：{error}");
+    }
+
+    /// 原画可用而转码档位失败：不得因为后备缺失就拒绝可用的原画线路。
+    #[test]
+    fn playback_source_keeps_original_when_only_transcoded_fails() {
+        let original = Ok("https://cdn.115.com/original.mkv".to_string());
+        let transcoded = Err("115 视频播放响应缺少 video_url 数组".to_string());
+        let source = compose_playback_source(original, transcoded).unwrap();
+        assert_eq!(source.url, "https://cdn.115.com/original.mkv");
+        assert_eq!(source.quality, "原画");
+        assert!(source.fallback_options.is_empty());
+    }
+
+    /// 档位去重：同画质名只保留服务端第一条；与原画同址的线路不重复进入 fallback。
+    #[test]
+    fn playback_options_deduplicate_same_quality_and_skip_original_duplicate() {
+        let payload = serde_json::json!({
+            "state": true,
+            "code": 0,
+            "data": {
+                "video_url": [
+                    {"url": "https://cdn.115.com/a-1080p.m3u8", "desc": "1080P", "definition": 4},
+                    {"url": "https://cdn.115.com/b-1080p.m3u8", "desc": "1080P", "definition": 4},
+                    {"url": "https://cdn.115.com/720p.m3u8", "definition": 2},
+                    {"url": "https://cdn.115.com/original.mkv", "desc": "原画", "definition": 100},
+                    {"url": "", "desc": "空地址"},
+                    {"url": "ftp://cdn.115.com/ignored", "desc": "非 HTTP"}
+                ]
+            }
+        });
+        let options = parse_playback_options(&payload).unwrap();
+        assert_eq!(options.len(), 3);
+        assert_eq!(options[0].url, "https://cdn.115.com/a-1080p.m3u8");
+        assert_eq!(options[0].name, "1080P");
+        // 无 desc/title 时按 definition 映射出可读档位名。
+        assert_eq!(options[1].name, "高清");
+        assert_eq!(options[2].name, "原画");
+
+        // 原画地址与 downurl 主线路相同时，不应在 fallback 里重复出现。
+        let source = compose_playback_source(
+            Ok("https://cdn.115.com/original.mkv".to_string()),
+            Ok(options),
+        )
+        .unwrap();
+        assert_eq!(source.quality, "原画");
+        assert!(!source
+            .fallback_options
+            .iter()
+            .any(|option| option.url == source.url));
+        assert_eq!(source.fallback_options.len(), 2);
     }
 
     /// 限速预约制：并发请求各自预约时间槽后立即释放锁，
@@ -2997,6 +3631,14 @@ mod tests {
                 .expect("video play should succeed");
             assert!(source.url.starts_with("https://") || source.url.starts_with("http://"));
             assert!(!source.user_agent.is_empty());
+            // 原画优先：真实账号下 downurl 通常可用，主线路应标注为原画；若原画不可用
+            // 则会降级到转码并带上真实档位名，绝不能空着冒充原画。
+            assert!(!source.quality.is_empty());
+            // 后备线路不得与主线路同址，否则前端降级重试会命中同一个失败地址。
+            assert!(source
+                .fallback_options
+                .iter()
+                .all(|option| option.url != source.url));
         });
     }
 

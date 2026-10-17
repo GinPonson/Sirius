@@ -225,6 +225,24 @@
   font-weight: 400;
 }
 
+/* 类型筛选：条目较多，窄窗口优先压缩内边距而不是换行，超出部分横向滚动。 */
+.file-filter-row .cloud-type-filter {
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.cloud-type-filter::-webkit-scrollbar {
+  display: none;
+}
+
+.file-filter-row .cloud-type-filter button {
+  flex: 0 0 auto;
+  padding: 0 8px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .file-filter-row .segmented-control button.active {
   background: var(--primary-soft);
   color: var(--primary-ink);
@@ -3300,11 +3318,291 @@
   background: var(--danger-soft);
 }
 
+/* ============================================================================
+   查重面板 —— 对话框内的「扫描态 → 分组列表 → 分批删除」三段式。
+   分组列表是滚动阅读面（实底），对话框外框沿用 .cloud-operation-dialog 玻璃。
+   ========================================================================== */
+.cloud-dedupe-action svg {
+  color: var(--primary-ink);
+}
+
+.cloud-operation-dialog.dedupe-dialog {
+  width: 620px;
+  max-height: min(78vh, 720px);
+  padding: 20px 22px;
+  gap: 0;
+}
+
+.dedupe-dialog > strong {
+  font-size: 16px;
+}
+
+.dedupe-dialog > .dedupe-subtitle {
+  margin-top: 6px;
+  line-height: 1.6;
+}
+
+/* 扫描进度 / 结果计数行：左右分栏，状态文字不换行挤压按钮。 */
+.dedupe-dialog > .dedupe-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-top: 14px;
+  padding: 8px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+}
+
+.dedupe-toolbar > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dedupe-toolbar-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.dedupe-toolbar-actions button,
+.dedupe-toolbar > button {
+  height: 28px;
+  padding: 0 11px;
+  font-size: 12px;
+}
+
+.dedupe-dialog > .dedupe-progress {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--primary-soft);
+  color: var(--primary-ink);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 失败必须可见：与成功提示区分色系，并保留 role="alert"。 */
+.dedupe-dialog > .dedupe-error {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--danger) 28%, var(--surface));
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  color: var(--danger-ink);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* 分组列表：唯一的滚动容器，避免整窗滚动导致页脚按钮移出视口。 */
+.dedupe-dialog > .dedupe-groups {
+  display: grid;
+  min-height: 180px;
+  max-height: min(48vh, 440px);
+  overflow: auto;
+  margin-top: 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+}
+
+.dedupe-empty {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 6px;
+  padding: 32px 16px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.dedupe-empty strong {
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.dedupe-empty svg {
+  color: var(--success-ink);
+}
+
+.dedupe-group {
+  border-bottom: 1px solid var(--hairline);
+}
+
+.dedupe-group:last-child {
+  border-bottom: 0;
+}
+
+.dedupe-group > header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  background: var(--surface-sunken);
+}
+
+.dedupe-group > header strong {
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.dedupe-group > header small {
+  color: var(--muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 原因标签：同名 / 内容相同 / both 各用一档软色，文字始终可读。 */
+.dedupe-reason {
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--stage-reading-bg);
+  color: var(--stage-reading-ink);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.dedupe-reason[data-reason="name"] {
+  background: var(--stage-thinking-bg);
+  color: var(--stage-thinking-ink);
+}
+
+.dedupe-reason[data-reason="content"] {
+  background: var(--stage-searching-bg);
+  color: var(--stage-searching-ink);
+}
+
+.dedupe-reason[data-reason="both"] {
+  background: var(--stage-editing-bg);
+  color: var(--stage-editing-ink);
+}
+
+.dedupe-group ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dedupe-group li {
+  border-top: 1px solid var(--hairline);
+}
+
+.dedupe-group li label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 12px;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.dedupe-group li label:hover {
+  background: var(--surface-hover);
+}
+
+/* 待删除项整行标色，让「将删除」与「将保留」在视觉上可分辨。 */
+.dedupe-group li.checked label {
+  background: color-mix(in srgb, var(--danger-soft) 70%, var(--surface));
+}
+
+.dedupe-group li input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  flex: 0 0 auto;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.dedupe-entry-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dedupe-entry-meta {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.dedupe-retained {
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--primary-soft);
+  color: var(--primary-ink);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* 页脚：计数说明靠左、动作靠右；与对话框既有的 > div 规则分开以免样式互相污染。 */
+.dedupe-dialog > .dedupe-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.dedupe-footer > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dedupe-footer > div {
+  display: flex;
+  gap: 8px;
+}
+
+.dedupe-footer button {
+  height: 34px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+
+.dedupe-footer button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 窄屏：对话框让出边距，元信息让位给文件名。 */
+@media (max-width: 720px) {
+  .cloud-operation-dialog.dedupe-dialog {
+    width: calc(100vw - 32px);
+    max-height: calc(100vh - 48px);
+  }
+
+  .dedupe-entry-meta {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dedupe-group li label {
+    transition: none;
+  }
+}
+
 /* 目标选择器：最近使用（一键直达）与明确的目标路径行。 */
 .picker-recent {
   margin-top: 12px;
 }
-
 .picker-recent-label {
   display: block;
   margin-bottom: 6px;
@@ -3996,3 +4294,391 @@
 }
 
 .file-loading-label.compact { min-height: 120px; }
+
+/* ============================================================================
+   音频播放条（AudioPlayerBar）
+   与视频播放条 .now-playing 同族：底部固定玻璃层，跟随侧栏宽度变化。
+   只定义本条特有布局；按钮、进度、音量轨道复用 App.css 的
+   .round-control / .pause-icon / .mini-progress / .volume-control / .stop-control。
+   消费 Shell.css token，不新增硬编码色。
+   ========================================================================== */
+.audio-player {
+  position: fixed;
+  right: var(--space-5);
+  bottom: 20px;
+  /* --shell-sidebar-width 定义在 .app-frame 上；若播放条被挂到该作用域之外，
+     兜底到收起态轨道宽度，避免整条塌到屏幕左缘。 */
+  left: calc(var(--shell-sidebar-width, 80px) + var(--space-5));
+  z-index: 4;
+  display: grid;
+  grid-template-columns: 44px minmax(120px, 220px) 34px minmax(160px, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 10px var(--space-3);
+  border: 1px solid var(--frosted-border);
+  border-radius: var(--radius-lg);
+  background: var(--frosted-bg);
+  -webkit-backdrop-filter: var(--frosted-blur);
+  backdrop-filter: var(--frosted-blur);
+  box-shadow: var(--shadow-3), inset 0 1px 0 var(--frosted-highlight);
+  transition: left var(--duration-panel) var(--ease-spring);
+  animation: audio-player-in var(--duration-panel) var(--ease-spring) both;
+}
+
+@keyframes audio-player-in {
+  from { opacity: 0; transform: translateY(8px); }
+}
+
+.audio-player-art {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+}
+
+.audio-player-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.audio-player-copy small {
+  color: var(--muted);
+  font-size: var(--text-micro);
+}
+
+.audio-player-copy strong {
+  overflow: hidden;
+  margin-top: 3px;
+  font-size: var(--text-secondary);
+  font-weight: 570;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 解析中禁用控制，避免对未初始化的播放会话发命令 */
+.audio-player button:disabled,
+.audio-player input:disabled {
+  opacity: .45;
+  cursor: default;
+}
+
+/* 进度与音量的键盘聚焦环：本条固定层在内容之上，需要显式可见反馈 */
+.audio-player input[type="range"]:focus-visible,
+.audio-player button:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 3px var(--primary-tint);
+}
+
+.audio-player .audio-player-error {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--danger-ink);
+  font-size: var(--text-micro);
+  line-height: 1.5;
+}
+
+/* 窄屏：先收起音量的滑杆，只保留图标按钮 */
+@media (max-width: 1080px) {
+  .audio-player {
+    grid-template-columns: 40px minmax(100px, 160px) 34px minmax(120px, 1fr) auto auto;
+    gap: var(--space-2);
+  }
+
+  .audio-player .volume-control input[type="range"] {
+    display: none;
+  }
+}
+
+/* 更窄：播放条换行，进度独占一行 */
+@media (max-width: 720px) {
+  .audio-player {
+    grid-template-columns: 40px minmax(90px, 1fr) 34px auto auto;
+    row-gap: var(--space-2);
+  }
+
+  .audio-player .mini-progress {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .audio-player {
+    animation: none;
+    transition: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .audio-player {
+    background: var(--surface-elevated);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* ============================================================================
+   网盘图片查看器（ImageLightbox）
+   与相册预览 / 漫画阅读器同一深色舞台材质：全屏 fixed、顶栏 + 舞台 + 缩略图条 + 翻页。
+   查看器通过 portal 挂到 body，所以这里的 fixed 以视口为包含块。
+   消费 Shell.css token，不新增硬编码品牌色。
+   ========================================================================== */
+.image-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 26;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  background: #0b0f14;
+  outline: none;
+}
+
+.image-lightbox-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 10px var(--space-4);
+  border-bottom: 1px solid rgba(255, 255, 255, .1);
+  color: #dce5f7;
+}
+
+.image-lightbox-bar strong {
+  overflow: hidden;
+  min-width: 0;
+  flex: 1 1 auto;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.image-lightbox-count {
+  flex: 0 0 auto;
+  color: #9fb2d0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.image-lightbox-tools {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.image-lightbox-tools button {
+  display: inline-flex;
+  min-width: 44px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  border: 1px solid rgba(255, 255, 255, .18);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, .06);
+  color: #dce5f7;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.image-lightbox-tools button:hover {
+  background: rgba(255, 255, 255, .12);
+}
+
+.image-lightbox-tools button.active {
+  border-color: rgba(163, 173, 252, .55);
+  background: rgba(89, 105, 237, .3);
+  color: #fff;
+}
+
+.image-lightbox-close {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, .18);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, .06);
+  color: #dce5f7;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.image-lightbox-close:hover {
+  background: rgba(255, 255, 255, .12);
+}
+
+/* 外层负责相对定位（加载/失败提示挂靠），内层负责滚动；margin:auto 让放大后四边都可达。 */
+.image-lightbox-stage-wrap {
+  position: relative;
+  min-height: 0;
+}
+
+.image-lightbox-stage {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-4);
+  cursor: grab;
+}
+
+.image-lightbox-stage.dragging {
+  cursor: grabbing;
+}
+
+.image-lightbox-stage img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  margin: auto;
+  border-radius: var(--radius-sm);
+  background: #11161d;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.image-lightbox-stage img.zoomed {
+  max-width: none;
+  max-height: none;
+}
+
+.image-lightbox-fallback {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  color: #5b6b84;
+}
+
+/* 状态提示：加载中与回退都必须可见，不能把缩略图伪装成原图。 */
+.image-lightbox-note {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(8, 12, 18, .6);
+  color: #c6d3ea;
+  font-size: 12px;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+.image-lightbox-note-failed {
+  border: 1px solid rgba(240, 160, 120, .45);
+  color: #f4cbb4;
+}
+
+.image-lightbox-note button {
+  display: inline-flex;
+  height: 22px;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  border: 1px solid rgba(255, 255, 255, .3);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, .08);
+  color: #fff;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.image-lightbox-note button:hover {
+  background: rgba(255, 255, 255, .16);
+}
+
+.image-lightbox-strip {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  overflow-x: auto;
+  padding: 10px 14px;
+  border-top: 1px solid rgba(255, 255, 255, .1);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, .24) transparent;
+}
+
+.image-lightbox-strip button {
+  flex: 0 0 auto;
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  overflow: hidden;
+  border: 2px solid transparent;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, .06);
+  opacity: .62;
+  cursor: pointer;
+  transition: opacity var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard);
+}
+
+.image-lightbox-strip button:hover {
+  opacity: 1;
+}
+
+.image-lightbox-strip button.active {
+  border-color: var(--primary-lift);
+  opacity: 1;
+}
+
+.image-lightbox-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: 10px var(--space-4) 14px;
+}
+
+.image-lightbox-nav button {
+  height: 36px;
+  padding: 0 20px;
+  border: 1px solid rgba(255, 255, 255, .18);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, .06);
+  color: #dce5f7;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.image-lightbox-nav button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, .12);
+}
+
+.image-lightbox-nav button:disabled {
+  opacity: .35;
+  cursor: default;
+}
+
+.image-lightbox-hint {
+  color: #7f92b0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.image-lightbox button:focus-visible,
+.image-lightbox-stage:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 3px var(--primary-tint);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .image-lightbox *,
+  .image-lightbox-strip button {
+    animation: none;
+    transition: none;
+    scroll-behavior: auto;
+  }
+}

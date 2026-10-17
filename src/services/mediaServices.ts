@@ -107,17 +107,27 @@ export class PlaybackService {
     return invoke<PlaybackSnapshot>("open_local_file", { path: source.uri });
   }
 
-  /** 打开由 Rust Provider 解析并校验的 HTTPS 远程播放源；pickCode 供 URL 过期时自动恢复。 */
+  /**
+   * 打开由 Rust Provider 解析并校验的 HTTPS 远程播放源；pickCode 供 URL 过期时自动恢复。
+   *
+   * 入参只要求 url/userAgent：视频走原画直链（`Cloud115PlaybackSource`），音频走下载直链
+   * （`Cloud115DownloadSource`），两者都满足该最小形状，无需为播放再包一层结构。
+   *
+   * @param audioOnly 纯音频播放：Rust 侧只初始化会话、不显示播放器窗口。
+   *   音频没有画面，弹出黑窗口属于错误交互，由底部播放条承载控制。
+   */
   openRemote(
-    source: Cloud115PlaybackSource,
+    source: RemotePlayableSource,
     subtitles: Cloud115SubtitleStream[] = [],
     pickCode = "",
+    audioOnly = false,
   ): Promise<PlaybackSnapshot> {
     return invoke<PlaybackSnapshot>("open_remote_url", {
       url: source.url,
       userAgent: source.userAgent,
       subtitleUrls: subtitles.map((subtitle) => subtitle.url),
       pickCode,
+      audioOnly,
     });
   }
 
@@ -167,11 +177,20 @@ export type Cloud115FileEntry = {
   id: string;
   parentId: string;
   name: string;
-  kind: "folder" | "video" | "subtitle" | "file";
+  /**
+   * 服务端分类：文件夹 / 视频 / 字幕 / 图片 / 其它文件。
+   * 优先级固定为 folder → video → subtitle → image → file，图片在最后才被识别。
+   */
+  kind: "folder" | "video" | "subtitle" | "image" | "file";
   extension: string;
   sizeBytes: number;
   modifiedAt: number;
   pickCode: string;
+  /**
+   * 文件 SHA-1；115 在文件条目上返回，文件夹为空串。
+   * 保留服务端原始大小写，归一（如需）由使用方处理。
+   */
+  sha1: string;
   /** 115 返回的展示缩略图；旧缓存和演示数据可能没有这个字段。 */
   thumbUrl?: string | null;
   children: number | null;
@@ -183,7 +202,20 @@ export type Cloud115FilePage = {
   limit: number;
   hasMore: boolean;
 };
-export type Cloud115PlaybackSource = { url: string; userAgent: string };
+/** 可切换的画质档位；quality 为空串表示服务端未给档位名（前端显示为「备用线路」）。 */
+export type Cloud115PlaybackOption = { url: string; quality: string };
+
+export type Cloud115PlaybackSource = {
+  /** 当前最佳播放地址：优先 115 原画直链，原画不可用时才是转码 m3u8。 */
+  url: string;
+  userAgent: string;
+  /** `url` 对应的画质名："原画" 或服务端档位名（如 "1080P"）。 */
+  quality: string;
+  /** 可降级/切换的其它线路（不含 `url` 自身），带档位名以便渲染画质菜单，可能为空。 */
+  fallbackOptions: Cloud115PlaybackOption[];
+};
+/** 播放命令实际需要的远程源字段；视频原画源与下载直链都满足这一最小形状。 */
+export type RemotePlayableSource = { url: string; userAgent: string };
 export type Cloud115PlaybackProgress = { fileId: string; positionSeconds: number; durationSeconds: number };
 export type Cloud115SubtitleStream = { id: string; name: string; language: string; format: string; url: string };
 export type Cloud115DownloadSource = { url: string; userAgent: string };

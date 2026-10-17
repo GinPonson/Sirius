@@ -18,6 +18,7 @@ import {
   type AiProviderSettingsView,
 } from "./services/aiServices";
 import { SettingsModal } from "./components/SettingsModal";
+import { AudioPlayerBar, isAudioFile, toAudioTrack, type AudioTrack } from "./components/AudioPlayerBar";
 import { LoginGate } from "./components/LoginGate";
 import { MediaDetail } from "./components/MediaDetail";
 import { PosterCard } from "./components/PosterCard";
@@ -104,6 +105,8 @@ function App() {
   const [tasks, setTasks] = useState<LibraryTask[]>([]);
   const [selectedMedia, setSelectedMedia] = useState<MediaItem | null>(null);
   const [playingMedia, setPlayingMedia] = useState<MediaItem | null>(null);
+  // 音频轨道：与 playingMedia 互斥（libmpv 只有一个会话），null 表示没有音频播放。
+  const [audioTrack, setAudioTrack] = useState<AudioTrack | null>(null);
   const [snapshot, setSnapshot] = useState<PlaybackSnapshot>(IDLE_SNAPSHOT);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | "movie" | "series">("all");
@@ -117,6 +120,30 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [forceGate, setForceGate] = useState(false);
   const [playingCloudFileId, setPlayingCloudFileId] = useState<string | null>(null);
+  // 当前播放的可切换画质档位（含正在播放的那一路）与生效档位名；空数组表示无法切换。
+  const [qualityOptions, setQualityOptions] = useState<Array<{ url: string; quality: string }>>([]);
+  const [activeQuality, setActiveQuality] = useState<string>("");
+  // 当前远程播放源的 UA；切换画质重开同一媒体时必须沿用，否则 115 CDN 会拒绝签发。
+  const [activeUserAgent, setActiveUserAgent] = useState<string>("");
+  // 画质菜单开合：瞬态 UI 状态，切换播放源或卸载时无需持久化。
+  const [qualityMenuOpen, setQualityMenuOpen] = useState(false);
+  // 画质菜单开启时响应 Esc 与点击外部，与项目内其它浮层菜单行为一致。
+  const qualityPickerRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!qualityMenuOpen) return;
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setQualityMenuOpen(false);
+    }
+    function handlePointerDown(event: PointerEvent) {
+      if (!qualityPickerRef.current?.contains(event.target as Node)) setQualityMenuOpen(false);
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [qualityMenuOpen]);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   // 侧栏双态：收起为 80px 图标轨道，展开为图标配文字；用户选择持久化。
@@ -348,6 +375,8 @@ function App() {
   async function playMedia(item: MediaItem) {
     setBusyMediaId(item.id);
     setError(null);
+    // 视频开播会占用同一个 libmpv 会话，音频播放条必须先让位，否则 UI 与实际会话不一致。
+    setAudioTrack(null);
     try {
       const source = await sourceResolver.resolve(item);
       const next = await playbackService.open(source);
@@ -371,6 +400,18 @@ function App() {
     if (!appSettings) {
       throw new Error("应用设置尚未加载完成");
     }
+    // 音频与视频共用 libmpv 的单一播放会话，但交互形态不同：
+    // 音频不弹独立播放窗口，改用底部常驻播放条，因此在这里分流。
+    if (isAudioFile(entry)) {
+      // 先把可能正在播放的视频会话释放掉，避免两个播放器抢同一会话。
+      if (playingMedia) {
+        await playbackService.destroy();
+        setPlayingMedia(null);
+      }
+      setAudioTrack(toAudioTrack(entry));
+      return;
+    }
+    setAudioTrack(null);
     setBusyMediaId(entry.id);
     setError(null);
     try {
@@ -382,13 +423,38 @@ function App() {
           ? cloud115Service.playbackProgress(entry.id)
           : Promise.resolve(null),
       ]);
-      let next = await playbackService.openRemote(source, subtitles, entry.pickCode);
+      let next: PlaybackSnapshot;
+      // 降级提示先攒起来：后续续播失败提示可以再覆盖，但两者都不能丢。
+      let degradeNotice: string | null = null;
+      try {
+        next = await playbackService.openRemote(source, subtitles, entry.pickCode);
+      } catch (primaryError) {
+        // 原画直链可能因签名失效或源站异常无法起播；此时降级到第一档转码线路重试一次。
+        // 只重试一次，且必须把降级事实告知用户——不能静默替换播放源。
+        const fallback = source.fallbackOptions[0];
+        if (!fallback) {
+          throw primaryError;
+        }
+        next = await playbackService.openRemote(
+          { ...source, url: fallback.url },
+          subtitles,
+          entry.pickCode,
+        );
+        degradeNotice = `《${entry.name}》以${source.quality}起播失败，已降级到${fallback.quality || "备用线路"}播放：${String(primaryError)}`;
+        setError(degradeNotice);
+        // 记录生效线路，供播放中的画质菜单标注当前档位。
+        setActiveQuality(fallback.quality || "备用线路");
+      }
+      // 主线路成功时也要记录当前画质，画质菜单据此高亮。
+      if (degradeNotice === null) setActiveQuality(source.quality);
       if (savedProgress && savedProgress.positionSeconds >= 5 && savedProgress.positionSeconds < savedProgress.durationSeconds - 30) {
         try {
           next = await playbackService.seek(savedProgress.positionSeconds);
         } catch (reason) {
           // 媒体已成功打开时，续播失败必须保留可控播放会话并显式提示。
-          setError(`视频已开始播放，但恢复上次进度失败：${String(reason)}`);
+          // 若已发生降级，两条信息都要保留，不能相互覆盖。
+          const resumeNotice = `视频已开始播放，但恢复上次进度失败：${String(reason)}`;
+          setError(degradeNotice ? `${degradeNotice}；${resumeNotice}` : resumeNotice);
         }
       }
       setPlayingMedia({
@@ -411,12 +477,44 @@ function App() {
       });
       setSnapshot(next);
       setPlayingCloudFileId(entry.id);
+      // 画质菜单数据：当前生效档位 + 其余可切换档位（无则空数组，UI 不渲染菜单）。
+      setQualityOptions([
+        { url: next.source ?? source.url, quality: activeQuality || source.quality },
+        ...source.fallbackOptions,
+      ]);
+      setActiveUserAgent(source.userAgent);
       lastProgressSaveAt.current = Date.now();
     } catch (reason) {
       setError(`无法播放《${entry.name}》：${String(reason)}`);
       throw reason;
     } finally {
       setBusyMediaId(null);
+    }
+  }
+
+  /**
+   * 切换播放画质：把选定档位的 URL 交给同一播放会话重开，并尽量保留当前进度。
+   *
+   * 画质切换本质是换媒体源，进度会从 0 开始，因此这里显式 seek 回原位置；
+   * 失败时明确报错并保留原会话，不静默吞掉。
+   */
+  async function switchQuality(option: { url: string; quality: string }) {
+    if (!playingMedia || !playingCloudFileId) return;
+    const resumeAt = snapshot.positionSeconds;
+    setError(null);
+    try {
+      const next = await playbackService.openRemote(
+        { url: option.url, userAgent: activeUserAgent },
+        [],
+        playingCloudFileId,
+      );
+      setSnapshot(next);
+      setActiveQuality(option.quality || "备用线路");
+      if (resumeAt && resumeAt > 1) {
+        setSnapshot(await playbackService.seek(resumeAt));
+      }
+    } catch (reason) {
+      setError(`切换到${option.quality || "备用线路"}失败：${String(reason)}`);
     }
   }
 
@@ -482,6 +580,10 @@ function App() {
       setSnapshot(IDLE_SNAPSHOT);
       setPlayingMedia(null);
       setPlayingCloudFileId(null);
+      // 会话已销毁：画质档位与当前档位不再有意义，一并清空避免残留在下一次播放。
+      setQualityOptions([]);
+      setActiveQuality("");
+      setQualityMenuOpen(false);
       if (progressError) setError(progressError);
     } catch (reason) {
       const destroyError = `关闭播放会话失败：${String(reason)}`;
@@ -723,7 +825,16 @@ function App() {
         }
       />
 
-      {snapshot.initialized && playingMedia && (
+      {/* 音频播放条与视频播放面板都固定贴在底部，二者互斥挂载避免重叠。 */}
+      {audioTrack && (
+        <AudioPlayerBar
+          track={audioTrack}
+          onStop={() => setAudioTrack(null)}
+          onError={setError}
+        />
+      )}
+
+      {audioTrack === null && snapshot.initialized && playingMedia && (
         <aside className="now-playing" aria-label="当前播放">
           <div className="now-playing-art">
             <img src={posterFallback} alt="" />
@@ -732,6 +843,43 @@ function App() {
             <small>正在播放</small>
             <strong>{playingMedia.title}</strong>
           </div>
+          {/* 画质切换：只有一档时纯展示（不可点），避免弹出「只有一个选项」的空菜单。 */}
+          {qualityOptions.length > 1 && (
+            <div className="quality-picker" ref={qualityPickerRef}>
+              <button
+                type="button"
+                className="quality-picker-button"
+                aria-haspopup="menu"
+                aria-expanded={qualityMenuOpen}
+                title="切换画质"
+                onClick={() => setQualityMenuOpen((open) => !open)}
+              >
+                {activeQuality || "画质"}
+                <Icon name="chevron" size={12} />
+              </button>
+              {qualityMenuOpen && (
+                <div className="quality-picker-menu" role="menu" aria-label="选择画质">
+                  {qualityOptions.map((option) => (
+                    <button
+                      key={option.url}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={option.quality === activeQuality}
+                      className={option.quality === activeQuality ? "active" : ""}
+                      onClick={() => {
+                        setQualityMenuOpen(false);
+                        if (option.quality === activeQuality) return;
+                        void switchQuality(option);
+                      }}
+                    >
+                      {option.quality || "备用线路"}
+                      {option.quality === activeQuality && <Icon name="check" size={13} />}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           <button className="round-control" onClick={togglePause} aria-label={snapshot.paused ? "继续播放" : "暂停"}>
             {snapshot.paused ? <Icon name="play" /> : <span className="pause-icon" />}
           </button>

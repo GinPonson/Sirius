@@ -811,12 +811,17 @@ async fn open_local_file(
 }
 
 /// 打开由 Cloud115Provider 解析出的 HTTPS 直链。
+///
+/// `audio_only` 为 true 时只初始化播放会话、**不显示播放器窗口**：libmpv 的 GL 渲染
+/// 上下文必须绑定窗口才能创建，因此窗口仍需存在，但音频没有画面，弹出黑窗口是错误
+/// 交互。窗口保持隐藏，由前端底部音频播放条承载控制。
 #[tauri::command]
 async fn open_remote_url(
     url: String,
     user_agent: String,
     subtitle_urls: Vec<String>,
     pick_code: String,
+    audio_only: bool,
     app: AppHandle,
     manager: State<'_, Arc<PlaybackManager>>,
 ) -> Result<PlaybackSnapshot, String> {
@@ -827,6 +832,12 @@ async fn open_remote_url(
     })
     .await
     .map_err(|error| format!("远程播放工作线程异常终止：{error}"))??;
+
+    // 音频没有画面：窗口保持隐藏即可，不抢焦点也不打断用户当前操作。
+    if audio_only {
+        return Ok(snapshot);
+    }
+
     let window = app
         .get_window(VIDEO_WINDOW_LABEL)
         .ok_or_else(|| "播放器窗口在初始化后意外丢失".to_string())?;

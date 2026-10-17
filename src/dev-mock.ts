@@ -104,6 +104,35 @@ function photoThumbDataUri(tone: string): string {
   );
 }
 
+/**
+ * 图片「原图」演示替身：与缩略图同一色系但尺寸更大，并画出渐变与文件名。
+ * 网盘图片查看器需要验证「缩略图 → 原图」的切换与倍率缩放，仅 160×120 的缩略图不够。
+ * 色调由文件名散列决定，保证同一文件多次打开画面一致。
+ */
+function imageFullDataUri(name: string, tone: string): string {
+  const width = 1280;
+  const height = 860;
+  return svgDataUri(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
+      `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1.2">` +
+      `<stop offset="0" stop-color="${tone}"/><stop offset="1" stop-color="#1c2430"/>` +
+      `</linearGradient></defs>` +
+      `<rect width="${width}" height="${height}" fill="url(#g)"/>` +
+      `<circle cx="${width * 0.72}" cy="${height * 0.28}" r="120" fill="rgba(255,255,255,0.18)"/>` +
+      `<text x="64" y="${height - 88}" font-family="PingFang SC, sans-serif" font-size="40" fill="rgba(255,255,255,0.88)">${name}</text>` +
+      `<text x="64" y="${height - 40}" font-family="DM Sans, sans-serif" font-size="24" fill="rgba(255,255,255,0.62)">` +
+      `SIRIUS MOCK ORIGINAL · ${width}×${height}</text></svg>`,
+  );
+}
+
+/** 演示图片的确定性色调盘；与相册缩略图保持同一色系语汇。 */
+const MOCK_IMAGE_TONES = ["#6b7f96", "#8a6f5c", "#5c7a5e", "#7a6a92", "#4f6f86"];
+
+/** 取条目对应的演示色调；文件名散列保证同一文件稳定同色。 */
+function mockImageTone(name: string): string {
+  return MOCK_IMAGE_TONES[hashOf(name) % MOCK_IMAGE_TONES.length];
+}
+
 /** 漫画假页：米白纸面 + 确定性分格框线 + 居中大页码，页码标注清晰，供阅读器自查翻页正确性。 */
 function comicPageDataUri(pageIndex: number, pageCount: number): string {
   const page = pageIndex + 1;
@@ -229,7 +258,7 @@ function pseudoQrDataUri(seed: string): string {
 // 有状态内存文件系统
 // ---------------------------------------------------------------------------
 
-type MockKind = "folder" | "video" | "subtitle" | "file";
+type MockKind = "folder" | "video" | "subtitle" | "image" | "file";
 
 interface MockEntry {
   id: string;
@@ -240,6 +269,8 @@ interface MockEntry {
   sizeBytes: number;
   modifiedAt: number;
   starred: boolean;
+  /** 内容摘要；缺省时由条目 id 派生（每项唯一），查重冒烟夹具可显式指定以构造同内容组。 */
+  sha1?: string;
   /** 照片拍摄时间（秒级时间戳）；仅照片类条目使用。 */
   takenAt: number | null;
   /** 视频时长（秒）；仅视频类条目使用。 */
@@ -282,6 +313,13 @@ function seedFilesystem() {
   makeEntry("d3", ROOT_ID, "照片", "folder");
   makeEntry("d4", ROOT_ID, "漫画", "folder");
   makeEntry("f4", ROOT_ID, "笔记.txt", "file", { sizeBytes: 12 * 1024 });
+  // 查重冒烟夹具：一组同名文件（内容不同）+ 一组同内容文件（大小/摘要相同）。
+  // 用于手工验证「查找重复文件」的分组、默认勾选与分批删除；真实目录不会这样摆放。
+  makeEntry("dup1", ROOT_ID, "样片.mp4", "video", { sizeBytes: 120 * MiB, modifiedAt: now() - 7200 });
+  makeEntry("dup2", ROOT_ID, "样片.mp4", "video", { sizeBytes: 180 * MiB, modifiedAt: now() - 3600 });
+  makeEntry("dup3", ROOT_ID, "样片 (1).mp4", "video", { sizeBytes: 120 * MiB, modifiedAt: now() - 1800 });
+  makeEntry("dup4", ROOT_ID, "海报.jpg", "image", { sizeBytes: 2 * MiB, modifiedAt: now() - 900, sha1: "MOCKSHA-DUP", thumbUrl: photoThumbDataUri("#7a6a92") });
+  makeEntry("dup5", ROOT_ID, "海报-副本.jpg", "image", { sizeBytes: 2 * MiB, modifiedAt: now() - 600, sha1: "MOCKSHA-DUP", thumbUrl: photoThumbDataUri("#7a6a92") });
   // 电影
   makeEntry("f1", "d1", "Arrival.2016.mkv", "video", { sizeBytes: 356 * MiB, durationSeconds: 7163 });
   makeEntry("f2", "d1", "Perfect.Days.2023.mkv", "video", { sizeBytes: 412 * MiB, durationSeconds: 7371 });
@@ -289,17 +327,17 @@ function seedFilesystem() {
   // 纪录片
   makeEntry("g1", "d2", "蓝色星球.II.第01集.mkv", "video", { sizeBytes: 298 * MiB, durationSeconds: 2834 });
   // 照片（相册索引起始状态只收录 d3）
-  makeEntry("p1", "d3", "IMG_0001.jpg", "file", {
+  makeEntry("p1", "d3", "IMG_0001.jpg", "image", {
     sizeBytes: 3 * MiB,
     takenAt: now() - 3600,
     thumbUrl: photoThumbDataUri("#6b7f96"),
   });
-  makeEntry("p2", "d3", "IMG_0002.png", "file", {
+  makeEntry("p2", "d3", "IMG_0002.png", "image", {
     sizeBytes: 2 * MiB,
     takenAt: now() - 7200,
     thumbUrl: photoThumbDataUri("#8a6f5c"),
   });
-  makeEntry("p3", "d3", "新年.jpg", "file", {
+  makeEntry("p3", "d3", "新年.jpg", "image", {
     sizeBytes: 1 * MiB,
     takenAt: 1_767_225_600,
     thumbUrl: photoThumbDataUri("#5c7a5e"),
@@ -317,12 +355,18 @@ const PHOTO_EXTENSIONS = new Set(["jpg", "jpeg", "png", "heic", "webp", "gif"]);
 const COMIC_EXTENSIONS = new Set(["cbz", "cbr", "zip", "rar", "7z"]);
 const VIDEO_EXTENSIONS = new Set(["mkv", "mp4", "mov", "avi", "webm", "m4v", "ts", "flv"]);
 const SUBTITLE_EXTENSIONS = new Set(["srt", "ass", "ssa", "sup"]);
+/**
+ * 图片扩展名：与 Rust `cloud115::is_image_extension` 保持一致（含 svg）。
+ * 分类顺序也必须一致：字幕 → 视频 → 图片，避免 `ts` 这类重叠后缀被改判。
+ */
+const IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "gif", "bmp", "webp", "heic", "heif", "tiff", "tif", "svg"]);
 
 /** 按扩展名推断条目类型；上传与续传完成时使用。 */
 function kindForName(name: string): MockKind {
   const extension = (name.split(".").pop() ?? "").toLowerCase();
   if (SUBTITLE_EXTENSIONS.has(extension)) return "subtitle";
   if (VIDEO_EXTENSIONS.has(extension)) return "video";
+  if (IMAGE_EXTENSIONS.has(extension)) return "image";
   return "file";
 }
 
@@ -426,6 +470,9 @@ function toEntryView(entry: MockEntry) {
     sizeBytes: entry.sizeBytes,
     modifiedAt: entry.modifiedAt,
     pickCode: pickCodeOf(entry.id),
+    // 与 cloud115_file_metadata 的 mock 口径保持一致；文件夹没有内容摘要。
+    // 显式指定 sha1 的夹具用于构造「同内容不同名」的重复组，其余按 id 派生保证唯一。
+    sha1: entry.kind === "folder" ? "" : entry.sha1 ?? `mock-sha1-${entry.id}`,
     thumbUrl: entry.thumbUrl,
     children: entry.kind === "folder" ? childrenOf(entry.id).length : null,
   };
@@ -1463,8 +1510,24 @@ const HANDLERS: Record<string, CmdHandler> = {
   cloud115_playback_source: (args) => {
     const entry = FS.get(str(args.pickCode).replace(/^pick-/, ""));
     if (!entry) fail(`未找到对应的 115 文件：${str(args.pickCode)}`);
+    const params = new URLSearchParams(window.location.search);
+    // 与 Rust `playback_source` 对齐：默认原画直链为主线路，HLS 各档位进 fallback；
+    // ?playback-degrade=1 模拟 downurl 失败、转码档位承担首播，便于回归降级展示。
+    const degraded = params.get("playback-degrade") === "1";
+    const transcoded = [
+      `https://mock-media.115.example/${entry.id}/1080p.m3u8`,
+      `https://mock-media.115.example/${entry.id}/720p.m3u8`,
+    ];
     return {
-      url: `https://mock-media.115.example/${entry.id}/playlist.m3u8`,
+      url: degraded
+        ? transcoded[0]
+        : `https://mock-media.115.example/${entry.id}/original`,
+      quality: degraded ? "1080P" : "原画",
+      // 与 Rust 新契约一致：后备档位带名字，前端才能渲染画质切换菜单。
+      fallbackOptions: (degraded ? transcoded.slice(1) : transcoded).map((url) => ({
+        url,
+        quality: url.includes("1080p") ? "1080P" : "720P",
+      })),
       userAgent: "Mozilla/5.0 (SiriusMock)",
     };
   },
@@ -1472,6 +1535,25 @@ const HANDLERS: Record<string, CmdHandler> = {
   cloud115_download_source: (args) => {
     const entry = FS.get(str(args.pickCode).replace(/^pick-/, ""));
     if (!entry) fail(`未找到对应的 115 文件：${str(args.pickCode)}`);
+    const params = new URLSearchParams(window.location.search);
+    // 图片查看器冒烟参数：
+    //   ?image-fail=resolve 模拟 downurl 解析失败（直链没拿到）
+    //   ?image-fail=load    返回不可达地址，模拟直链拿到但原图渲染失败
+    if (entry.kind === "image") {
+      const mode = params.get("image-fail");
+      if (mode === "resolve") fail("模拟原图直链解析失败");
+      if (mode === "load") {
+        return {
+          url: "https://mock-media.invalid/sirius-image-load-failure.jpg",
+          userAgent: "Mozilla/5.0 (SiriusMock)",
+        };
+      }
+      // 图片返回可直接渲染的演示原图；其它类型仍是不可达占位地址（播放/下载链路另测）。
+      return {
+        url: imageFullDataUri(entry.name, mockImageTone(entry.name)),
+        userAgent: "Mozilla/5.0 (SiriusMock)",
+      };
+    }
     return {
       url: `https://mock-media.115.example/${entry.id}/download`,
       userAgent: "Mozilla/5.0 (SiriusMock)",
