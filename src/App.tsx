@@ -382,6 +382,9 @@ function App() {
       const next = await playbackService.open(source);
       setPlayingMedia(item);
       setPlayingCloudFileId(null);
+      // 本地影视没有 115 画质档位，清空避免沿用上一部 115 视频的档位菜单。
+      setQualityOptions([]);
+      setActiveQuality("");
       setSnapshot(next);
       setSelectedMedia(null);
     } catch (reason) {
@@ -407,6 +410,10 @@ function App() {
       if (playingMedia) {
         await playbackService.destroy();
         setPlayingMedia(null);
+        setPlayingCloudFileId(null);
+        // 视频的画质档位随会话一并失效，清空避免音频播放条误用。
+        setQualityOptions([]);
+        setActiveQuality("");
       }
       setAudioTrack(toAudioTrack(entry));
       return;
