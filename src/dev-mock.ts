@@ -321,11 +321,12 @@ function seedFilesystem() {
   makeEntry("dup4", ROOT_ID, "海报.jpg", "image", { sizeBytes: 2 * MiB, modifiedAt: now() - 900, sha1: "MOCKSHA-DUP", thumbUrl: photoThumbDataUri("#7a6a92") });
   makeEntry("dup5", ROOT_ID, "海报-副本.jpg", "image", { sizeBytes: 2 * MiB, modifiedAt: now() - 600, sha1: "MOCKSHA-DUP", thumbUrl: photoThumbDataUri("#7a6a92") });
   // 电影
-  makeEntry("f1", "d1", "Arrival.2016.mkv", "video", { sizeBytes: 356 * MiB, durationSeconds: 7163 });
+  // 星标夹具：让「收藏」视图有真实数据可看，同时验证目录内星标状态回显。
+  makeEntry("f1", "d1", "Arrival.2016.mkv", "video", { sizeBytes: 356 * MiB, durationSeconds: 7163, starred: true });
   makeEntry("f2", "d1", "Perfect.Days.2023.mkv", "video", { sizeBytes: 412 * MiB, durationSeconds: 7371 });
   makeEntry("f3", "d1", "Arrival.2016.chs.srt", "subtitle", { sizeBytes: 88 * 1024 });
   // 纪录片
-  makeEntry("g1", "d2", "蓝色星球.II.第01集.mkv", "video", { sizeBytes: 298 * MiB, durationSeconds: 2834 });
+  makeEntry("g1", "d2", "蓝色星球.II.第01集.mkv", "video", { sizeBytes: 298 * MiB, durationSeconds: 2834, starred: true });
   // 照片（相册索引起始状态只收录 d3）
   makeEntry("p1", "d3", "IMG_0001.jpg", "image", {
     sizeBytes: 3 * MiB,
@@ -1354,6 +1355,19 @@ const HANDLERS: Record<string, CmdHandler> = {
     const slow = new URLSearchParams(window.location.search).get("slow") === "1";
     if (!slow) return listFilesImpl(args);
     return new Promise((resolve) => setTimeout(() => resolve(listFilesImpl(args)), 1500));
+  },
+  // 全账号收藏：只回星标条目，与真实 115 的 star=1 + cur=0 语义一致。
+  cloud115_list_starred_files: (args) => {
+    const starred = [...FS.values()].filter((entry) => entry.starred);
+    const offset = Math.max(0, Math.trunc(num(args.offset)));
+    const limit = Math.trunc(num(args.limit, 100)) || 100;
+    return {
+      entries: starred.slice(offset, offset + limit).map(toEntryView),
+      total: starred.length,
+      offset,
+      limit,
+      hasMore: offset + limit < starred.length,
+    };
   },
   cloud115_file_metadata: (args) => {
     const entry = entryById(str(args.fileId));

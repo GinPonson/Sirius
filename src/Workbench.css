@@ -3245,6 +3245,33 @@
   color: var(--fg);
 }
 
+/* 收藏视图入口：与回收站按钮同族；激活态用主色区分当前处于跨目录视图。 */
+.cloud-starred-button {
+  display: inline-flex;
+  height: 36px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
+}
+
+.cloud-starred-button:hover {
+  background: var(--surface-sunken);
+  color: var(--fg);
+}
+
+.cloud-starred-button[aria-pressed="true"] {
+  border-color: var(--primary-ink);
+  background: var(--primary-soft);
+  color: var(--primary-ink);
+}
+
 .file-filter-row {
   flex-wrap: wrap;
   row-gap: 8px;

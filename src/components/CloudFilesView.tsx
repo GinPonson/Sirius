@@ -335,7 +335,9 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
   // 搜索范围：缺省当前目录；切到全账号后 115 用 cid=0 做跨目录匹配。
   // 它参与 requestKey，范围变化必须重新取第一页，不能复用目录内结果。
   const [searchScope, setSearchScope] = useState<Cloud115SearchScope>("current");
-  const requestKey = `${currentFolderId}\u0000${query.trim()}\u0000${searchScope}`;
+  // 收藏视图：与目录浏览互斥，进入后列表只显示全账号星标项，不跟随目录切换。
+  const [starredView, setStarredView] = useState(false);
+  const requestKey = `${currentFolderId}\u0000${query.trim()}\u0000${searchScope}\u0000${starredView ? "starred" : "dir"}`;
   const requestKeyRef = useRef(requestKey);
   requestKeyRef.current = requestKey;
 
@@ -369,7 +371,11 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
     }
     setLoadingMore(false);
     const timeout = window.setTimeout(() => {
-      cloud115.listFiles(currentFolderId, query.trim(), 0, PAGE_LIMIT, searchScope)
+      // 收藏视图不跟随目录：115 的 star=1 + cur=0 本身就是全账号遍历。
+      const request = starredView
+        ? cloud115.listStarredFiles(0, PAGE_LIMIT)
+        : cloud115.listFiles(currentFolderId, query.trim(), 0, PAGE_LIMIT, searchScope);
+      request
         .then((page) => {
           if (!active) return;
           setEntries(page.entries);
@@ -397,7 +403,7 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
     };
     // entries.length 仅用于判断首次加载后的刷新场景，不作为触发条件。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [account?.connected, currentFolderId, query, searchScope, reloadNonce]);
+  }, [account?.connected, currentFolderId, query, searchScope, starredView, reloadNonce]);
 
   // 搜索词由顶栏下发：口径变化立即清空选择，避免批量操作作用于即将不可见的文件。
   useEffect(() => {
@@ -677,6 +683,8 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
 
   function openFolder(entry: Cloud115FileEntry) {
     if (entry.kind !== "folder") return;
+    // 收藏是跨目录视图；点开其中某个目录意味着回到目录浏览，先退出收藏态。
+    setStarredView(false);
     rememberCurrentDirUi(currentFolderId);
     const memory = dirUiMemoryRef.current.get(entry.id) ?? null;
     pendingDirScrollRef.current = memory ? memory.scrollTop : 0;
@@ -707,7 +715,9 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
     setLoadingMore(true);
     setError(null);
     try {
-      const page = await cloud115.listFiles(currentFolderId, query.trim(), offset, PAGE_LIMIT, searchScope);
+      const page = starredView
+        ? await cloud115.listStarredFiles(offset, PAGE_LIMIT)
+        : await cloud115.listFiles(currentFolderId, query.trim(), offset, PAGE_LIMIT, searchScope);
       // 目录或搜索词变化后丢弃旧页，防止把上一目录的数据追加到新列表。
       if (requestKeyRef.current !== activeRequestKey) return;
       setEntries((current) => [...current, ...page.entries]);
@@ -735,15 +745,22 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
     }
   }
 
-  /** 收藏当前文件；成功后保留在当前目录，并给出明确反馈。 */
-  async function favoriteEntry(entry: Cloud115FileEntry) {
+  /**
+   * 设置当前文件的收藏状态。
+   *
+   * 收藏视图下取消收藏会让该条不再属于当前列表，因此取消后立即重载，
+   * 避免用户看到一条实际已取消收藏的记录。
+   */
+  async function favoriteEntry(entry: Cloud115FileEntry, starred: boolean) {
     setBusyAction(true);
     setError(null);
     try {
-      await cloud115.updateFile(entry.id, { starred: true });
-      setNotice(`已收藏“${entry.name}”`);
+      await cloud115.updateFile(entry.id, { starred });
+      setNotice(starred ? `已收藏“${entry.name}”` : `已取消收藏“${entry.name}”`);
+      // 收藏视图按星标过滤：取消后当前条目已不属于该列表，必须重载而不是留着旧行。
+      if (starredView && !starred) setReloadNonce((nonce) => nonce + 1);
     } catch (reason) {
-      setError(`收藏“${entry.name}”失败：${String(reason)}`);
+      setError(`${starred ? "收藏" : "取消收藏"}“${entry.name}”失败：${String(reason)}`);
     } finally {
       setBusyAction(false);
     }
@@ -1372,7 +1389,10 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
     }
     items.push(
       { kind: "separator", id: "sep-organize" },
-      { id: "favorite", label: "收藏", icon: "star", disabled: busyAction, onSelect: () => { close(); void favoriteEntry(entry); } },
+      // 收藏视图里的条目必然已收藏，此时菜单只能是「取消收藏」，不提供重复收藏。
+      starredView
+        ? { id: "unfavorite", label: "取消收藏", icon: "star", disabled: busyAction, onSelect: () => { close(); void favoriteEntry(entry, false); } }
+        : { id: "favorite", label: "收藏", icon: "star", disabled: busyAction, onSelect: () => { close(); void favoriteEntry(entry, true); } },
       { id: "rename", label: "重命名", icon: "edit", disabled: busyAction, onSelect: () => { close(); setRenameEntry(entry); setRenameValue(entry.name); } },
       { id: "move", label: "移动…", icon: "chevron", disabled: busyAction, hint: "移动到其他文件夹", onSelect: () => { close(); openPicker("move", [entry.id]); } },
       { id: "copy", label: "复制…", icon: "more", disabled: busyAction, hint: "复制到其他文件夹", onSelect: () => { close(); openPicker("copy", [entry.id]); } },
@@ -1596,7 +1616,10 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
             ) : (
               <>
                 <nav className="file-breadcrumbs" aria-label="当前网盘路径">
-                  {path.map((item, index) => (
+                  {starredView ? (
+                    // 收藏是全账号视图，展示真实路径会误导成「在某个目录内」，只标注范围。
+                    <span><button className="active" onClick={() => setStarredView(false)}>全账号收藏</button></span>
+                  ) : path.map((item, index) => (
                     <span key={item.id}>
                       {index > 0 && <Icon name="chevron" size={13} />}
                       <button className={index === path.length - 1 ? "active" : ""} onClick={() => navigateToPath(index)}>{item.name}</button>
@@ -1690,7 +1713,8 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
                 <div className="cloud-toolbar-actions">
                   <button
                     className="secondary-action cloud-dedupe-action"
-                    title="扫描当前目录，找出同名或内容相同的文件"
+                    title={starredView ? "查重只在单个目录内生效，请先返回目录" : "扫描当前目录，找出同名或内容相同的文件"}
+                    disabled={starredView}
                     onClick={openDuplicatePanel}
                   >
                     <Icon name="tasks" size={15} />
@@ -1698,7 +1722,8 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
                   </button>
                   <button
                     className="secondary-action cloud-newfolder-action"
-                    title="在当前目录新建文件夹"
+                    title={starredView ? "收藏是跨目录视图，请先返回目录再新建文件夹" : "在当前目录新建文件夹"}
+                    disabled={starredView}
                     onClick={() => {
                       setNewFolderName("");
                       setNewFolderOpen(true);
@@ -1709,12 +1734,25 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
                   </button>
                   <button
                     className="primary-action cloud-upload-action"
-                    disabled={uploading !== null}
+                    disabled={uploading !== null || starredView}
                     title={uploading ? uploadStageLabel(uploading, activeUpload) : "上传文件到当前目录"}
                     onClick={() => void startUpload()}
                   >
                     <Icon name="upload" size={16} />
                     {uploading ? uploadStageLabel(uploading, activeUpload) : "上传文件"}
+                  </button>
+                  <button
+                    className="cloud-starred-button"
+                    title={starredView ? "返回当前目录" : "查看全账号收藏"}
+                    aria-label={starredView ? "返回当前目录" : "查看收藏"}
+                    aria-pressed={starredView}
+                    onClick={() => {
+                      setStarredView((current) => !current);
+                      clearSelection();
+                    }}
+                  >
+                    <Icon name="star" size={15} />
+                    {starredView ? "返回目录" : "收藏"}
                   </button>
                   <button
                     className="cloud-recycle-button"
