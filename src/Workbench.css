@@ -436,24 +436,6 @@
   letter-spacing: -0.01em;
 }
 
-/* 三点呼吸，进一步强化「进行中」的节奏 */
-.file-loading-dots {
-  display: inline-flex;
-  gap: 4px;
-}
-
-.file-loading-dots i {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--primary);
-  opacity: 0.35;
-  animation: file-loading-dot 1.2s var(--ease-standard) infinite;
-}
-
-.file-loading-dots i:nth-child(2) { animation-delay: 0.15s; }
-.file-loading-dots i:nth-child(3) { animation-delay: 0.3s; }
-
 .file-loading-compact { min-height: 240px; gap: 8px; }
 
 @keyframes file-loading-breathe {
@@ -467,19 +449,13 @@
   100% { transform: scale(1); opacity: 0; }
 }
 
-@keyframes file-loading-dot {
-  0%, 100% { opacity: 0.28; transform: translateY(0); }
-  50% { opacity: 1; transform: translateY(-2px); }
-}
 
 @media (prefers-reduced-motion: reduce) {
   .file-loading-mark .brand-mark-art,
-  .file-loading-ring,
-  .file-loading-dots i {
+  .file-loading-ring {
     animation: none;
   }
   .file-loading-ring { opacity: 0.2; }
-  .file-loading-dots i { opacity: 0.6; }
 }
 
 /* 辅助行：星体指示下方保留少量淡行，维持版面高度，避免加载完成后跳动 */

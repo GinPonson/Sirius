@@ -1666,7 +1666,6 @@ function FileLoadingState({ compact = false }: { compact?: boolean }) {
         <BrandMark size={compact ? 30 : 38} />
       </span>
       <span className="file-loading-text">正在读取文件</span>
-      <span className="file-loading-dots" aria-hidden="true"><i /><i /><i /></span>
     </div>
   );
 }
