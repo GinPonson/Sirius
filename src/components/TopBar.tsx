@@ -19,16 +19,25 @@ type TopBarProps = {
   onToggleSidebar: () => void;
   /** null 表示当前页面没有搜索能力（漫画/相册等），顶栏不渲染搜索框，不造假。 */
   search: TopBarSearch | null;
+  /** 轻量导航历史：后退/前进可否执行；两条栈均为空时按钮整体隐藏。 */
+  canGoBack: boolean;
+  canGoForward: boolean;
+  onBack: () => void;
+  onForward: () => void;
   /** 任务中心入口（含抽屉本体）；由应用壳注入，固定在顶栏右侧。 */
   taskDrawer?: ReactNode;
 };
 
-/** 壳层顶栏（玻璃固定层）：侧栏开合、页面标题、统一搜索与任务中心。 */
+/** 壳层顶栏（玻璃固定层）：侧栏开合、导航历史、页面标题、统一搜索与任务中心。 */
 export function TopBar({
   title,
   sidebarExpanded,
   onToggleSidebar,
   search,
+  canGoBack,
+  canGoForward,
+  onBack,
+  onForward,
   taskDrawer,
 }: TopBarProps) {
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -49,6 +58,32 @@ export function TopBar({
 
   return (
     <header className="topbar shell-topbar" data-tauri-drag-region>
+      {/* 导航历史置于最左，与标题同组；两条栈均空时整组不渲染，避免常驻禁用按钮。 */}
+      {(canGoBack || canGoForward) && (
+        <div className="shell-nav-cluster">
+          <button
+            type="button"
+            className="shell-nav-button back"
+            aria-label="返回上一视图"
+            title="返回"
+            disabled={!canGoBack}
+            onClick={onBack}
+          >
+            <Icon name="chevron" size={17} />
+          </button>
+          <button
+            type="button"
+            className="shell-nav-button"
+            aria-label="前进下一视图"
+            title="前进"
+            disabled={!canGoForward}
+            onClick={onForward}
+          >
+            <Icon name="chevron" size={17} />
+          </button>
+        </div>
+      )}
+
       <button
         type="button"
         className="shell-sidebar-toggle"
