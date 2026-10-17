@@ -225,11 +225,6 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .cloud-auth-loading { width:10px; height:10px; border:2px solid var(--hairline-strong); border-top-color:var(--primary); border-radius:50%; animation:cloud-auth-spin .8s linear infinite; }
 @keyframes cloud-auth-spin { to { transform:rotate(360deg); } }
 .cloud-inline-error { margin:12px 0 0!important; color:var(--danger-ink)!important; font-size:var(--text-meta)!important; line-height:1.5!important; }
-.cloud-account-backdrop { position:fixed; inset:0; display:grid; place-items:center; padding:24px; background:var(--scrim-bg); backdrop-filter:var(--scrim-blur); z-index:8; }
-.cloud-account-modal { position:relative; display:flex; width:360px; min-height:430px; flex-direction:column; align-items:center; justify-content:center; padding:34px; border:1px solid var(--frosted-border); border-radius:18px; background:var(--surface); box-shadow:var(--shadow-3); }
-.cloud-account-modal:has(.cloud-account-profile) { width:480px; min-height:0; justify-content:flex-start; padding:30px 32px; }
-.cloud-account-close { position:absolute; top:14px; right:14px; display:grid; width:30px; height:30px; place-items:center; border:0; border-radius:8px; background:transparent; color:var(--muted); cursor:pointer; }
-.cloud-account-close:hover { background:var(--surface-hover); color:var(--fg); }
 .cloud-app-switcher { position:relative; }
 .cloud-app-icon { display:grid; width:38px; height:38px; place-items:center; border:1px solid transparent; border-radius:11px; background:var(--primary-soft); color:var(--primary); font-size:15px; font-weight:680; cursor:pointer; transition:border-color var(--duration-fast) var(--ease-standard),background var(--duration-fast) var(--ease-standard),transform var(--duration-fast) var(--ease-standard); }
 .cloud-app-icon:hover,.cloud-app-icon.active { border-color:var(--hairline-strong); background:var(--primary-soft); }
@@ -239,35 +234,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .cloud-app-picker button i { width:6px; height:6px; border-radius:50%; background:transparent; }
 .cloud-app-picker button.active i { background:var(--primary); }
 .cloud-app-picker button:hover,.cloud-app-picker button.active { background:var(--primary-soft); color:var(--primary-ink); }
-.cloud-account-profile { display:flex; width:100%; flex-direction:column; }
-.cloud-profile-summary { display:grid; grid-template-columns:64px minmax(0,1fr) auto; align-items:center; gap:14px; }
-.cloud-profile-summary > div { display:flex; min-width:0; flex-direction:column; }
-.cloud-account-avatar { display:grid; width:64px; height:64px; overflow:hidden; place-items:center; margin-bottom:16px; border-radius:19px; background:var(--primary-soft); color:var(--primary); }
-.cloud-account-avatar img { display:block; width:100%; height:100%; object-fit:cover; }
-.cloud-profile-summary .cloud-account-avatar { margin:0; }
-.cloud-profile-summary strong { overflow:hidden; color:var(--fg); font-size:15px; font-weight:640; text-overflow:ellipsis; white-space:nowrap; }
-.cloud-profile-summary div > span { margin-top:4px; color:var(--muted); font-size:var(--text-meta); }
-.cloud-signout { padding:5px 0; border:0; background:transparent; color:var(--muted); font-size:var(--text-meta); cursor:pointer; }
-.cloud-signout:hover { color:var(--danger-ink); }
-.cloud-profile-settings { margin-top:24px; border-top:1px solid var(--hairline); }
-.cloud-settings-heading { display:flex; align-items:center; gap:7px; padding:17px 2px 8px; color:var(--fg); }
-.cloud-settings-heading strong { font-size:12px; font-weight:630; }
-.cloud-setting-row { display:flex; min-height:54px; align-items:center; justify-content:space-between; gap:18px; border-bottom:1px solid var(--hairline); }
-.cloud-setting-row > span:first-child { display:flex; min-width:0; flex-direction:column; }
-.cloud-setting-row strong { color:var(--fg); font-size:12px; font-weight:590; }
-.cloud-setting-row small { margin-top:3px; color:var(--muted); font-size:12px; }
-.cloud-setting-row select { height:32px; padding:0 25px 0 9px; border:1px solid var(--hairline-strong); border-radius: var(--radius-sm); background:var(--surface); color:var(--fg); font-size:12px; }
-.cloud-setting-row.app-version { border-bottom:0; }
 .cloud-files-view { display:grid; gap:0; margin-top:-18px; }
-.cloud-status-strip { display:flex; min-height:30px; align-items:center; justify-content:flex-end; gap:24px; padding:0 4px 7px; color:var(--muted); }
-.cloud-status-strip > span { display:inline-flex; align-items:center; gap:7px; font-size:var(--text-meta); }
-.cloud-status-strip > span i { width:7px; height:7px; border-radius:50%; background:var(--status-ready); box-shadow:0 0 0 3px var(--status-ready-glow); }
-.cloud-status-strip dl { display:flex; gap:22px; margin:0; }
-.cloud-status-strip dl div { display:flex; align-items:baseline; gap:7px; }
-.cloud-status-strip dt { color:var(--muted); font-size:var(--text-micro); }
-.cloud-status-strip dd { margin:0; color:var(--fg); font:var(--text-meta) ui-monospace,SFMono-Regular,monospace; }
-.cloud-status-strip button { padding:2px 0; border:0; background:transparent; color:var(--muted); font-size:var(--text-meta); cursor:pointer; }
-.cloud-status-strip button:hover { color:var(--fg); }
 .cloud-browser-shell { display:grid; grid-template-columns:216px minmax(0,1fr); min-height:620px; border-top:1px solid var(--hairline); border-bottom:1px solid var(--hairline); }
 .cloud-folder-tree { padding:12px 16px 20px 0; border-right:1px solid var(--hairline); }
 .tree-root,.tree-list button { display:grid; width:100%; align-items:center; border:0; background:transparent; text-align:left; cursor:pointer; }
@@ -361,7 +328,6 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .file-empty span { font-size:12px; }
 .cloud-file-skeleton { display:grid; }
 .cloud-file-skeleton span { display:block; height:50px; border-bottom:1px solid var(--hairline); background:linear-gradient(100deg,transparent 20%,rgba(233,236,241,.72) 40%,transparent 60%); background-size:220% 100%; animation:shimmer 1.4s infinite; }
-.cloud-load-more { display:block; min-width:110px; height:34px; margin:14px auto 0; padding:0 14px; border:1px solid var(--hairline-strong); border-radius:8px; background:var(--surface); color:var(--muted); font-size:var(--text-meta); cursor:pointer; }
 
 .detail-back { display:flex; align-items:center; gap:7px; padding:5px 0; border:0; background:transparent; color:var(--muted); font-size:13px; cursor:pointer; }
 .detail-back span { display:grid; transform:rotate(180deg); }

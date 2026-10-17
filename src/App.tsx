@@ -17,7 +17,7 @@ import {
   AiOrganizationService,
   type AiProviderSettingsView,
 } from "./services/aiServices";
-import { Cloud115AuthModal } from "./components/Cloud115AuthModal";
+import { SettingsModal } from "./components/SettingsModal";
 import { LoginGate } from "./components/LoginGate";
 import { MediaDetail } from "./components/MediaDetail";
 import { PosterCard } from "./components/PosterCard";
@@ -68,9 +68,6 @@ function isVideoSection(section: AppSection): section is "home" | "library" | "d
   return section === "home" || section === "library" || section === "discover";
 }
 
-/** 轻量导航历史条目：主视图 + 媒体详情两级；详情按 id 回放时重新解析。 */
-type NavHistoryEntry = { section: AppSection; mediaId: string | null };
-
 const repository = new TauriMediaRepository();
 const sourceResolver = new LocalSourceResolver();
 const playbackService = new PlaybackService();
@@ -113,7 +110,8 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [cloudAccount, setCloudAccount] = useState<Cloud115AccountStatus | null>(null);
   const [cloudProfile, setCloudProfile] = useState<Cloud115UserProfile | null>(null);
-  const [showCloudAccount, setShowCloudAccount] = useState(false);
+  // 设置弹窗开合：从侧栏账号菜单进入，承载通用设置。
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [forceGate, setForceGate] = useState(false);
   const [playingCloudFileId, setPlayingCloudFileId] = useState<string | null>(null);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
@@ -137,9 +135,6 @@ function App() {
   const lastVolumeRef = useRef(60);
   // 顶栏文件搜索：查询词由应用壳持有并下发到网盘文件页，防抖仍留在该页。
   const [fileQuery, setFileQuery] = useState("");
-  // 轻量历史栈：覆盖主视图切换与媒体详情进出，不追求完整浏览器式历史。
-  const [backStack, setBackStack] = useState<NavHistoryEntry[]>([]);
-  const [forwardStack, setForwardStack] = useState<NavHistoryEntry[]>([]);
   // 首次确认账号状态时决定默认分区；用户一旦手动导航便不再自动跳转。
   const defaultSectionResolved = useRef(false);
   // 记录最近一次由播放快照设置的错误，恢复成功后只清除该条，不误伤其他错误横幅。
@@ -184,7 +179,6 @@ function App() {
         comics: "漫画",
         albums: "相册",
         tasks: "整理任务",
-        settings: "设置",
       };
       const scope = scopes[section];
       return scope ? { page: section, scope } : null;
@@ -527,63 +521,24 @@ function App() {
   // 登录首屏在未登录或会话失效时接管整窗；启动确认期间展示启动画面。
   const gateVisible = cloudAccount?.connected === false || forceGate;
 
-  /** 记录当前视图快照并清空前进栈；主视图切换与详情进入共用。 */
-  function pushHistory() {
-    const entry: NavHistoryEntry = { section, mediaId: selectedMedia?.id ?? null };
-    setBackStack((stack) => [...stack.slice(-49), entry]);
-    setForwardStack([]);
-  }
-
   /** 主视图切换（侧栏/影视内切换/查看全部等）；离开网盘文件时清空目录搜索词。 */
   function navigate(next: AppSection) {
     if (next === section && selectedMedia === null) return;
-    pushHistory();
     setSection(next);
     setSelectedMedia(null);
     if (next !== "cloud-files") setFileQuery("");
   }
 
-  /** 打开媒体详情：记录历史并展开右侧面板（详情标签由面板在 detailKey 变化时自动切换）。 */
+  /** 打开媒体详情：展开右侧详情面板（标签由面板在 detailKey 变化时自动切换）。 */
   function openMedia(item: MediaItem) {
-    if (selectedMedia?.id !== item.id) pushHistory();
     setSelectedMedia(item);
     setAiPanelOpen(true);
-  }
-
-  /** 将历史条目落回界面；详情条目按 id 从当前媒体列表重新解析，缺失则回退为列表态。 */
-  function applyHistoryEntry(entry: NavHistoryEntry) {
-    setSection(entry.section);
-    const nextMedia =
-      entry.mediaId ? media.find((item) => item.id === entry.mediaId) ?? null : null;
-    setSelectedMedia(nextMedia);
-    if (nextMedia) setAiPanelOpen(true);
-    if (entry.section !== "cloud-files") setFileQuery("");
-  }
-
-  /** 顶栏后退：回退到上一条视图/详情快照，当前快照进入前进栈。 */
-  function goBack() {
-    if (backStack.length === 0) return;
-    const entry = backStack[backStack.length - 1];
-    const currentEntry: NavHistoryEntry = { section, mediaId: selectedMedia?.id ?? null };
-    setBackStack((stack) => stack.slice(0, -1));
-    setForwardStack((stack) => [currentEntry, ...stack]);
-    applyHistoryEntry(entry);
-  }
-
-  /** 顶栏前进：重放前进栈顶快照，当前快照回到后退栈。 */
-  function goForward() {
-    if (forwardStack.length === 0) return;
-    const entry = forwardStack[0];
-    const currentEntry: NavHistoryEntry = { section, mediaId: selectedMedia?.id ?? null };
-    setBackStack((stack) => [...stack, currentEntry]);
-    setForwardStack((stack) => stack.slice(1));
-    applyHistoryEntry(entry);
   }
 
   /** 登录成功后进入文件工作区；退出或失效时回到登录首屏。 */
   function updateCloudAccount(nextAccount: Cloud115AccountStatus) {
     setCloudAccount(nextAccount);
-    setShowCloudAccount(false);
+    setSettingsOpen(false);
     setForceGate(false);
     if (nextAccount.connected) {
       setSection("cloud-files");
@@ -603,15 +558,6 @@ function App() {
     return <LoginGate onAccountChange={updateCloudAccount} />;
   }
 
-  const storageUsage = cloudProfile
-    && Number.isFinite(cloudProfile.totalBytes)
-    && cloudProfile.totalBytes > 0
-    && Number.isFinite(cloudProfile.usedBytes)
-    && cloudProfile.usedBytes >= 0
-    ? Math.min(100, (cloudProfile.usedBytes / cloudProfile.totalBytes) * 100)
-    : null;
-  const accountName = cloudProfile?.userName || cloudAccount.userName || "115 用户";
-
   return (
     <div
       className="app-frame"
@@ -621,32 +567,20 @@ function App() {
     >
       <Sidebar
         active={activeNavId(section)}
-        expanded={sidebarExpanded}
         taskCount={attentionTaskCount}
+        account={cloudAccount}
+        profile={cloudProfile}
+        onAccountChange={updateCloudAccount}
+        onOpenSettings={() => setSettingsOpen(true)}
         onNavigate={(id) => navigate(id === "video" ? "home" : id)}
-        onToggleExpanded={() => setSidebarExpanded((value) => !value)}
       />
 
       <main className="app-content">
         <TopBar
           title={selectedMedia ? selectedMedia.title : sectionTitle(section)}
-          canGoBack={backStack.length > 0}
-          canGoForward={forwardStack.length > 0}
-          onBack={goBack}
-          onForward={goForward}
+          sidebarExpanded={sidebarExpanded}
+          onToggleSidebar={() => setSidebarExpanded((value) => !value)}
           search={topBarSearch}
-          accountName={accountName}
-          avatarUrl={cloudProfile?.avatarUrl ?? null}
-          storage={
-            cloudProfile && storageUsage !== null
-              ? {
-                  used: cloudProfile.usedFormatted,
-                  total: cloudProfile.totalFormatted,
-                  percent: storageUsage,
-                }
-              : null
-          }
-          onManageAccount={() => setShowCloudAccount(true)}
           taskDrawer={
             <TaskDrawer
               tasks={tasks}
@@ -709,23 +643,13 @@ function App() {
           <AlbumsView />
         ) : section === "tasks" ? (
           <TasksView tasks={tasks} scanning={scanning} onScan={scanDirectory} />
-        ) : section === "cloud-files" ? (
+        ) : (
           <CloudFilesView
             account={cloudAccount}
             query={fileQuery}
             onQueryChange={setFileQuery}
             onRequireLogin={() => setForceGate(true)}
-            onManageAccount={() => setShowCloudAccount(true)}
             onPlay={playCloudFile}
-          />
-        ) : (
-          <SettingsView
-            settings={appSettings}
-            saving={savingSettings}
-            onChange={updateAppSettings}
-            onManageCloud={() => navigate("cloud-files")}
-            onScanLocal={scanDirectory}
-            scanning={scanning}
           />
         )}
       </main>
@@ -821,13 +745,20 @@ function App() {
         </aside>
       )}
 
-      {cloudAccount.connected && showCloudAccount && (
-        <Cloud115AuthModal
-          account={cloudAccount}
-          profile={cloudProfile}
-          onAccountChange={updateCloudAccount}
-          onClose={() => setShowCloudAccount(false)}
-        />
+      {cloudAccount.connected && settingsOpen && (
+        <SettingsModal onClose={() => setSettingsOpen(false)}>
+          <SettingsView
+            settings={appSettings}
+            saving={savingSettings}
+            onChange={updateAppSettings}
+            onManageCloud={() => {
+              setSettingsOpen(false);
+              navigate("cloud-files");
+            }}
+            onScanLocal={scanDirectory}
+            scanning={scanning}
+          />
+        </SettingsModal>
       )}
     </div>
   );
@@ -848,7 +779,6 @@ function sectionTitle(section: AppSection): string {
     albums: "相册",
     "cloud-files": "网盘文件",
     tasks: "整理任务",
-    settings: "设置",
   }[section];
 }
 
@@ -1254,7 +1184,7 @@ function SettingsView({
   }
 
   return (
-    <section className="page-section narrow-section">
+    <>
       <div className="settings-group">
         <h2>媒体来源</h2>
         <div className="setting-row">
@@ -1352,7 +1282,7 @@ function SettingsView({
           <span className="setting-value">0.1.0</span>
         </div>
       </div>
-    </section>
+    </>
   );
 }
 

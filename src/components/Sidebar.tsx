@@ -1,5 +1,11 @@
+import { useEffect, useRef, useState } from "react";
+import {
+  type Cloud115AccountStatus,
+  type Cloud115UserProfile,
+} from "../services/mediaServices";
 import { BrandMark } from "./BrandMark";
 import { Icon } from "./Icon";
+import { SidebarAccountMenu } from "./SidebarAccountMenu";
 
 /** 侧栏导航标识；AI 整理并入右下角对话面板，不再占用侧栏入口。 */
 export type SidebarNavId =
@@ -7,25 +13,27 @@ export type SidebarNavId =
   | "tasks"
   | "video"
   | "comics"
-  | "albums"
-  | "settings";
+  | "albums";
 
 type SidebarProps = {
   active: SidebarNavId;
-  /** true 为展开态（图标 + 文字 + 分组标题），false 为 80px 图标轨道；持久化由应用壳负责。 */
-  expanded: boolean;
   taskCount: number;
+  /** 115 账号身份位：点开底部账号菜单（概览 / 设置 / 退出登录）。 */
+  account: Cloud115AccountStatus;
+  profile: Cloud115UserProfile | null;
+  onAccountChange: (account: Cloud115AccountStatus) => void;
+  /** 打开设置弹窗（通用设置）。 */
+  onOpenSettings: () => void;
   onNavigate: (id: SidebarNavId) => void;
-  onToggleExpanded: () => void;
 };
 
 const NAVIGATION: Array<{
-  id: Exclude<SidebarNavId, "settings">;
+  id: SidebarNavId;
   label: string;
   icon: "cloud" | "tasks" | "play" | "book" | "images";
   group: "workspace" | "content";
 }> = [
-  { id: "cloud-files", label: "网盘文件", icon: "cloud", group: "workspace" },
+  { id: "cloud-files", label: "网盘", icon: "cloud", group: "workspace" },
   { id: "video", label: "影视", icon: "play", group: "content" },
   { id: "comics", label: "漫画", icon: "book", group: "content" },
   { id: "albums", label: "相册", icon: "images", group: "content" },
@@ -39,11 +47,37 @@ const GROUP_LABELS: Record<"workspace" | "content", string> = {
 /** 文件优先的常驻侧栏；收起为图标轨道，展开显示分组标题与文字标签。 */
 export function Sidebar({
   active,
-  expanded,
   taskCount,
+  account,
+  profile,
+  onAccountChange,
+  onOpenSettings,
   onNavigate,
-  onToggleExpanded,
 }: SidebarProps) {
+  // 底部账号菜单开合：纯前端瞬时状态，不持久化。
+  const [menuOpen, setMenuOpen] = useState(false);
+  const accountSlotRef = useRef<HTMLDivElement | null>(null);
+  const accountName = profile?.userName || account.userName || "115 用户";
+  const avatarUrl = profile?.avatarUrl ?? null;
+
+  // 菜单开启时响应 Esc 与点击外部：外部判定以整个账号位为界，
+  // 避免点击头像本身被误判为“外部”而与按钮的 toggle 相互抵消。
+  useEffect(() => {
+    if (!menuOpen) return;
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setMenuOpen(false);
+    }
+    function handlePointerDown(event: PointerEvent) {
+      if (!accountSlotRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [menuOpen]);
+
   return (
     <aside className="app-sidebar" aria-label="Sirius 功能导航">
       <div className="sidebar-brand" data-tauri-drag-region>
@@ -67,7 +101,7 @@ export function Sidebar({
                 onClick={() => onNavigate(item.id)}
               >
                 <Icon name={item.icon} size={20} />
-                <span>{item.label}</span>
+                <span className="nav-item-label">{item.label}</span>
                 {item.id === "tasks" && taskCount > 0 && (
                   <span className="nav-badge" aria-hidden="true">{taskCount > 99 ? "99+" : taskCount}</span>
                 )}
@@ -78,26 +112,36 @@ export function Sidebar({
       </nav>
 
       <div className="sidebar-footer">
-        <button
-          type="button"
-          className={active === "settings" ? "nav-item active" : "nav-item"}
-          aria-current={active === "settings" ? "page" : undefined}
-          title="设置"
-          onClick={() => onNavigate("settings")}
-        >
-          <Icon name="settings" size={20} />
-          <span>设置</span>
-        </button>
-        <button
-          type="button"
-          className="sidebar-toggle"
-          aria-label={expanded ? "收起侧栏" : "展开侧栏"}
-          title={expanded ? "收起侧栏" : "展开侧栏"}
-          aria-expanded={expanded}
-          onClick={onToggleExpanded}
-        >
-          <Icon name="chevron" size={16} />
-        </button>
+        {/* 账号身份位：点头像从底部向左上展开账号菜单。 */}
+        <div className="sidebar-account-slot" ref={accountSlotRef}>
+          {menuOpen && (
+            <SidebarAccountMenu
+              account={account}
+              profile={profile}
+              onAccountChange={onAccountChange}
+              onOpenSettings={() => {
+                setMenuOpen(false);
+                onOpenSettings();
+              }}
+            />
+          )}
+          <button
+            type="button"
+            className="sidebar-account"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            aria-label={`账号菜单：${accountName}`}
+            title="账号"
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            <span className="sidebar-account-avatar">
+              {avatarUrl ? (
+                <img src={avatarUrl} alt="" referrerPolicy="no-referrer" />
+              ) : <Icon name="user" size={17} />}
+            </span>
+            <span className="sidebar-account-name">{accountName}</span>
+          </button>
+        </div>
       </div>
     </aside>
   );

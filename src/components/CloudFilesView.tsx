@@ -33,8 +33,6 @@ type CloudFilesViewProps = {
   query: string;
   onQueryChange: (value: string) => void;
   onRequireLogin: () => void;
-  /** 打开 115 账户面板（与顶栏「管理 115 账号」同一入口）。 */
-  onManageAccount: () => void;
   onPlay: (entry: Cloud115FileEntry) => Promise<void>;
 };
 
@@ -203,7 +201,7 @@ function formatTransferBytes(bytes: number): string {
 }
 
 /** 115 网盘真实文件浏览页；批量移动/复制的目标策略由 Rust 侧统一校验。 */
-export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, onManageAccount, onPlay }: CloudFilesViewProps) {
+export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, onPlay }: CloudFilesViewProps) {
   const [path, setPath] = useState<FolderPick[]>([{ id: ROOT_ID, name: "115 网盘" }]);
   const [entries, setEntries] = useState<Cloud115FileEntry[]>([]);
   const [filter, setFilter] = useState<CloudFileFilter>("all");
@@ -275,6 +273,11 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
 
   /** 上一次成功加载的「目录 + 查询」键；相同键的重新加载视为刷新而非切换。 */
   const loadedKeyRef = useRef<string | null>(null);
+
+  /** 无限滚动哨兵：进入视口即预约下一页，取代底部「加载更多」按钮。 */
+  const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
+  /** 最近一次渲染的翻页决策；供稳定的 IntersectionObserver 回调读取最新状态。 */
+  const requestNextPageRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     if (!account?.connected) return;
@@ -830,6 +833,33 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
       }
     }
   }
+
+  /**
+   * 无限滚动：底部哨兵进入视口即加载下一页，取代「加载更多」按钮。
+   * 依赖里的已加载条数会重建观察器，使短内容在数据落地后继续预取，
+   * 直到填满一屏或没有更多；进行中的请求由 loadingMore / recycleLoadingMore 拦截。
+   */
+  requestNextPageRef.current = () => {
+    if (recycleView) {
+      if (recycleHasMore && !recycleLoadingMore && !recycleLoading) void loadRecyclePage(recycleEntries.length);
+      return;
+    }
+    if (hasMore && !loadingMore && !loading && !refreshing) void loadMore();
+  };
+
+  useEffect(() => {
+    const sentinel = loadMoreSentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (records) => {
+        if (records.some((record) => record.isIntersecting)) requestNextPageRef.current();
+      },
+      // 提前约一屏预取，滚动到接近底部时无缝续接下一页。
+      { rootMargin: "0px 0px 480px 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [recycleView, hasMore, recycleHasMore, entries.length, recycleEntries.length]);
 
   function openRecycleView() {
     setRecycleView(true);
@@ -1569,16 +1599,11 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
               )}
             </div>
           )}
-          {!recycleView && hasMore && <button className="cloud-load-more" disabled={loadingMore} onClick={() => void loadMore()}>{loadingMore ? "正在加载…" : "加载更多"}</button>}
-          {recycleView && recycleHasMore && <button className="cloud-load-more" disabled={recycleLoadingMore} onClick={() => void loadRecyclePage(recycleEntries.length)}>{recycleLoadingMore ? "正在加载…" : "加载更多"}</button>}
+          {/* 哨兵：滚到这里即自动续页；仅在翻页进行中显示轻量提示。 */}
+          <div className="cloud-load-sentinel" ref={loadMoreSentinelRef}>
+            {(loadingMore || recycleLoadingMore) && <span>正在加载…</span>}
+          </div>
 
-      </div>
-
-      <div className="cloud-status-strip">
-        <span><i />{account.userName ? `${account.userName} · 已连接` : "115 已连接"}</span>
-        {/* 加载中不显示总数，避免与「正在读取」并存造成「0 个项目」的误导 */}
-        <span>{loading ? "正在读取…" : `${total} 个项目`}</span>
-        <button onClick={onManageAccount}>管理账号</button>
       </div>
 
       {paneMenu && (

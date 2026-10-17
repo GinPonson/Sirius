@@ -134,10 +134,15 @@
   flex: 0 0 auto;
 }
 
+/* 路径/筛选行冻结在顶栏下方：列表滚动时面包屑与视图控件始终可见。 */
 .file-filter-row {
+  position: sticky;
+  top: var(--shell-header-height);
+  z-index: 3;
   min-height: 42px;
   gap: 20px;
-  padding: 0 0 12px;
+  padding: 8px 0 12px;
+  background: var(--bg);
 }
 
 .file-breadcrumbs {
@@ -360,31 +365,18 @@
   border-radius: 6px;
 }
 
-.cloud-status-strip {
-  justify-content: flex-start;
-  min-height: 40px;
-  gap: 18px;
-  margin-top: 22px;
-  padding: 12px 0 0;
-  border-top: 1px solid var(--hairline);
+/* 无限滚动哨兵：进入视口触发续页；仅翻页中显示轻量提示，空态不占高。 */
+.cloud-load-sentinel {
+  display: flex;
+  min-height: 1px;
+  align-items: center;
+  justify-content: center;
   color: var(--muted);
+  font-size: var(--text-meta);
 }
 
-.cloud-status-strip > span {
-  font-size: 11px;
-}
-
-.cloud-status-strip > span i {
-  width: 5px;
-  height: 5px;
-  background: var(--status-ready);
-  box-shadow: none;
-}
-
-.cloud-status-strip button {
-  margin-left: auto;
-  color: var(--muted);
-  font-size: 11px;
+.cloud-load-sentinel > span {
+  padding: 14px 0;
 }
 
 .file-refresh-bar {
@@ -433,7 +425,7 @@
 }
 
 /* Settings and AI share the same readable, modestly grouped controls. */
-.app-content .settings-group {
+.preferences-body .settings-group {
   margin-bottom: 22px;
   padding: 0 20px;
   border: 1px solid var(--hairline-strong);
@@ -441,7 +433,7 @@
   background: var(--surface);
 }
 
-.app-content .settings-group h2 {
+.preferences-body .settings-group h2 {
   margin: 0;
   padding: 18px 0 10px;
   color: var(--fg);
@@ -450,36 +442,36 @@
   letter-spacing: 0;
 }
 
-.app-content .setting-row {
+.preferences-body .setting-row {
   min-height: 70px;
   padding: 15px 0;
   border-color: var(--hairline);
 }
 
-.app-content .setting-row:last-child {
+.preferences-body .setting-row:last-child {
   border-bottom: 0;
 }
 
-.app-content .setting-row > div {
+.preferences-body .setting-row > div {
   min-width: 0;
 }
 
-.app-content .setting-row strong {
+.preferences-body .setting-row strong {
   color: var(--fg);
   font-size: 13px;
   font-weight: 500;
 }
 
-.app-content .setting-row p {
+.preferences-body .setting-row p {
   margin-top: 5px;
   color: var(--muted);
   font-size: 12px;
   line-height: 1.5;
 }
 
-.app-content .setting-row select,
+.preferences-body .setting-row select,
 .comics-toolbar select,
-.app-content .ai-text-input {
+.preferences-body .ai-text-input {
   height: 36px;
   border-color: var(--hairline-strong);
   border-radius: var(--radius-sm);
@@ -488,8 +480,73 @@
   font-size: 12px;
 }
 
-.app-content .setting-value {
+.preferences-body .setting-value {
   color: var(--muted);
+}
+
+/* ============================================================================
+   偏好设置弹窗：账号 / 通用 两个分区；内容区独立滚动，外框为玻璃固定层。
+   ========================================================================== */
+.preferences-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--scrim-bg);
+  -webkit-backdrop-filter: var(--scrim-blur);
+  backdrop-filter: var(--scrim-blur);
+  z-index: 8;
+}
+
+.preferences-modal {
+  display: flex;
+  width: min(720px, 100%);
+  max-height: min(760px, calc(100vh - 72px));
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--frosted-border);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow-3);
+}
+
+.preferences-head {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px 0;
+}
+
+.preferences-title {
+  color: var(--fg);
+  font-size: 15px;
+  font-weight: 620;
+}
+
+.preferences-close {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  margin-left: auto;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.preferences-close:hover {
+  background: var(--surface-hover);
+  color: var(--fg);
+}
+
+.preferences-body {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 24px 24px;
 }
 
 /* 计划表（对话框/面板复用）：摘要行 + 三列对照表（原 AI 整理页迁移而来）。 */
@@ -782,7 +839,7 @@
     display: none;
   }
 
-  .app-content .ai-text-input {
+  .preferences-body .ai-text-input {
     width: 220px;
   }
 }
@@ -812,7 +869,7 @@
   .topbar.shell-topbar,
   .app-sidebar,
   .detail-sticky-header,
-  .cloud-account-modal,
+  .preferences-modal,
   .cloud-operation-dialog,
   .now-playing,
   .file-action-menu,
@@ -829,7 +886,7 @@
     backdrop-filter: none;
   }
 
-  .cloud-account-backdrop,
+  .preferences-backdrop,
   .cloud-operation-backdrop,
   .continue-play svg,
   .collection-badge,

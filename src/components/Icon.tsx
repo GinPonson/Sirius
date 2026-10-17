@@ -7,11 +7,14 @@ import {
   Download,
   Ellipsis,
   Folder,
+  Gauge,
   History,
   House,
   Images,
   LayoutGrid,
   ListChecks,
+  LogOut,
+  PanelLeft,
   Pencil,
   Play,
   Plus,
@@ -66,7 +69,10 @@ export type IconName =
   | "back10"
   | "forward10"
   | "volume"
-  | "volumeOff";
+  | "volumeOff"
+  | "gauge"
+  | "logout"
+  | "panel";
 
 const ICONS: Record<IconName, LucideIcon> = {
   home: House,
@@ -101,6 +107,9 @@ const ICONS: Record<IconName, LucideIcon> = {
   forward10: SkipForward,
   volume: Volume2,
   volumeOff: VolumeX,
+  gauge: Gauge,
+  logout: LogOut,
+  panel: PanelLeft,
 };
 
 type IconProps = {

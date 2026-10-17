@@ -205,7 +205,7 @@
 .topbar.shell-topbar,
 .app-sidebar,
 .detail-sticky-header,
-.cloud-account-modal,
+.preferences-modal,
 .cloud-operation-dialog,
 .file-batch-bar,
 .albums-actions,
@@ -313,15 +313,18 @@
   content: "";
 }
 
+/* 收起态：方形图标块（图标 + 2 字标签），居中并相对旧版缩小。 */
 .app-sidebar .nav-item {
   position: relative;
   display: flex;
-  height: 56px;
-  padding: var(--space-2) 2px;
+  width: 48px;
+  height: 48px;
+  justify-self: center;
   flex-direction: column;
-  justify-content: center;
   align-items: center;
-  gap: 5px;
+  justify-content: center;
+  gap: 4px;
+  padding: 0;
   border-radius: var(--radius-md);
   color: var(--muted);
   font-size: 11px;
@@ -406,9 +409,11 @@
 }
 
 .app-frame[data-sidebar-expanded="true"] .app-sidebar .nav-item {
+  width: auto;
+  height: 38px;
+  justify-self: stretch;
   flex-direction: row;
   justify-content: flex-start;
-  height: 38px;
   padding: 0 var(--space-3);
   gap: var(--space-3);
   font-size: 13px;
@@ -421,32 +426,28 @@
   transform: translateY(-50%);
 }
 
-.sidebar-toggle {
+/* 顶栏侧栏开合：占据原先导航后退/前进位，与标题同组。 */
+.shell-sidebar-toggle {
   display: grid;
-  width: 100%;
-  height: 34px;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
   place-items: center;
+  padding: 0;
   border: 0;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--muted);
   cursor: pointer;
   transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
 }
 
-.sidebar-toggle:hover {
+.shell-sidebar-toggle:hover {
   background: var(--surface-hover);
   color: var(--fg);
 }
 
-.sidebar-toggle svg {
-  transition: transform var(--duration-panel) var(--ease-spring);
-}
 
-/* 展开态箭头朝左（收起方向），收起态朝右（展开方向）。 */
-.app-frame[data-sidebar-expanded="true"] .sidebar-toggle svg {
-  transform: rotate(180deg);
-}
 
 .app-content {
   min-height: 100vh;
@@ -467,44 +468,6 @@
   padding: 0 28px 0 var(--space-6);
   border-bottom: 1px solid var(--frosted-border);
   transition: left var(--duration-panel) var(--ease-spring);
-}
-
-/* 顶栏导航历史：后退/前进（chevron 翻转）；禁用态用 fg-disabled 明示不可用 */
-.shell-nav-cluster {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: var(--space-1);
-}
-
-.shell-nav-button {
-  display: grid;
-  width: 30px;
-  height: 30px;
-  flex: 0 0 auto;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
-}
-
-.shell-nav-button:hover:not(:disabled) {
-  background: var(--surface-hover);
-  color: var(--fg);
-}
-
-.shell-nav-button:disabled {
-  color: var(--fg-disabled);
-  opacity: 1;
-  cursor: default;
-}
-
-.shell-nav-button.back svg {
-  transform: rotate(180deg);
 }
 
 .shell-heading {
@@ -602,64 +565,49 @@
   background: var(--surface-hover);
 }
 
-.shell-account-area {
+.shell-topbar-actions {
   display: flex;
   min-width: 0;
   flex: 1 0 auto;
   align-items: center;
   justify-content: flex-end;
-  gap: 22px;
+  gap: var(--space-4);
 }
 
-.shell-storage {
+/* 账号身份位（侧栏底部）：点头像展开账号菜单。 */
+.sidebar-account-slot {
+  position: relative;
+  display: grid;
+  justify-items: center;
+}
+
+/* 收起态账号容器与 48px 导航瓦片同宽同列，两态共用玻璃与暗色 token。 */
+.sidebar-account {
   display: flex;
-  min-width: 96px;
+  width: 48px;
+  height: 56px;
+  padding: var(--space-2) 2px;
   flex-direction: column;
-  gap: 6px;
-  color: var(--muted);
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-}
-
-.shell-storage > span > span {
-  color: var(--muted);
-}
-
-.shell-storage-meter {
-  height: 3px;
-  overflow: hidden;
-  border-radius: 2px;
-  background: var(--surface-active);
-}
-
-.shell-storage-meter i {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, var(--primary), var(--primary-lift));
-}
-
-.shell-account-button {
-  display: flex;
-  min-width: 0;
-  height: 38px;
+  justify-content: center;
   align-items: center;
-  gap: var(--space-2);
-  padding: 3px 5px;
-  border: 1px solid transparent;
+  gap: 5px;
+  border: 0;
   border-radius: var(--radius-md);
   background: transparent;
   color: var(--muted);
   font-size: 11px;
+  line-height: 1.2;
   cursor: pointer;
+  transition: color var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard);
 }
 
-.shell-account-button:hover {
-  border-color: var(--hairline-strong);
+.sidebar-account:hover,
+.sidebar-account[aria-expanded="true"] {
   background: var(--surface-hover);
+  color: var(--fg);
 }
 
-.shell-account-avatar {
+.sidebar-account-avatar {
   display: grid;
   width: 28px;
   height: 28px;
@@ -672,21 +620,192 @@
   color: var(--primary-ink);
 }
 
-.shell-account-avatar img {
+.sidebar-account-avatar img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.shell-account-name {
-  max-width: 100px;
+.sidebar-account-name {
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.shell-account-button > svg {
-  transform: rotate(90deg);
+/* 展开态：转为横向 chip。 */
+.app-frame[data-sidebar-expanded="true"] .sidebar-account {
+  width: auto;
+  height: 38px;
+  padding: 0 var(--space-3);
+  flex-direction: row;
+  justify-content: flex-start;
+  gap: var(--space-3);
+  font-size: 13px;
+  text-align: left;
+}
+
+/* 展开态账号容器满宽，与导航项共用 188px 行宽。 */
+.app-frame[data-sidebar-expanded="true"] .sidebar-account-slot {
+  justify-items: stretch;
+}
+
+/* 账号菜单：贴侧栏右缘、与头像底对齐，向右展开，浮于内容之上。 */
+.account-menu {
+  position: absolute;
+  left: calc(100% + 10px);
+  bottom: 0;
+  z-index: 7;
+  display: flex;
+  width: 300px;
+  max-height: calc(100vh - var(--shell-header-height) - 24px);
+  overflow-y: auto;
+  flex-direction: column;
+  padding: 8px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-elevated);
+  box-shadow: var(--shadow-2);
+  transform-origin: bottom left;
+  animation: account-menu-in var(--duration-fast) var(--ease-standard) both;
+}
+
+@keyframes account-menu-in {
+  from {
+    opacity: 0;
+    transform: translate(-6px, 4px) scale(.98);
+  }
+}
+
+.account-menu-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 8px 8px 12px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.account-menu-avatar {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--primary-soft);
+  color: var(--primary-ink);
+}
+
+.account-menu-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.account-menu-head > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.account-menu-head strong {
+  overflow: hidden;
+  color: var(--fg);
+  font-size: 14px;
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-menu-head small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* 资料概览：键值行（左标签+说明，右取值），容量条复用 chart-storage。 */
+.account-menu-body {
+  display: flex;
+  padding: 4px 8px 10px;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.account-menu-body .chart-storage {
+  margin: 2px 0 8px;
+}
+
+.account-menu-row {
+  display: flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.account-menu-row-label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.account-menu-row-label strong {
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 590;
+}
+
+.account-menu-row-label small {
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-menu-row-value {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.account-menu-item {
+  display: flex;
+  height: 36px;
+  align-items: center;
+  gap: 9px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.account-menu-item:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.account-menu-item:disabled {
+  color: var(--fg-disabled);
+  cursor: default;
+}
+
+.account-menu-item svg {
+  color: var(--muted);
+}
+
+.account-menu-divider {
+  height: 1px;
+  margin: 6px 4px;
+  background: var(--hairline);
 }
 
 /* 底部播放条：玻璃固定层，阴影走浮层档 + 玻璃上缘高光 */
@@ -723,12 +842,8 @@
     gap: 10px;
   }
 
-  .shell-account-area {
-    gap: 14px;
-  }
-
-  .shell-account-name {
-    max-width: 72px;
+  .shell-topbar-actions {
+    gap: var(--space-3);
   }
 
   .app-content .detail-page {
@@ -744,6 +859,11 @@
   }
 
   .app-sidebar .nav-item {
+    height: 49px;
+    gap: var(--space-1);
+  }
+
+  .sidebar-account {
     height: 49px;
     gap: var(--space-1);
   }

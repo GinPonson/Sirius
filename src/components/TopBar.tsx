@@ -12,40 +12,23 @@ export type TopBarSearch = {
   onChange: (value: string) => void;
 };
 
-type TopBarStorage = {
-  used: string;
-  total: string;
-  percent: number;
-};
-
 type TopBarProps = {
   title: string;
-  canGoBack: boolean;
-  canGoForward: boolean;
-  onBack: () => void;
-  onForward: () => void;
+  /** 侧栏开合态；顶栏左侧的开合按钮据此切换方向。持久化由应用壳负责。 */
+  sidebarExpanded: boolean;
+  onToggleSidebar: () => void;
   /** null 表示当前页面没有搜索能力（漫画/相册等），顶栏不渲染搜索框，不造假。 */
   search: TopBarSearch | null;
-  accountName: string;
-  avatarUrl: string | null;
-  storage: TopBarStorage | null;
-  onManageAccount: () => void;
-  /** 任务中心入口（含抽屉本体）；由应用壳注入，位置固定在账号区左侧。 */
+  /** 任务中心入口（含抽屉本体）；由应用壳注入，固定在顶栏右侧。 */
   taskDrawer?: ReactNode;
 };
 
-/** 壳层顶栏（玻璃固定层）：前进/后退、页面标题、统一搜索与 115 账号区。 */
+/** 壳层顶栏（玻璃固定层）：侧栏开合、页面标题、统一搜索与任务中心。 */
 export function TopBar({
   title,
-  canGoBack,
-  canGoForward,
-  onBack,
-  onForward,
+  sidebarExpanded,
+  onToggleSidebar,
   search,
-  accountName,
-  avatarUrl,
-  storage,
-  onManageAccount,
   taskDrawer,
 }: TopBarProps) {
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -66,28 +49,16 @@ export function TopBar({
 
   return (
     <header className="topbar shell-topbar" data-tauri-drag-region>
-      <div className="shell-nav-cluster">
-        <button
-          type="button"
-          className="shell-nav-button back"
-          aria-label="返回上一视图"
-          title="返回"
-          disabled={!canGoBack}
-          onClick={onBack}
-        >
-          <Icon name="chevron" size={17} />
-        </button>
-        <button
-          type="button"
-          className="shell-nav-button"
-          aria-label="前进下一视图"
-          title="前进"
-          disabled={!canGoForward}
-          onClick={onForward}
-        >
-          <Icon name="chevron" size={17} />
-        </button>
-      </div>
+      <button
+        type="button"
+        className="shell-sidebar-toggle"
+        aria-label={sidebarExpanded ? "收起侧栏" : "展开侧栏"}
+        title={sidebarExpanded ? "收起侧栏" : "展开侧栏"}
+        aria-expanded={sidebarExpanded}
+        onClick={onToggleSidebar}
+      >
+        <Icon name="panel" size={18} />
+      </button>
 
       <div className="shell-heading" data-tauri-drag-region>
         <span className="shell-app-name" data-tauri-drag-region>Sirius</span>
@@ -118,38 +89,8 @@ export function TopBar({
         </div>
       )}
 
-      <div className="shell-account-area">
+      <div className="shell-topbar-actions">
         {taskDrawer}
-        {storage && (
-          <div className="shell-storage" title={`已用 ${storage.used}，总容量 ${storage.total}`}>
-            <span>{storage.used}<span> / {storage.total}</span></span>
-            <div
-              className="shell-storage-meter"
-              role="meter"
-              aria-label="115 网盘空间使用率"
-              aria-valuenow={storage.percent}
-              aria-valuemin={0}
-              aria-valuemax={100}
-            >
-              <i style={{ width: `${storage.percent}%` }} />
-            </div>
-          </div>
-        )}
-        <button
-          type="button"
-          className="shell-account-button"
-          aria-label={`管理 115 账号：${accountName}`}
-          title="管理 115 账号"
-          onClick={onManageAccount}
-        >
-          <span className="shell-account-avatar">
-            {avatarUrl ? (
-              <img src={avatarUrl} alt="" referrerPolicy="no-referrer" />
-            ) : <Icon name="user" size={17} />}
-          </span>
-          <span className="shell-account-name">{accountName}</span>
-          <Icon name="chevron" size={12} />
-        </button>
       </div>
     </header>
   );
