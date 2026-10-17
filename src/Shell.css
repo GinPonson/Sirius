@@ -385,6 +385,15 @@
   display: none;
 }
 
+/* 收起态文字标签：瓦片仅 48px，超长标签（如「网盘文件」）会把图标挤出
+   可视区。当前四项均为两字不会触发，这里作为文案变更时的兜底。 */
+.app-sidebar .nav-item-label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .app-frame[data-sidebar-expanded="true"] .app-sidebar .nav-group-label {
   display: block;
   padding: 0 var(--space-3) 7px;
