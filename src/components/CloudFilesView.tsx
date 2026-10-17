@@ -836,8 +836,9 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
 
   /**
    * 无限滚动：底部哨兵进入视口即加载下一页，取代「加载更多」按钮。
-   * 依赖里的已加载条数会重建观察器，使短内容在数据落地后继续预取，
-   * 直到填满一屏或没有更多；进行中的请求由 loadingMore / recycleLoadingMore 拦截。
+   * 哨兵仅在仍有下一页时挂载，因此依赖里的 hasMore / recycleHasMore 变化
+   * 会重建观察器；已加载条数变化同样重建，使短内容在数据落地后继续预取，
+   * 直到填满一屏或没有更多。进行中的请求由 loadingMore / recycleLoadingMore 拦截。
    */
   requestNextPageRef.current = () => {
     if (recycleView) {
@@ -1257,6 +1258,10 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
                       <span className="cloud-sort-caret" aria-hidden="true"><Icon name="chevron" size={12} /></span>
                     </button>
                   </div>
+                  <span className="cloud-account-badge" title={`115 账号：${account.userName ?? "已连接"}`}>
+                    <i aria-hidden="true" />
+                    {account.userName ?? "115 已连接"}
+                  </span>
                   <span>{loadedCountLabel}</span>
                 </div>
                 <div className="cloud-toolbar-actions">
@@ -1599,10 +1604,12 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
               )}
             </div>
           )}
-          {/* 哨兵：滚到这里即自动续页；仅在翻页进行中显示轻量提示。 */}
-          <div className="cloud-load-sentinel" ref={loadMoreSentinelRef}>
-            {(loadingMore || recycleLoadingMore) && <span>正在加载…</span>}
-          </div>
+          {/* 哨兵：滚到这里即自动续页；仅在仍有下一页时挂载，避免无数据时常驻占位。 */}
+          {(hasMore || recycleHasMore) && (
+            <div className="cloud-load-sentinel" ref={loadMoreSentinelRef}>
+              {(loadingMore || recycleLoadingMore) && <span>正在加载…</span>}
+            </div>
+          )}
 
       </div>
 

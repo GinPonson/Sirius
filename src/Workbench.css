@@ -189,6 +189,30 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* 连接态徽标：账号入口已迁至侧栏底部，这里保留一行连接标识，
+   避免文件页本身看不出当前操作的是哪个 115 账号。
+   极窄窗口下整体可截断，保证右侧视图控件与操作不被挤出。 */
+.cloud-account-badge {
+  display: inline-flex;
+  min-width: 0;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cloud-account-badge > i {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--success);
+}
+
 .file-filter-row .segmented-control {
   gap: 2px;
   padding: 0;
