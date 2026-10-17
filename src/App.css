@@ -233,7 +233,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .cloud-app-switcher { position:relative; }
 .cloud-app-icon { display:grid; width:38px; height:38px; place-items:center; border:1px solid transparent; border-radius:11px; background:var(--primary-soft); color:var(--primary); font-size:15px; font-weight:680; cursor:pointer; transition:border-color var(--duration-fast) var(--ease-standard),background var(--duration-fast) var(--ease-standard),transform var(--duration-fast) var(--ease-standard); }
 .cloud-app-icon:hover,.cloud-app-icon.active { border-color:var(--hairline-strong); background:var(--primary-soft); }
-.cloud-app-picker { position:absolute; top:46px; right:0; display:grid; width:180px; max-height:230px; overflow:auto; padding:5px; border:1px solid var(--hairline-strong); border-radius:10px; background:var(--surface); box-shadow:var(--shadow-2); z-index:1; }
+.cloud-app-picker { position:absolute; top:46px; left:0; display:grid; width:180px; max-height:230px; overflow:auto; padding:5px; border:1px solid var(--hairline-strong); border-radius:10px; background:var(--surface); box-shadow:var(--shadow-2); z-index:1; }
 .cloud-app-picker button { display:grid; grid-template-columns:minmax(0,1fr) 7px; min-height:31px; align-items:center; gap:8px; padding:0 9px; border:0; border-radius: var(--radius-sm); background:transparent; color:var(--muted); font-size:var(--text-meta); text-align:left; cursor:pointer; }
 .cloud-app-picker button span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .cloud-app-picker button i { width:6px; height:6px; border-radius:50%; background:transparent; }
@@ -557,6 +557,15 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .login-panel-head strong { color:var(--fg); font-size:17px; font-weight:630; }
 .login-panel-head span { color:var(--muted); font-size:12px; }
 .login-panel-head .brand-mark { width:38px; height:38px; border-radius:11px; }
+/* 品牌标记兼作隐藏入口：外观与静态标记一致，不暴露可点击提示 */
+.brand-mark.cloud-app-trigger {
+  padding: 0; border: 0; cursor: default;
+  transition: box-shadow var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
+}
+.brand-mark.cloud-app-trigger:hover { box-shadow: 0 0 0 2px var(--primary-tint); }
+.brand-mark.cloud-app-trigger:active { transform: scale(0.96); }
+.brand-mark.cloud-app-trigger:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.brand-mark.cloud-app-trigger.active { box-shadow: 0 0 0 2px var(--primary-soft); }
 .login-qr { display:grid; width:232px; height:232px; place-items:center; margin-bottom:18px; padding:0; border:1px solid var(--hairline-strong); border-radius: var(--radius-xl); background:#fff; cursor:pointer; transition:border-color var(--duration-fast) var(--ease-standard),transform var(--duration-fast) var(--ease-standard); }
 .login-qr:hover:not(:disabled) { border-color:var(--hairline-strong); }
 .login-qr:disabled { cursor:default; }

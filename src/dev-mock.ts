@@ -793,7 +793,11 @@ function openPlayback(source: string) {
 // 其余内存态：账号、设置、任务、播放进度、相册与漫画索引
 // ---------------------------------------------------------------------------
 
-const accountState = { connected: true, userName: "冒烟测试员", userId: 42 };
+// ?logged-out=1 让夹具从登录首屏启动，便于回归扫码授权与应用选择入口。
+const startLoggedOut = new URLSearchParams(window.location.search).get("logged-out") === "1";
+const accountState = startLoggedOut
+  ? { connected: false, userName: "", userId: 0 }
+  : { connected: true, userName: "冒烟测试员", userId: 42 };
 
 let authPollCount = 0;
 

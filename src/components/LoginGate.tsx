@@ -154,20 +154,17 @@ export function LoginGate({ onAccountChange }: LoginGateProps) {
 
       <section className="login-gate-panel">
         <header className="login-panel-head">
-          <span className="brand-mark"><BrandMark size={20} /></span>
-          <div>
-            <strong>登录 115</strong>
-            <span>使用 115 App 扫码并确认</span>
-          </div>
+          {/* 品牌标记兼作隐藏入口：点击才展开登录应用选择，不在界面上暴露额外按钮。 */}
           <div ref={appSwitcherRef} className="cloud-app-switcher">
             <button
-              className={showAppPicker ? "cloud-app-icon active" : "cloud-app-icon"}
+              type="button"
+              className={showAppPicker ? "brand-mark cloud-app-trigger active" : "brand-mark cloud-app-trigger"}
               aria-label="选择登录应用"
               aria-expanded={showAppPicker}
               title="选择登录应用"
               onClick={() => setShowAppPicker((value) => !value)}
             >
-              <Icon name="more" size={16} />
+              <BrandMark size={20} />
             </button>
             {showAppPicker && (
               <div className="cloud-app-picker" role="menu">
@@ -185,6 +182,10 @@ export function LoginGate({ onAccountChange }: LoginGateProps) {
                 ))}
               </div>
             )}
+          </div>
+          <div>
+            <strong>登录 115</strong>
+            <span>使用 115 App 扫码并确认</span>
           </div>
         </header>
 
