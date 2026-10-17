@@ -23,6 +23,8 @@ export function LoginGate({ onAccountChange }: LoginGateProps) {
   const [clientId, setClientId] = useState("");
   const [challenge, setChallenge] = useState<Cloud115AuthChallenge | null>(null);
   const [message, setMessage] = useState("正在生成登录二维码");
+  /** 二维码过期：保留已生成的二维码作为淡化背景，覆盖刷新提示层。 */
+  const [expired, setExpired] = useState(false);
   const [showAppPicker, setShowAppPicker] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,7 +92,8 @@ export function LoginGate({ onAccountChange }: LoginGateProps) {
           return;
         }
         if (result.status === "expired" || result.status === "denied") {
-          setChallenge(null);
+          // 保留二维码本身，交给界面叠加「已过期」刷新层；避免闪回空白加载态。
+          setExpired(true);
           return;
         }
         timeout = window.setTimeout(poll, 1200);
@@ -116,12 +119,14 @@ export function LoginGate({ onAccountChange }: LoginGateProps) {
     }
     setBusy(true);
     setError(null);
+    setExpired(false);
     setMessage("正在生成登录二维码");
     try {
       setChallenge(await cloud115.beginAuth(nextClientId));
       setMessage("请使用 115 App 扫描二维码");
     } catch (reason) {
       setChallenge(null);
+      setExpired(false);
       setMessage("登录二维码未能生成");
       setError(`生成登录二维码失败：${String(reason)}`);
     } finally {
@@ -191,15 +196,22 @@ export function LoginGate({ onAccountChange }: LoginGateProps) {
 
         <button
           className="login-qr"
-          aria-label={challenge ? "重新生成登录二维码" : "正在生成登录二维码"}
+          data-expired={expired ? "true" : "false"}
+          aria-label={expired ? "二维码已过期，点击刷新" : challenge ? "重新生成登录二维码" : "正在生成登录二维码"}
           disabled={busy || !clientId}
           onClick={() => void generateQr(clientId)}
         >
-          {challenge ? <img src={challenge.qrDataUri} alt="115 App 登录二维码" /> : <span className="cloud-auth-loading" />}
+          {challenge ? <img src={challenge.qrDataUri} alt="" /> : <span className="cloud-auth-loading" />}
+          {expired && (
+            // 过期态保留淡化的二维码作为背景，整块区域仍是一个按钮，点击即重新生成。
+            <span className="login-qr-expired" aria-hidden="true">
+              <span className="login-qr-refresh"><Icon name="refresh" size={24} /></span>
+              <span className="login-qr-expired-text">二维码过期，请刷新</span>
+            </span>
+          )}
         </button>
-        <strong className="login-status">{busy ? "正在生成登录二维码" : message}</strong>
-        <span className="login-tip">二维码失效后点击二维码区域可重新生成</span>
-        {!challenge && !busy && <button className="secondary-action" onClick={() => void generateQr(clientId)}>重新生成</button>}
+        {!expired && <strong className="login-status">{busy ? "正在生成登录二维码" : message}</strong>}
+        {!expired && <span className="login-tip">二维码失效后点击二维码区域可重新生成</span>}
         {error && <p className="cloud-inline-error" role="alert">{error}</p>}
       </section>
     </div>

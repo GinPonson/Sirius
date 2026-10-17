@@ -1236,6 +1236,10 @@ const HANDLERS: Record<string, CmdHandler> = {
     };
   },
   cloud115_poll_auth: () => {
+    // ?qr-expired=1 让夹具直接进入过期态，便于回归刷新层。
+    if (new URLSearchParams(window.location.search).get("qr-expired") === "1") {
+      return { status: "expired", message: "二维码已过期", account: null };
+    }
     authPollCount += 1;
     if (authPollCount >= 3) {
       accountState.connected = true;

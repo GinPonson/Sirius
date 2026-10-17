@@ -571,6 +571,24 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .login-qr:disabled { cursor:default; }
 .login-qr img { display:block; width:208px; height:208px; }
 .login-qr .cloud-auth-loading { width:18px; height:18px; border-width:2px; }
+/* 过期态：淡化二维码作背景，叠加蓝色圆形刷新按钮与说明（整块仍是可点击按钮） */
+.login-qr { position: relative; overflow: hidden; }
+.login-qr[data-expired="true"] img { opacity: 0.16; filter: grayscale(1); }
+.login-qr[data-expired="true"]:hover { border-color: var(--primary); }
+.login-qr-expired {
+  position: absolute; inset: 0; display: flex;
+  flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+  background: rgba(255, 255, 255, 0.55);
+}
+.login-qr-refresh {
+  display: grid; width: 64px; height: 64px; place-items: center;
+  border-radius: 50%; background: var(--primary); color: var(--on-primary);
+  box-shadow: 0 6px 18px rgba(89, 105, 237, 0.34);
+  transition: transform var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
+}
+.login-qr[data-expired="true"]:hover .login-qr-refresh { transform: scale(1.06); box-shadow: 0 8px 22px rgba(89, 105, 237, 0.42); }
+.login-qr[data-expired="true"]:active .login-qr-refresh { transform: scale(0.97); }
+.login-qr-expired-text { color: var(--fg); font-size: 14px; font-weight: 500; letter-spacing: -0.01em; }
 .login-status { color:var(--fg); font-size:14px; font-weight:600; }
 .login-tip { margin-top:6px; color:var(--muted); font-size:12px; }
 .login-gate-panel > .secondary-action { margin-top:16px; }
