@@ -1309,43 +1309,19 @@ impl Cloud115Provider {
             return parse_file_page(&payload, parent_id, offset, limit);
         }
 
-        // 新版 OpenAPI 需要分别请求当前目录的文件夹(show_dir=1)与文件(show_dir=0, cur=1)。
-        // 首屏并发获取两类数据，既保持文件夹优先，也避免串行请求带来的额外等待。
-        if offset == 0 {
-            let folder_params = list_query_params(parent_id, 0, limit, Some(1));
-            let file_params = list_query_params(parent_id, 0, limit, Some(0));
-            let url = format!("{API_BASE_URL}/open/ufile/files");
-            let (folders, files) = tokio::join!(
-                self.authorized_json(reqwest::Method::GET, &url, Some(&folder_params), None),
-                self.authorized_json(reqwest::Method::GET, &url, Some(&file_params), None),
-            );
-            return merge_file_pages(folders?, files?, parent_id, offset, limit);
-        }
-
-        // 后续页先并发读取两类总数，再把统一 offset 映射为各自的真实 offset。
-        let folder_meta_params = list_query_params(parent_id, 0, 1, Some(1));
-        let file_meta_params = list_query_params(parent_id, 0, 1, Some(0));
-        let url = format!("{API_BASE_URL}/open/ufile/files");
-        let (folder_meta, file_meta) = tokio::join!(
-            self.authorized_json(reqwest::Method::GET, &url, Some(&folder_meta_params), None),
-            self.authorized_json(reqwest::Method::GET, &url, Some(&file_meta_params), None),
-        );
-        let folder_total = response_count(&folder_meta?)?;
-        let file_total = response_count(&file_meta?)?;
-        let folder_offset = offset.min(folder_total);
-        let folder_limit = limit.min(folder_total.saturating_sub(folder_offset));
-        let file_offset = offset.saturating_sub(folder_total);
-        let file_limit = limit
-            .saturating_sub(folder_limit)
-            .min(file_total.saturating_sub(file_offset));
-        let folder_params =
-            list_query_params(parent_id, folder_offset, folder_limit.max(1), Some(1));
-        let file_params = list_query_params(parent_id, file_offset, file_limit.max(1), Some(0));
-        let (folders, files) = tokio::join!(
-            self.authorized_json(reqwest::Method::GET, &url, Some(&folder_params), None),
-            self.authorized_json(reqwest::Method::GET, &url, Some(&file_params), None),
-        );
-        merge_file_pages(folders?, files?, parent_id, offset, limit)
+        // 单次请求取混合列表：show_dir=1 + fc_mix=1 时 115 会一次返回目录与文件，
+        // 由 parse_file_entry 按 fc/fid 判别类型。这与 p115client 及 StarVault 的
+        // 既有做法一致，避免每个目录都发两次请求（限速下会被拉长到 2 倍间隔）。
+        let params = list_query_params(parent_id, offset, limit, Some(1));
+        let payload = self
+            .authorized_json(
+                reqwest::Method::GET,
+                &format!("{API_BASE_URL}/open/ufile/files"),
+                Some(&params),
+                None,
+            )
+            .await?;
+        parse_file_page(&payload, parent_id, offset, limit)
     }
 
     pub async fn playback_source(&self, pick_code: &str) -> Result<Cloud115PlaybackSource, String> {
@@ -1956,17 +1932,24 @@ impl Cloud115Provider {
         Ok(refreshed.access_token)
     }
 
-    /// 控制面限速：持锁补足距上次 OpenAPI 请求的间隔，把并发请求串行成匀速队列。
+    /// 控制面限速：在锁内**预约**一个发起时间槽，随即释放锁再执行网络请求。
+    ///
+    /// 锁只覆盖时间槽预约，不覆盖网络往返：否则一个慢请求会把所有共享限速器的调用
+    /// 完全串行化，并发读取（如目录首屏的文件夹 + 文件两路）会被拉长到 2 倍间隔。
+    /// 预约制下相邻请求的发起间隔仍 ≥ [`CONTROL_REQUEST_MIN_INTERVAL`]，不产生 burst。
     /// 下载与 OSS 上传的数据流不走此限速，只约束会互相触发的控制 API。
     async fn pace_control_request(&self) {
-        let mut last = self.last_control_request.lock().await;
-        if let Some(last_instant) = *last {
-            let elapsed = last_instant.elapsed();
-            if elapsed < CONTROL_REQUEST_MIN_INTERVAL {
-                tokio::time::sleep(CONTROL_REQUEST_MIN_INTERVAL - elapsed).await;
+        {
+            let mut last = self.last_control_request.lock().await;
+            if let Some(last_instant) = *last {
+                let elapsed = last_instant.elapsed();
+                if elapsed < CONTROL_REQUEST_MIN_INTERVAL {
+                    tokio::time::sleep(CONTROL_REQUEST_MIN_INTERVAL - elapsed).await;
+                }
             }
+            *last = Some(Instant::now());
+            // 锁在此处释放；后续网络请求不再持锁。
         }
-        *last = Some(Instant::now());
     }
 
     async fn authorized_json(
@@ -2125,31 +2108,6 @@ fn parse_file_page(
 ) -> Result<Cloud115FilePage, String> {
     let total = response_count(payload)?;
     let entries = parse_entries(payload, parent_id)?;
-    Ok(Cloud115FilePage {
-        has_more: offset.saturating_add(entries.len() as u64) < total,
-        entries,
-        total,
-        offset,
-        limit,
-    })
-}
-
-fn merge_file_pages(
-    folders: Value,
-    files: Value,
-    parent_id: &str,
-    offset: u64,
-    limit: u64,
-) -> Result<Cloud115FilePage, String> {
-    let total = response_count(&folders)?.saturating_add(response_count(&files)?);
-    let mut entries = parse_entries(&folders, parent_id)?;
-    entries.retain(|entry| entry.kind == "folder");
-    entries.extend(
-        parse_entries(&files, parent_id)?
-            .into_iter()
-            .filter(|entry| entry.kind != "folder"),
-    );
-    entries.truncate(limit as usize);
     Ok(Cloud115FilePage {
         has_more: offset.saturating_add(entries.len() as u64) < total,
         entries,
@@ -2828,6 +2786,52 @@ mod tests {
             Some("https://thumb.example/8.jpg")
         );
         assert_eq!(folder.thumb_url, None);
+    }
+
+    /// 单次 show_dir=1 + fc_mix=1 请求返回目录与文件混合列表：
+    /// 必须按 fc/fid 正确区分两类条目，且总数取 115 返回的 count。
+    #[test]
+    fn parses_mixed_folder_and_file_listing() {
+        let payload = serde_json::json!({
+            "state": true,
+            "code": 0,
+            "count": 2,
+            "data": [
+                {"fn": "电影", "fc": 0, "cid": "42", "pid": "0"},
+                {"fn": "Arrival.mkv", "fc": 1, "fid": "8", "cid": "42", "s": "1024", "ico": "mkv"}
+            ]
+        });
+        let page = parse_file_page(&payload, "0", 0, 100).expect("mixed page should parse");
+        assert_eq!(page.total, 2);
+        assert_eq!(page.entries.len(), 2);
+        assert_eq!(page.entries[0].kind, "folder");
+        assert_eq!(page.entries[0].name, "电影");
+        assert_eq!(page.entries[1].kind, "video");
+        assert_eq!(page.entries[1].name, "Arrival.mkv");
+        assert!(!page.has_more);
+    }
+
+    /// 限速预约制：并发请求各自预约时间槽后立即释放锁，
+    /// 因此两路并发读取的等待时间应接近一个间隔，而不是两个间隔。
+    #[tokio::test]
+    async fn pacing_reserves_slots_without_serializing_network() {
+        let provider = Cloud115Provider::new().expect("构造测试用 provider");
+        let started = Instant::now();
+        tokio::join!(
+            provider.pace_control_request(),
+            provider.pace_control_request(),
+        );
+        let elapsed = started.elapsed();
+        // 首个请求无需等待；第二个补足一个间隔。若锁覆盖网络往返，
+        // 这里会接近 2 个间隔。
+        assert!(
+            elapsed >= CONTROL_REQUEST_MIN_INTERVAL,
+            "第二个请求应补足间隔，实际 {elapsed:?}"
+        );
+        assert!(
+            elapsed < CONTROL_REQUEST_MIN_INTERVAL * 2,
+            "并发预约不应串行成两个完整间隔，实际 {elapsed:?}"
+        );
     }
 
     #[test]
