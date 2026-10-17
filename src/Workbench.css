@@ -387,63 +387,103 @@
   font-size: 11px;
 }
 
-/* 首次加载骨架：与真实行同高，带呼吸微光，明确表达「正在读取」而非空行 */
+/* 首次加载骨架：与真实行同构（图标块 + 文件名条 + 各列占位），统一扫光。
+   形状接近真实内容，用户能预期即将出现的表格结构，而不是看几条空横线。 */
 .cloud-file-skeleton {
   display: flex;
   flex-direction: column;
 }
 
-.cloud-file-skeleton span {
-  height: 50px;
+.skeleton-row {
+  display: grid;
+  grid-template-columns: 28px minmax(160px, 1fr) 64px 88px 120px 104px;
+  align-items: center;
+  gap: 10px;
+  min-height: 50px;
+  padding: 7px 12px;
   border-bottom: 1px solid var(--hairline);
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    color-mix(in srgb, var(--primary) 5%, transparent) 42%,
-    color-mix(in srgb, var(--primary) 9%, transparent) 50%,
-    color-mix(in srgb, var(--primary) 5%, transparent) 58%,
-    transparent 100%
-  );
-  background-size: 240% 100%;
-  animation: skeleton-sweep 1.5s var(--ease-standard) infinite;
 }
 
-.cloud-file-skeleton span:nth-child(2) { animation-delay: 0.08s; }
-.cloud-file-skeleton span:nth-child(3) { animation-delay: 0.16s; }
-.cloud-file-skeleton span:nth-child(4) { animation-delay: 0.24s; }
-.cloud-file-skeleton span:nth-child(5) { animation-delay: 0.32s; }
+.skeleton-row > span {
+  display: block;
+  border-radius: var(--radius-xs);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--fg) 10%, var(--surface)) 0%,
+    color-mix(in srgb, var(--fg) 17%, var(--surface)) 50%,
+    color-mix(in srgb, var(--fg) 10%, var(--surface)) 100%
+  );
+  background-size: 220% 100%;
+  animation: skeleton-sweep 1.4s var(--ease-standard) infinite;
+}
+
+.skeleton-check { width: 15px; height: 15px; border-radius: var(--radius-xs); }
+
+.skeleton-name {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  background: none !important;
+  animation: none !important;
+}
+
+.skeleton-icon {
+  display: block;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--fg) 10%, var(--surface)) 0%,
+    color-mix(in srgb, var(--fg) 17%, var(--surface)) 50%,
+    color-mix(in srgb, var(--fg) 10%, var(--surface)) 100%
+  );
+  background-size: 220% 100%;
+  animation: skeleton-sweep 1.4s var(--ease-standard) infinite;
+}
+
+.skeleton-bar {
+  display: block;
+  height: 11px;
+  border-radius: var(--radius-xs);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--fg) 10%, var(--surface)) 0%,
+    color-mix(in srgb, var(--fg) 17%, var(--surface)) 50%,
+    color-mix(in srgb, var(--fg) 10%, var(--surface)) 100%
+  );
+  background-size: 220% 100%;
+  animation: skeleton-sweep 1.4s var(--ease-standard) infinite;
+}
+
+.skeleton-cell { height: 10px; }
+
+/* 逐行错峰，避免整表同步闪烁 */
+.skeleton-row:nth-child(2) > span { animation-delay: 0.06s; }
+.skeleton-row:nth-child(3) > span { animation-delay: 0.12s; }
+.skeleton-row:nth-child(4) > span { animation-delay: 0.18s; }
+.skeleton-row:nth-child(5) > span { animation-delay: 0.24s; }
+.skeleton-row:nth-child(6) > span { animation-delay: 0.30s; }
+
+/* 紧凑密度：行高与图标同步收缩 */
+.cloud-file-pane[data-density="compact"] .skeleton-row { min-height: 38px; padding: 4px 12px; }
+.cloud-file-pane[data-density="compact"] .skeleton-icon { width: 26px; height: 26px; }
 
 @keyframes skeleton-sweep {
-  0% { background-position: 140% 0; }
-  100% { background-position: -40% 0; }
+  0% { background-position: 120% 0; }
+  100% { background-position: -60% 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .cloud-file-skeleton span {
+  .skeleton-row > span,
+  .skeleton-icon,
+  .skeleton-bar {
     animation: none;
-    background: color-mix(in srgb, var(--primary) 4%, transparent);
+    background: color-mix(in srgb, var(--fg) 13%, var(--surface));
   }
 }
 
-/* ---------------------------------------------------------------------------
-   刷新态：同目录重新加载时保留旧列表，叠加顶部进度条并淡化内容，
-   避免清空成空表 + 「已加载 0 / N」造成的闪烁与误导。
-   --------------------------------------------------------------------------- */
-.file-table[data-refreshing="true"],
-.file-grid[data-refreshing="true"] {
-  position: relative;
-}
-
-/* 旧列表淡化并屏蔽交互，防止刷新期间误点/误拖 */
-.file-table[data-refreshing="true"] > .file-row,
-.file-table[data-refreshing="true"] > .cloud-file-skeleton,
-.file-grid[data-refreshing="true"] > [data-entry-id] {
-  opacity: 0.5;
-  pointer-events: none;
-  transition: opacity var(--duration-fast) var(--ease-standard);
-}
-
-/* 顶部不确定进度条：仅刷新时出现，2px，不占布局高度 */
 .file-refresh-bar {
   position: sticky;
   top: 0;

@@ -1651,9 +1651,25 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
   );
 }
 
-/** 与真实列表行同尺寸的骨架，避免目录切换时页面跳动。 */
+/** 与真实列表行同构的骨架：图标块 + 文件名条 + 各列占位，统一扫光。 */
 function FileRowsSkeleton() {
-  return <div className="cloud-file-skeleton" aria-label="正在读取文件">{Array.from({ length: 5 }, (_, index) => <span key={index} />)}</div>;
+  return (
+    <div className="cloud-file-skeleton" aria-label="正在读取文件" role="status">
+      {Array.from({ length: 6 }, (_, index) => (
+        <div className="skeleton-row" key={index}>
+          <span className="skeleton-check" />
+          <span className="skeleton-name">
+            <span className="skeleton-icon" />
+            <span className="skeleton-bar" style={{ width: `${58 + ((index * 13) % 34)}%` }} />
+          </span>
+          <span className="skeleton-cell" style={{ width: "58%" }} />
+          <span className="skeleton-cell" style={{ width: "70%" }} />
+          <span className="skeleton-cell" style={{ width: "82%" }} />
+          <span className="skeleton-cell" style={{ width: "24%" }} />
+        </div>
+      ))}
+    </div>
+  );
 }
 
 /** 网格视图的骨架：与卡片同形的占位块，切换视图时不跳动。 */
