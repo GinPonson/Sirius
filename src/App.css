@@ -20,9 +20,10 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .window-drag-region { height: 44px; margin: 0 -16px; }
 .sidebar-brand { display: flex; align-items: center; gap: 10px; padding: 10px 8px 18px; }
 .brand-mark {
-  display: grid; width: 30px; height: 30px; place-items: center; border-radius: var(--radius-md);
-  background: var(--primary-soft); color: var(--primary); font-size: 16px; font-weight: 650;
+  display: grid; width: 30px; height: 30px; place-items: center; overflow: hidden;
+  border-radius: var(--radius-md); background: var(--primary-soft);
 }
+.brand-mark-art { display: block; width: 100%; height: 100%; object-fit: cover; }
 .sidebar-brand div, .source-summary div:not(.source-icon) { display: flex; min-width: 0; flex-direction: column; }
 .sidebar-brand strong { font-size:14px; font-weight:620; }
 .sidebar-brand small, .source-summary small { margin-top: 2px; color: var(--muted); font-size: 12px; }
@@ -534,7 +535,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 
 /* 登录专属首屏 —— 非对称双区构图（DESIGN.md §12 entry-screen） */
 .boot-splash { position:fixed; inset:0; display:grid; place-items:center; background:var(--canvas); z-index:30; }
-.boot-splash .brand-mark { width:42px; height:42px; border-radius: var(--radius-lg); font-size:20px; animation:boot-pulse 1.1s ease-in-out infinite alternate; }
+.boot-splash .brand-mark { width:42px; height:42px; border-radius: var(--radius-lg); animation:boot-pulse 1.1s ease-in-out infinite alternate; }
 @keyframes boot-pulse { to { opacity:.45; } }
 .login-gate { position:fixed; inset:0; display:grid; grid-template-columns:minmax(0,1.45fr) minmax(400px,.9fr); background:var(--canvas); z-index:20; }
 .login-gate-stage { position:relative; overflow:hidden; display:flex; flex-direction:column; justify-content:flex-end; gap:16px; padding:72px 68px 56px; background:linear-gradient(150deg,#0b1526 0%,#12233f 48%,#1c3a6e 100%); color:var(--on-primary); }
@@ -555,7 +556,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .login-panel-head > div:not(.cloud-app-switcher) { display:flex; min-width:0; flex:1; flex-direction:column; gap:2px; }
 .login-panel-head strong { color:var(--fg); font-size:17px; font-weight:630; }
 .login-panel-head span { color:var(--muted); font-size:12px; }
-.login-panel-head .brand-mark { width:38px; height:38px; border-radius:11px; font-size:18px; }
+.login-panel-head .brand-mark { width:38px; height:38px; border-radius:11px; }
 .login-qr { display:grid; width:232px; height:232px; place-items:center; margin-bottom:18px; padding:0; border:1px solid var(--hairline-strong); border-radius: var(--radius-xl); background:#fff; cursor:pointer; transition:border-color var(--duration-fast) var(--ease-standard),transform var(--duration-fast) var(--ease-standard); }
 .login-qr:hover:not(:disabled) { border-color:var(--hairline-strong); }
 .login-qr:disabled { cursor:default; }
@@ -611,7 +612,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .comics-stats { color:var(--muted); font-size:13px; font-variant-numeric:tabular-nums; letter-spacing:.01em; }
 
 /* 品牌标识：实心渐变芯片 + 投影，登录首屏与侧栏同源 */
-.brand-mark { background:linear-gradient(135deg,var(--primary),var(--primary-lift)); color:var(--on-primary); box-shadow:0 4px 12px rgba(89,105,237,.35); }
+.brand-mark { background:var(--surface-sunken); box-shadow:0 2px 8px rgba(34,54,82,.16); }
 
 /* 侧栏活动指示条：左侧弹簧滑入，替代纯色块的单调感 */
 .nav-item { position:relative; }

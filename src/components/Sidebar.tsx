@@ -1,3 +1,4 @@
+import { BrandMark } from "./BrandMark";
 import { Icon } from "./Icon";
 
 /** 侧栏导航标识；AI 整理并入右下角对话面板，不再占用侧栏入口。 */
@@ -46,7 +47,7 @@ export function Sidebar({
   return (
     <aside className="app-sidebar" aria-label="Sirius 功能导航">
       <div className="sidebar-brand" data-tauri-drag-region>
-        <span className="brand-mark" aria-hidden="true" data-tauri-drag-region>S</span>
+        <span className="brand-mark" aria-hidden="true" data-tauri-drag-region><BrandMark size={18} /></span>
         <strong data-tauri-drag-region>Sirius</strong>
       </div>
 

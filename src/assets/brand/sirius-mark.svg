@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- 深空底：夜蓝到近黑的径向渐变，让星体成为唯一焦点 -->
+    <radialGradient id="sky" cx="50%" cy="42%" r="72%">
+      <stop offset="0%" stop-color="#1e2f63"/>
+      <stop offset="52%" stop-color="#111c3d"/>
+      <stop offset="100%" stop-color="#070c1c"/>
+    </radialGradient>
+    <!-- 星体本体：白心到冰蓝，模拟天狼星的冷白高亮 -->
+    <radialGradient id="core" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="46%" stop-color="#eaf1ff"/>
+      <stop offset="100%" stop-color="#a8c4ff"/>
+    </radialGradient>
+    <!-- 四芒星辉光：从中心向外淡出，制造光晕而非硬边 -->
+    <radialGradient id="halo" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#cfe0ff" stop-opacity="0.55"/>
+      <stop offset="55%" stop-color="#8fb3ff" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#8fb3ff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ray" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.05"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 画布圆角矩形（macOS 图标本体） -->
+  <rect x="0" y="0" width="1024" height="1024" rx="230" fill="url(#sky)"/>
+
+  <!-- 极淡的星尘，避免纯色底显得空 -->
+  <g fill="#ffffff" opacity="0.30">
+    <circle cx="250" cy="250" r="7"/>
+    <circle cx="790" cy="205" r="5"/>
+    <circle cx="822" cy="760" r="8"/>
+    <circle cx="205" cy="742" r="4.5"/>
+    <circle cx="620" cy="150" r="3.5"/>
+    <circle cx="330" cy="862" r="4"/>
+  </g>
+
+  <!-- 光晕 -->
+  <circle cx="512" cy="512" r="300" fill="url(#halo)"/>
+
+  <!-- 四芒星：长竖芒 + 短横芒，形成 Sirius 的锐利星光 -->
+  <path d="M512 176 C528 386 566 458 848 512 C566 566 528 638 512 848 C496 638 458 566 176 512 C458 458 496 386 512 176 Z"
+        fill="url(#core)"/>
+
+  <!-- 纵向主芒的亮度增强（沿轴线的细长高光） -->
+  <path d="M512 190 L524 470 L512 834 L500 470 Z" fill="url(#ray)" opacity="0.55"/>
+
+  <!-- 中心核心：强化最亮的一点 -->
+  <circle cx="512" cy="512" r="46" fill="#ffffff"/>
+  <circle cx="512" cy="512" r="22" fill="#ffffff" opacity="0.9"/>
+</svg>

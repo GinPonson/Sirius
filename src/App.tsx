@@ -9,6 +9,7 @@ import severanceStill from "./assets/watch-stills/severance-office.jpg";
 import { Icon } from "./components/Icon";
 import { AlbumsView } from "./components/AlbumsView";
 import { AiChatPanel } from "./components/AiChatPanel";
+import { BrandMark } from "./components/BrandMark";
 import { TaskDrawer } from "./components/TaskDrawer";
 import { CloudFilesView } from "./components/CloudFilesView";
 import { ComicsView } from "./components/ComicsView";
@@ -593,7 +594,7 @@ function App() {
   if (cloudAccount === null) {
     return (
       <div className="boot-splash" role="status" aria-label="正在启动 Sirius">
-        <span className="brand-mark">S</span>
+        <span className="brand-mark"><BrandMark size={22} /></span>
       </div>
     );
   }

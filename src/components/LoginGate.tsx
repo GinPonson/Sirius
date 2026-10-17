@@ -5,6 +5,7 @@ import {
   type Cloud115AuthChallenge,
   type Cloud115ClientApp,
 } from "../services/mediaServices";
+import { BrandMark } from "./BrandMark";
 import { Icon } from "./Icon";
 
 type LoginGateProps = {
@@ -153,7 +154,7 @@ export function LoginGate({ onAccountChange }: LoginGateProps) {
 
       <section className="login-gate-panel">
         <header className="login-panel-head">
-          <span className="brand-mark">S</span>
+          <span className="brand-mark"><BrandMark size={20} /></span>
           <div>
             <strong>登录 115</strong>
             <span>使用 115 App 扫码并确认</span>
@@ -166,7 +167,7 @@ export function LoginGate({ onAccountChange }: LoginGateProps) {
               title="选择登录应用"
               onClick={() => setShowAppPicker((value) => !value)}
             >
-              S
+              <Icon name="more" size={16} />
             </button>
             {showAppPicker && (
               <div className="cloud-app-picker" role="menu">
