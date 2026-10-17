@@ -10,7 +10,6 @@ import {
 import { isTransferActive } from "../services/events";
 import { useTransferEvents, type TransferState } from "../hooks/useTransferEvents";
 import { registerViewPageContext, notifyPageContextChanged, type AiPageContext } from "../domain/pageContext";
-import { BrandMark } from "./BrandMark";
 import { Icon } from "./Icon";
 import { FileTypeIcon } from "./FileTypeIcon";
 import { FileThumbnail } from "./FileThumbnail";
@@ -1309,7 +1308,7 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
                 <span role="columnheader">原位置</span>
                 <span aria-hidden="true" />
               </div>
-              {recycleLoading ? <FileRowsSkeleton /> : recycleEntries.length > 0 ? recycleEntries.map((item) => (
+              {recycleLoading ? <FileLoadingLabel /> : recycleEntries.length > 0 ? recycleEntries.map((item) => (
                 <div className={`file-row${recycleSelected.has(item.id) ? " selected" : ""}`} role="row" key={item.id}>
                   <input
                     type="checkbox"
@@ -1379,7 +1378,7 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
                 </button>
                 <span aria-hidden="true" />
               </div>
-              {loading ? <FileRowsSkeleton /> : visibleEntries.length > 0 ? visibleEntries.map((entry, index) => {
+              {loading ? <FileLoadingLabel /> : visibleEntries.length > 0 ? visibleEntries.map((entry, index) => {
                 const presentation = getFilePresentation(entry);
                 const longName = entry.kind === "folder" ? null : splitLongName(entry.name);
                 const selected = selectedIds.has(entry.id);
@@ -1490,7 +1489,7 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
               onClick={handleContainerBlankClick}
             >
               {refreshing && <div className="file-refresh-bar" role="status" aria-label="正在刷新文件列表" />}
-              {loading ? <FileGridSkeleton compact={density === "compact"} /> : visibleEntries.length > 0 ? visibleEntries.map((entry, index) => {
+              {loading ? <FileLoadingLabel compact /> : visibleEntries.length > 0 ? visibleEntries.map((entry, index) => {
                 const presentation = getFilePresentation(entry);
                 const selected = selectedIds.has(entry.id);
                 return (
@@ -1653,38 +1652,11 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
   );
 }
 
-/**
- * 加载指示：用品牌星体本身作为加载符号——缓慢旋转的四芒星 + 向外扩散的光环。
- * 比灰条骨架更有辨识度，且不假装内容形状（读取中不应暗示即将出现什么）。
- */
-function FileLoadingState({ compact = false }: { compact?: boolean }) {
+/** 读取中的极简状态：单行文字，不做动画。目录读取已足够快，不需要加载表演。 */
+function FileLoadingLabel({ compact = false }: { compact?: boolean }) {
   return (
-    <div className={`file-loading${compact ? " file-loading-compact" : ""}`} role="status" aria-label="正在读取文件">
-      <span className="file-loading-mark" aria-hidden="true">
-        <span className="file-loading-ring" />
-        <span className="file-loading-ring file-loading-ring-late" />
-        <BrandMark size={compact ? 30 : 38} />
-      </span>
-      <span className="file-loading-text">正在读取文件</span>
-    </div>
-  );
-}
-
-/** 列表视图的加载态：单一居中的星体指示，不与占位行争夺注意力。 */
-function FileRowsSkeleton() {
-  return <FileLoadingState />;
-}
-
-/** 网格视图的加载占位：星体指示 + 卡片占位，切换视图时不跳动。 */
-function FileGridSkeleton({ compact }: { compact: boolean }) {
-  return (
-    <div className="cloud-file-grid-skeleton">
-      <FileLoadingState compact />
-      <div className="file-grid">
-        {Array.from({ length: compact ? 10 : 8 }, (_, index) => (
-          <span key={index} className="file-grid-skeleton-card" data-compact={compact ? "true" : undefined} />
-        ))}
-      </div>
+    <div className={`file-loading-label${compact ? " compact" : ""}`} role="status">
+      正在读取文件…
     </div>
   );
 }

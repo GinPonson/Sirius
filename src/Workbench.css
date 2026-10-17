@@ -387,176 +387,6 @@
   font-size: 11px;
 }
 
-/* ---------------------------------------------------------------------------
-   加载指示：品牌星体 + 扩散光环 + 呼吸旋转。
-   用品牌符号承担加载语义，比灰条更有辨识度；不假装内容形状。
-   --------------------------------------------------------------------------- */
-.file-loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  /* 占满表格可用高度并垂直居中，避免指示孤零零贴在上方 */
-  min-height: 320px;
-  padding: 24px 0;
-}
-
-.file-loading-mark {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 92px;
-  height: 92px;
-}
-
-.file-loading-mark .brand-mark-art {
-  position: relative;
-  z-index: 1;
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  animation: file-loading-breathe 2.4s var(--ease-standard) infinite;
-}
-
-/* 两圈错峰扩散的光环，形成向外辐射的节奏 */
-.file-loading-ring {
-  position: absolute;
-  inset: 0;
-  border: 1px solid color-mix(in srgb, var(--primary) 32%, transparent);
-  border-radius: 50%;
-  animation: file-loading-pulse 2.4s var(--ease-standard) infinite;
-}
-
-.file-loading-ring-late { animation-delay: 1.2s; }
-
-.file-loading-text {
-  color: var(--muted);
-  font-size: 13px;
-  letter-spacing: -0.01em;
-}
-
-.file-loading-compact { min-height: 240px; gap: 8px; }
-
-@keyframes file-loading-breathe {
-  0%, 100% { transform: scale(0.94) rotate(0deg); opacity: 0.82; }
-  50% { transform: scale(1.04) rotate(90deg); opacity: 1; }
-}
-
-@keyframes file-loading-pulse {
-  0% { transform: scale(0.42); opacity: 0.55; }
-  70% { opacity: 0.12; }
-  100% { transform: scale(1); opacity: 0; }
-}
-
-
-@media (prefers-reduced-motion: reduce) {
-  .file-loading-mark .brand-mark-art,
-  .file-loading-ring {
-    animation: none;
-  }
-  .file-loading-ring { opacity: 0.2; }
-}
-
-/* 辅助行：星体指示下方保留少量淡行，维持版面高度，避免加载完成后跳动 */
-.skeleton-row-faint { opacity: 0.3; }
-
-/* 首次加载骨架：与真实行同构（图标块 + 文件名条 + 各列占位），统一扫光。
-   形状接近真实内容，用户能预期即将出现的表格结构，而不是看几条空横线。 */
-.cloud-file-skeleton {
-  display: block;
-}
-
-.skeleton-row {
-  display: grid;
-  grid-template-columns: 28px minmax(160px, 1fr) 64px 88px 120px 104px;
-  align-items: center;
-  gap: 10px;
-  min-height: 50px;
-  padding: 7px 12px;
-  border-bottom: 1px solid var(--hairline);
-}
-
-.skeleton-row > span {
-  display: block;
-  border-radius: var(--radius-xs);
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--fg) 10%, var(--surface)) 0%,
-    color-mix(in srgb, var(--fg) 17%, var(--surface)) 50%,
-    color-mix(in srgb, var(--fg) 10%, var(--surface)) 100%
-  );
-  background-size: 220% 100%;
-  animation: skeleton-sweep 1.4s var(--ease-standard) infinite;
-}
-
-.skeleton-check { width: 15px; height: 15px; border-radius: var(--radius-xs); }
-
-.skeleton-name {
-  display: flex !important;
-  align-items: center;
-  gap: 10px;
-  background: none !important;
-  animation: none !important;
-}
-
-.skeleton-icon {
-  display: block;
-  width: 32px;
-  height: 32px;
-  flex: 0 0 auto;
-  border-radius: var(--radius-sm);
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--fg) 10%, var(--surface)) 0%,
-    color-mix(in srgb, var(--fg) 17%, var(--surface)) 50%,
-    color-mix(in srgb, var(--fg) 10%, var(--surface)) 100%
-  );
-  background-size: 220% 100%;
-  animation: skeleton-sweep 1.4s var(--ease-standard) infinite;
-}
-
-.skeleton-bar {
-  display: block;
-  height: 11px;
-  border-radius: var(--radius-xs);
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--fg) 10%, var(--surface)) 0%,
-    color-mix(in srgb, var(--fg) 17%, var(--surface)) 50%,
-    color-mix(in srgb, var(--fg) 10%, var(--surface)) 100%
-  );
-  background-size: 220% 100%;
-  animation: skeleton-sweep 1.4s var(--ease-standard) infinite;
-}
-
-.skeleton-cell { height: 10px; }
-
-/* 逐行错峰，避免整表同步闪烁 */
-.skeleton-row:nth-child(2) > span { animation-delay: 0.06s; }
-.skeleton-row:nth-child(3) > span { animation-delay: 0.12s; }
-.skeleton-row:nth-child(4) > span { animation-delay: 0.18s; }
-.skeleton-row:nth-child(5) > span { animation-delay: 0.24s; }
-.skeleton-row:nth-child(6) > span { animation-delay: 0.30s; }
-
-/* 紧凑密度：行高与图标同步收缩 */
-.cloud-file-pane[data-density="compact"] .skeleton-row { min-height: 38px; padding: 4px 12px; }
-.cloud-file-pane[data-density="compact"] .skeleton-icon { width: 26px; height: 26px; }
-
-@keyframes skeleton-sweep {
-  0% { background-position: 120% 0; }
-  100% { background-position: -60% 0; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .skeleton-row > span,
-  .skeleton-icon,
-  .skeleton-bar {
-    animation: none;
-    background: color-mix(in srgb, var(--fg) 13%, var(--surface));
-  }
-}
-
 .file-refresh-bar {
   position: sticky;
   top: 0;
@@ -3276,31 +3106,6 @@
   font-size: 12px;
 }
 
-.cloud-file-grid-skeleton {
-  display: flex;
-  flex-direction: column;
-  min-height: 240px;
-}
-
-/* 网格卡片占位：与星体加载指示同一套扫光与色阶 */
-.file-grid-skeleton-card {
-  display: block;
-  aspect-ratio: 3 / 4;
-  border-radius: var(--radius-md);
-  background: linear-gradient(
-    100deg,
-    color-mix(in srgb, var(--fg) 8%, var(--surface)) 25%,
-    color-mix(in srgb, var(--fg) 13%, var(--surface)) 40%,
-    color-mix(in srgb, var(--fg) 8%, var(--surface)) 55%
-  );
-  background-size: 220% 100%;
-  animation: shimmer 1.4s var(--ease-standard) infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .file-grid-skeleton-card { animation: none; }
-}
-
 @media (max-width: 980px) {
   .cloud-density-toggle {
     display: none;
@@ -4096,3 +3901,17 @@
 .chart-month.active span { background: var(--primary); }
 
 .chart-caption { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+
+
+/* 读取中的极简状态：单行文字，无动画（目录读取足够快，不需要加载表演） */
+.file-loading-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 180px;
+  padding: 24px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.file-loading-label.compact { min-height: 120px; }
