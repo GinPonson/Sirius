@@ -396,8 +396,10 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  padding: 44px 0 28px;
+  gap: 12px;
+  /* 占满表格可用高度并垂直居中，避免指示孤零零贴在上方 */
+  min-height: 320px;
+  padding: 24px 0;
 }
 
 .file-loading-mark {
@@ -452,7 +454,7 @@
 .file-loading-dots i:nth-child(2) { animation-delay: 0.15s; }
 .file-loading-dots i:nth-child(3) { animation-delay: 0.3s; }
 
-.file-loading-compact { padding: 32px 0 24px; gap: 8px; }
+.file-loading-compact { min-height: 240px; gap: 8px; }
 
 @keyframes file-loading-breathe {
   0%, 100% { transform: scale(0.94) rotate(0deg); opacity: 0.82; }
@@ -486,8 +488,7 @@
 /* 首次加载骨架：与真实行同构（图标块 + 文件名条 + 各列占位），统一扫光。
    形状接近真实内容，用户能预期即将出现的表格结构，而不是看几条空横线。 */
 .cloud-file-skeleton {
-  display: flex;
-  flex-direction: column;
+  display: block;
 }
 
 .skeleton-row {

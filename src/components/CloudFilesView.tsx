@@ -1577,7 +1577,8 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
 
       <div className="cloud-status-strip">
         <span><i />{account.userName ? `${account.userName} · 已连接` : "115 已连接"}</span>
-        <span>{total} 个项目</span>
+        {/* 加载中不显示总数，避免与「正在读取」并存造成「0 个项目」的误导 */}
+        <span>{loading ? "正在读取…" : `${total} 个项目`}</span>
         <button onClick={onManageAccount}>管理账号</button>
       </div>
 
@@ -1670,26 +1671,9 @@ function FileLoadingState({ compact = false }: { compact?: boolean }) {
   );
 }
 
-/** 列表视图的加载占位：星体指示居中，同时保留少量行占位维持版面高度。 */
+/** 列表视图的加载态：单一居中的星体指示，不与占位行争夺注意力。 */
 function FileRowsSkeleton() {
-  return (
-    <div className="cloud-file-skeleton">
-      <FileLoadingState />
-      {Array.from({ length: 3 }, (_, index) => (
-        <div className="skeleton-row skeleton-row-faint" key={index}>
-          <span className="skeleton-check" />
-          <span className="skeleton-name">
-            <span className="skeleton-icon" />
-            <span className="skeleton-bar" style={{ width: `${58 + ((index * 13) % 34)}%` }} />
-          </span>
-          <span className="skeleton-cell" style={{ width: "58%" }} />
-          <span className="skeleton-cell" style={{ width: "70%" }} />
-          <span className="skeleton-cell" style={{ width: "82%" }} />
-          <span className="skeleton-cell" style={{ width: "24%" }} />
-        </div>
-      ))}
-    </div>
-  );
+  return <FileLoadingState />;
 }
 
 /** 网格视图的加载占位：星体指示 + 卡片占位，切换视图时不跳动。 */
