@@ -1389,15 +1389,12 @@ impl Cloud115Provider {
             ));
         }
         if !query.trim().is_empty() {
-            // 搜索同样走 show_dir=1 + fc_mix=1：对齐 StarVault `searchFiles`（显式传
-            // showDir=1 / fcMix=1），否则搜索只回文件、目录项缺失。
             let search_cid = match search_scope {
                 Cloud115SearchScope::Current => parent_id,
                 // 全账号搜索：115 协议用 cid=0 表示跨目录匹配（不是"根目录内搜索"）。
                 Cloud115SearchScope::Global => "0",
             };
-            let mut params = list_query_params(search_cid, offset, limit, Some(1));
-            params.push(("search_value", query.trim().to_string()));
+            let params = search_query_params(search_cid, offset, limit, query.trim());
             let payload = self
                 .authorized_json(
                     reqwest::Method::GET,
@@ -1439,14 +1436,7 @@ impl Cloud115Provider {
                 "115 收藏列表分页参数无效（limit 需在 1..={MAX_PAGE_LIMIT} 之间）"
             ));
         }
-        let mut params = list_query_params("0", offset, limit, Some(1));
-        // cur=1 由 list_query_params 带入；收藏遍历要求 cur=0，这里显式改写。
-        for param in params.iter_mut() {
-            if param.0 == "cur" {
-                param.1 = "0".to_string();
-            }
-        }
-        params.push(("star", "1".to_string()));
+        let params = starred_query_params(offset, limit);
         let payload = self
             .authorized_json(
                 reqwest::Method::GET,
@@ -2199,6 +2189,41 @@ fn list_query_params(
         params.push(("show_dir", value.to_string()));
         params.push(("cur", "1".to_string()));
     }
+    params
+}
+
+/// 生成搜索请求参数。
+///
+/// 搜索端点只接受 `show_dir=1`（对齐 StarVault `OpenFileApiService.searchFiles` 显式传
+/// `showDir=1` / `fcMix=1`），**不发送 `cur`**：`cur` 只定义在列表端点的契约里
+/// （`1` 仅当前目录 / `0` 允许从根向下遍历），搜索端点的参数表不含它。此前复用
+/// [`list_query_params`] 会连带注入 `cur=1`，在全账号搜索（`cid=0`）下可能把范围收窄成
+/// 根目录一层。
+fn search_query_params(
+    cid: &str,
+    offset: u64,
+    limit: u64,
+    query: &str,
+) -> Vec<(&'static str, String)> {
+    let mut params = list_query_params(cid, offset, limit, None);
+    params.push(("show_dir", "1".to_string()));
+    params.push(("search_value", query.to_string()));
+    params
+}
+
+/// 生成全账号收藏列表参数。
+///
+/// 对齐 StarVault `FilesRepository.listStarred`：`cid=0` + `star=1` + `cur=0` 是 115
+/// 开放接口遍历收藏项的固定组合。`cur=1` 由 [`list_query_params`] 带入，这里显式改写为
+/// `0`——沿用默认值会让收藏查询退化成「根目录第一层」。
+fn starred_query_params(offset: u64, limit: u64) -> Vec<(&'static str, String)> {
+    let mut params = list_query_params("0", offset, limit, Some(1));
+    for param in params.iter_mut() {
+        if param.0 == "cur" {
+            param.1 = "0".to_string();
+        }
+    }
+    params.push(("star", "1".to_string()));
     params
 }
 
@@ -3316,16 +3341,11 @@ mod tests {
     ///
     /// `cur` 必须被改写为 0：目录列表用 `cur=1`（仅当前目录），收藏遍历要求 `cur=0`
     /// （允许从根向下），沿用默认值会让收藏查询退化成"根目录第一层"。
+    /// 断言直接针对 [`starred_query_params`]——与 `list_starred_files` 共用同一份装配，
+    /// 避免测试复刻实现导致改写逻辑被删除后仍然通过。
     #[test]
     fn starred_params_use_star_and_traverse_from_root() {
-        // 复刻 list_starred_files 的参数装配，确保改写逻辑不被后续改动破坏。
-        let mut params = list_query_params("0", 0, 100, Some(1));
-        for param in params.iter_mut() {
-            if param.0 == "cur" {
-                param.1 = "0".to_string();
-            }
-        }
-        params.push(("star", "1".to_string()));
+        let params = starred_query_params(0, 100);
         let find = |key: &str| {
             params
                 .iter()
@@ -3336,6 +3356,33 @@ mod tests {
         assert_eq!(find("star"), Some("1"));
         assert_eq!(find("cur"), Some("0"));
         assert_eq!(find("show_dir"), Some("1"));
+        assert_eq!(find("limit"), Some("100"));
+    }
+
+    /// 搜索参数：必须带 `show_dir=1` 与 `search_value`，且**不得带 `cur`**。
+    ///
+    /// 对齐 StarVault `OpenFileApiService.searchFiles`：`cur` 只属于列表端点契约
+    /// （1=仅当前目录 / 0=允许从根遍历），搜索端点参数表不含它。此前复用
+    /// `list_query_params(.., Some(1))` 会连带注入 `cur=1`，在 `cid=0` 的全账号搜索下
+    /// 可能把范围收窄成根目录一层。
+    #[test]
+    fn search_params_omit_cur_and_keep_show_dir() {
+        let params = search_query_params("0", 0, 50, "needle");
+        let find = |key: &str| {
+            params
+                .iter()
+                .find(|(name, _)| *name == key)
+                .map(|(_, value)| value.as_str())
+        };
+        assert_eq!(find("cid"), Some("0"));
+        assert_eq!(find("show_dir"), Some("1"));
+        assert_eq!(find("search_value"), Some("needle"));
+        assert_eq!(find("custom_order"), Some("1"));
+        assert_eq!(find("fc_mix"), Some("1"));
+        assert!(
+            !params.iter().any(|(name, _)| *name == "cur"),
+            "搜索请求不得携带 cur，实际参数：{params:?}"
+        );
     }
 
     /// 全账号搜索的空关键词必须拒绝：115 对空 search_value 返回空列表，
@@ -3368,14 +3415,6 @@ mod tests {
         assert_eq!(find("cur"), Some("1"));
         assert_eq!(find("o"), Some("user_utime"));
         assert_eq!(find("asc"), Some("0"));
-
-        // 搜索端点（show_dir=None）不应带 show_dir / cur，但仍需 custom_order。
-        let search_params = list_query_params("0", 0, 50, None);
-        assert!(!search_params.iter().any(|(name, _)| *name == "show_dir"));
-        assert!(!search_params.iter().any(|(name, _)| *name == "cur"));
-        assert!(search_params
-            .iter()
-            .any(|(name, _)| *name == "custom_order"));
     }
 
     /// 分页到底判定：短页（本页条数 < limit）必须优先于 count 算术，
