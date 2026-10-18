@@ -53,6 +53,9 @@ struct RemoteSession {
     pick_code: String,
     last_position: Option<f64>,
     recoveries: u32,
+    /// 本次会话的外挂字幕地址；自动恢复重新 loadfile 后必须重新挂载，
+    /// 否则 `replace` 会随旧条目丢弃字幕轨，用户侧表现为「播到一半字幕消失」。
+    subtitle_urls: Vec<String>,
 }
 
 /// 远程会话自动恢复上限；超过后停止重试并把错误呈报给前端。
@@ -407,10 +410,12 @@ fn run_render_thread(
                         .map_err(|error| format!("libmpv 无法加载所选文件：{error}"))?;
                     source = Some(next_source);
                     // 只有 115 远程会话记录 pick_code，供流错误时重新解析播放源。
+                    // 字幕地址一并留存：自动恢复会重新 loadfile，必须能重新挂载字幕轨。
                     remote = pick_code.map(|pick_code| RemoteSession {
                         pick_code,
                         last_position: None,
                         recoveries: 0,
+                        subtitle_urls: subtitle_urls.clone(),
                     });
                     last_error = None;
 
@@ -524,6 +529,17 @@ fn run_render_thread(
                                     mpv.command("loadfile", &[&url, "replace"]).map_err(
                                         |error| format!("libmpv 重新加载播放源失败：{error}"),
                                     )?;
+                                    // replace 会随旧条目丢弃字幕轨，恢复后按原顺序重新挂载，
+                                    // 否则用户会在恢复瞬间丢失字幕且界面无任何提示。
+                                    for (index, subtitle_url) in
+                                        state.subtitle_urls.iter().enumerate()
+                                    {
+                                        let selection = if index == 0 { "select" } else { "auto" };
+                                        mpv.command("sub-add", &[subtitle_url, selection])
+                                            .map_err(|error| {
+                                                format!("libmpv 恢复远程字幕失败：{error}")
+                                            })?;
+                                    }
                                     if let Some(position) = state.last_position {
                                         mpv.set_property("time-pos", position).map_err(
                                             |error| format!("恢复播放位置失败：{error}"),
@@ -708,6 +724,7 @@ mod tests {
             pick_code: "pick".to_string(),
             last_position: None,
             recoveries: 0,
+            subtitle_urls: Vec::new(),
         };
         assert!(recovery_allowed(Some(&state)));
         // 达到重试上限后停止自动恢复。

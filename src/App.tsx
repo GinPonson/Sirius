@@ -41,6 +41,7 @@ import {
   type AppSettings,
   type Cloud115AccountStatus,
   type Cloud115FileEntry,
+  type Cloud115SubtitleStream,
   type Cloud115UserProfile,
 } from "./services/mediaServices";
 
@@ -125,6 +126,10 @@ function App() {
   const [activeQuality, setActiveQuality] = useState<string>("");
   // 当前远程播放源的 UA；切换画质重开同一媒体时必须沿用，否则 115 CDN 会拒绝签发。
   const [activeUserAgent, setActiveUserAgent] = useState<string>("");
+  // 当前 115 视频的外挂字幕；切换画质会重新 loadfile，必须一并重挂，否则字幕轨静默消失。
+  const [activeSubtitles, setActiveSubtitles] = useState<Cloud115SubtitleStream[]>([]);
+  // 当前 115 视频的 pickCode；画质切换前用它重新解析短时效直链。
+  const [activePickCode, setActivePickCode] = useState<string>("");
   // 画质菜单开合：瞬态 UI 状态，切换播放源或卸载时无需持久化。
   const [qualityMenuOpen, setQualityMenuOpen] = useState(false);
   // 画质菜单开启时响应 Esc 与点击外部，与项目内其它浮层菜单行为一致。
@@ -382,9 +387,11 @@ function App() {
       const next = await playbackService.open(source);
       setPlayingMedia(item);
       setPlayingCloudFileId(null);
-      // 本地影视没有 115 画质档位，清空避免沿用上一部 115 视频的档位菜单。
+      // 本地影视没有 115 画质档位与远程字幕，清空避免沿用上一部 115 视频的状态。
       setQualityOptions([]);
       setActiveQuality("");
+      setActiveSubtitles([]);
+      setActivePickCode("");
       setSnapshot(next);
       setSelectedMedia(null);
     } catch (reason) {
@@ -408,12 +415,24 @@ function App() {
     if (isAudioFile(entry)) {
       // 先把可能正在播放的视频会话释放掉，避免两个播放器抢同一会话。
       if (playingMedia) {
-        await playbackService.destroy();
+        try {
+          await playbackService.destroy();
+        } catch (reason) {
+          // 会话可能已随渲染线程退出而消失；此时 destroy 会报「尚未初始化」。
+          // 这类失败不该阻断音频播放——目标状态（没有视频会话）已经达成。
+          // 真正的释放失败必须上报，但同样不阻止音频接管。
+          const message = String(reason);
+          if (!message.includes("尚未初始化") && !message.includes("已提前退出")) {
+            setError(`释放视频播放会话失败：${message}`);
+          }
+        }
         setPlayingMedia(null);
         setPlayingCloudFileId(null);
-        // 视频的画质档位随会话一并失效，清空避免音频播放条误用。
+        // 视频的画质档位与字幕随会话一并失效，清空避免音频播放条误用。
         setQualityOptions([]);
         setActiveQuality("");
+        setActiveSubtitles([]);
+        setActivePickCode("");
       }
       setAudioTrack(toAudioTrack(entry));
       return;
@@ -433,6 +452,9 @@ function App() {
       let next: PlaybackSnapshot;
       // 降级提示先攒起来：后续续播失败提示可以再覆盖，但两者都不能丢。
       let degradeNotice: string | null = null;
+      // 本次实际生效的画质名。必须用局部变量而不是 activeQuality：setActiveQuality 不会
+      // 回写当前闭包，读 state 会拿到上一部视频的档位，导致菜单把转码线路标成「原画」。
+      let effectiveQuality = source.quality;
       try {
         next = await playbackService.openRemote(source, subtitles, entry.pickCode);
       } catch (primaryError) {
@@ -447,13 +469,11 @@ function App() {
           subtitles,
           entry.pickCode,
         );
-        degradeNotice = `《${entry.name}》以${source.quality}起播失败，已降级到${fallback.quality || "备用线路"}播放：${String(primaryError)}`;
+        effectiveQuality = fallback.quality || "备用线路";
+        degradeNotice = `《${entry.name}》以${source.quality}起播失败，已降级到${effectiveQuality}播放：${String(primaryError)}`;
         setError(degradeNotice);
-        // 记录生效线路，供播放中的画质菜单标注当前档位。
-        setActiveQuality(fallback.quality || "备用线路");
       }
-      // 主线路成功时也要记录当前画质，画质菜单据此高亮。
-      if (degradeNotice === null) setActiveQuality(source.quality);
+      setActiveQuality(effectiveQuality);
       if (savedProgress && savedProgress.positionSeconds >= 5 && savedProgress.positionSeconds < savedProgress.durationSeconds - 30) {
         try {
           next = await playbackService.seek(savedProgress.positionSeconds);
@@ -485,11 +505,21 @@ function App() {
       setSnapshot(next);
       setPlayingCloudFileId(entry.id);
       // 画质菜单数据：当前生效档位 + 其余可切换档位（无则空数组，UI 不渲染菜单）。
-      setQualityOptions([
-        { url: next.source ?? source.url, quality: activeQuality || source.quality },
-        ...source.fallbackOptions,
-      ]);
+      // 降级时生效线路本身也在 fallbackOptions 里，必须按 URL 去重——否则菜单会出现
+      // 两条指向同一流的项，且 React 的 key={url} 会重复。
+      const primaryUrl = next.source ?? source.url;
+      const seenUrls = new Set<string>();
+      setQualityOptions(
+        [{ url: primaryUrl, quality: effectiveQuality }, ...source.fallbackOptions].filter((option) => {
+          if (seenUrls.has(option.url)) return false;
+          seenUrls.add(option.url);
+          return true;
+        }),
+      );
       setActiveUserAgent(source.userAgent);
+      // 切换画质会重新 loadfile，字幕必须一并重挂；这里保存本次会话的字幕清单。
+      setActiveSubtitles(subtitles);
+      setActivePickCode(entry.pickCode);
       lastProgressSaveAt.current = Date.now();
     } catch (reason) {
       setError(`无法播放《${entry.name}》：${String(reason)}`);
@@ -502,26 +532,39 @@ function App() {
   /**
    * 切换播放画质：把选定档位的 URL 交给同一播放会话重开，并尽量保留当前进度。
    *
-   * 画质切换本质是换媒体源，进度会从 0 开始，因此这里显式 seek 回原位置；
-   * 失败时明确报错并保留原会话，不静默吞掉。
+   * 画质切换本质是换媒体源，进度会从 0 开始，因此这里显式 seek 回原位置。
+   * 115 直链是短时效签名地址，切档前先按 pickCode 重新解析一次，避免使用初次播放时
+   * 签发、可能已过期的地址；重解析失败时明确报错并保留原会话，不静默换档。
    */
   async function switchQuality(option: { url: string; quality: string }) {
     if (!playingMedia || !playingCloudFileId) return;
     const resumeAt = snapshot.positionSeconds;
+    const targetQuality = option.quality || "备用线路";
     setError(null);
     try {
+      let targetUrl = option.url;
+      if (activePickCode) {
+        const fresh = await cloud115Service.playbackSource(activePickCode);
+        const candidates = [{ url: fresh.url, quality: fresh.quality }, ...fresh.fallbackOptions];
+        const matched = candidates.find(
+          (candidate) => (candidate.quality || "备用线路") === targetQuality,
+        );
+        // 档位可能已被服务端下架：此时沿用原地址继续尝试，失败会在下面如实上报。
+        if (matched) targetUrl = matched.url;
+      }
       const next = await playbackService.openRemote(
-        { url: option.url, userAgent: activeUserAgent },
-        [],
+        { url: targetUrl, userAgent: activeUserAgent },
+        // 重新 loadfile 会丢弃字幕轨，必须把本次会话的字幕一并重挂。
+        activeSubtitles,
         playingCloudFileId,
       );
       setSnapshot(next);
-      setActiveQuality(option.quality || "备用线路");
+      setActiveQuality(targetQuality);
       if (resumeAt && resumeAt > 1) {
         setSnapshot(await playbackService.seek(resumeAt));
       }
     } catch (reason) {
-      setError(`切换到${option.quality || "备用线路"}失败：${String(reason)}`);
+      setError(`切换到${targetQuality}失败：${String(reason)}`);
     }
   }
 
@@ -587,9 +630,11 @@ function App() {
       setSnapshot(IDLE_SNAPSHOT);
       setPlayingMedia(null);
       setPlayingCloudFileId(null);
-      // 会话已销毁：画质档位与当前档位不再有意义，一并清空避免残留在下一次播放。
+      // 会话已销毁：画质档位、字幕与当前档位不再有意义，一并清空避免残留在下一次播放。
       setQualityOptions([]);
       setActiveQuality("");
+      setActiveSubtitles([]);
+      setActivePickCode("");
       setQualityMenuOpen(false);
       if (progressError) setError(progressError);
     } catch (reason) {
