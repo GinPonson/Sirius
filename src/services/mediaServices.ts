@@ -242,6 +242,13 @@ export type Cloud115RecycleItem = { id: string; name: string; isFolder: boolean;
 export type Cloud115RecyclePage = { entries: Cloud115RecycleItem[]; total: number; offset: number; limit: number; hasMore: boolean };
 export type Cloud115UploadResult = { fileName: string; pickCode: string; instant: boolean };
 
+/** 目录上传结果：逐文件汇报，单个失败不影响其它文件。 */
+export type Cloud115UploadDirectoryResult = {
+  uploaded: number;
+  createdFolders: number;
+  failed: Array<{ relativePath: string; reason: string }>;
+};
+
 /** 一条备份配对：本地目录 → 115 目录的单向同步关系。 */
 export type BackupPair = {
   id: string;
@@ -433,6 +440,16 @@ export class Cloud115Service {
   /** 从磁盘流式上传本地文件；≤20 MiB 单对象 PUT，更大文件由 Rust 走 multipart 并持久化会话。 */
   uploadFile(path: string, targetId: string): Promise<Cloud115UploadResult> {
     return invoke("cloud115_upload_file", { path, targetId });
+  }
+
+  /**
+   * 递归上传本地目录，在云端保留相同结构。
+   *
+   * @param path 本地目录绝对路径
+   * @param targetId 云端父目录 ID
+   */
+  uploadDirectory(path: string, targetId: string): Promise<Cloud115UploadDirectoryResult> {
+    return invoke("cloud115_upload_directory", { path, targetId });
   }
 
   /** 选择要上传到当前目录的本地文件；用户取消时返回空数组。 */

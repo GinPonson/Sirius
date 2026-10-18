@@ -334,6 +334,26 @@ pub struct Cloud115FolderResult {
     pub name: String,
 }
 
+/// 目录上传结果：逐文件汇报，单个失败不影响其它文件。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Cloud115UploadDirectoryResult {
+    /// 成功上传的文件数（含秒传）。
+    pub uploaded: u64,
+    /// 本次创建的云端目录数；已存在的同名目录不计入。
+    pub created_folders: u64,
+    /// 失败项；路径为相对被拖入目录的相对路径，便于用户定位。
+    pub failed: Vec<Cloud115UploadFailure>,
+}
+
+/// 单个文件的失败记录。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Cloud115UploadFailure {
+    pub relative_path: String,
+    pub reason: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Cloud115RecycleItem {
@@ -1861,6 +1881,176 @@ impl Cloud115Provider {
         })
     }
 
+    /// 递归上传一个本地目录，在云端保留相同的目录结构。
+    ///
+    /// 行为约定（与界面文案一致）：
+    /// - 在 `target_id` 下创建一个与被拖入目录同名的文件夹，再把内容按相对路径铺开；
+    /// - 同名云端目录会被复用而不是重复创建，避免多次拖拽产生 `照片 (1)` 这类副本；
+    /// - 逐个文件上传，单个失败只记录到 `failed`，不中断后续文件；
+    /// - 跳过符号链接，避免循环遍历。
+    ///
+    /// @param local_dir 本地目录的绝对路径
+    /// @param target_id 云端父目录 ID
+    pub async fn upload_directory_from_disk(
+        &self,
+        repository: &LibraryRepository,
+        local_dir: &str,
+        target_id: &str,
+        on_progress: Option<ProgressCallback>,
+    ) -> Result<Cloud115UploadDirectoryResult, String> {
+        let root = PathBuf::from(local_dir);
+        if !root.is_absolute() {
+            return Err("上传源路径必须使用绝对路径".to_string());
+        }
+        if target_id.trim().is_empty() {
+            return Err("115 目标目录 ID 不能为空".to_string());
+        }
+        // 拖放可以同时带来文件与目录：单个文件直接上传到目标目录，
+        // 不额外包一层同名文件夹——否则拖一个文件会多出一个目录。
+        if root.is_file() {
+            let absolute_str = root.to_string_lossy().to_string();
+            self.upload_file_from_disk(repository, &absolute_str, target_id, on_progress)
+                .await?;
+            return Ok(Cloud115UploadDirectoryResult {
+                uploaded: 1,
+                created_folders: 0,
+                failed: Vec::new(),
+            });
+        }
+        if !root.is_dir() {
+            return Err(format!("上传路径既不是文件也不是目录：{}", root.display()));
+        }
+        let root_name = root
+            .file_name()
+            .and_then(|value| value.to_str())
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| "无法从路径解析目录名称".to_string())?
+            .to_string();
+        // 目录名同样要经过文件名校验：拖入路径来自外部，不能直接拼进云端请求。
+        let root_name = sanitize_remote_file_name(&root_name)?;
+
+        let mut result = Cloud115UploadDirectoryResult {
+            uploaded: 0,
+            created_folders: 0,
+            failed: Vec::new(),
+        };
+        // 远端目录缓存：相对路径（空串代表根）→ 云端目录 ID，避免重复查询同名目录。
+        let mut remote_dirs: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        let remote_root = self
+            .ensure_child_folder(target_id, &root_name, &mut result)
+            .await?;
+        remote_dirs.insert(String::new(), remote_root);
+
+        for (absolute, relative) in collect_directory_files(&root)? {
+            let parent_relative = relative
+                .rsplit_once('/')
+                .map(|(parent, _)| parent.to_string())
+                .unwrap_or_default();
+            // 逐级确保父目录存在；collect_directory_files 已按路径深度排序，
+            // 因此父目录一定先于子文件被处理。
+            let parent_id = match remote_dirs.get(&parent_relative) {
+                Some(id) => id.clone(),
+                None => {
+                    let mut current = String::new();
+                    let mut current_id = target_id.to_string();
+                    for segment in parent_relative.split('/').filter(|part| !part.is_empty()) {
+                        if !current.is_empty() {
+                            current.push('/');
+                        }
+                        current.push_str(segment);
+                        if let Some(id) = remote_dirs.get(&current) {
+                            current_id = id.clone();
+                            continue;
+                        }
+                        let id = self
+                            .ensure_child_folder(&current_id, segment, &mut result)
+                            .await?;
+                        remote_dirs.insert(current.clone(), id.clone());
+                        current_id = id;
+                    }
+                    current_id
+                }
+            };
+            let absolute_str = absolute.to_string_lossy().to_string();
+            match self
+                .upload_file_from_disk(repository, &absolute_str, &parent_id, on_progress.clone())
+                .await
+            {
+                Ok(_) => result.uploaded += 1,
+                Err(reason) => result.failed.push(Cloud115UploadFailure {
+                    relative_path: relative,
+                    reason,
+                }),
+            }
+        }
+        Ok(result)
+    }
+
+    /// 在 `parent_id` 下取同名子目录，不存在则创建；创建成功时累加 `created_folders`。
+    async fn ensure_child_folder(
+        &self,
+        parent_id: &str,
+        name: &str,
+        result: &mut Cloud115UploadDirectoryResult,
+    ) -> Result<String, String> {
+        if let Some(existing) = self.find_child_folder(parent_id, name).await? {
+            return Ok(existing);
+        }
+        let created = self.create_folder(parent_id, name).await?;
+        result.created_folders += 1;
+        Ok(created.id)
+    }
+
+    /// 在目录列表中按名称查找子目录；只读第一页足够覆盖同名目录复用场景。
+    ///
+    /// 查询失败时返回 Err：宁可让用户看到明确错误，也不要在不知道是否存在的情况下
+    /// 盲目创建重复目录。
+    async fn find_child_folder(
+        &self,
+        parent_id: &str,
+        name: &str,
+    ) -> Result<Option<String>, String> {
+        let params = list_query_params(parent_id, 0, MAX_PAGE_LIMIT, Some(1));
+        let payload = self
+            .authorized_json(
+                reqwest::Method::GET,
+                &format!("{API_BASE_URL}/open/ufile/files"),
+                Some(&params),
+                None,
+            )
+            .await?;
+        if !state_ok(payload.get("state")) {
+            return Err(api_business_error(&payload, "读取 115 目录内容"));
+        }
+        let Some(items) = payload.get("data").and_then(Value::as_array) else {
+            return Ok(None);
+        };
+        for item in items {
+            let Some(object) = item.as_object() else {
+                continue;
+            };
+            // 只认目录项：`fc == 0` 是 115 列表里文件夹的标记。
+            if value_i64(object.get("fc")) != Some(0) {
+                continue;
+            }
+            let item_name = value_string(object.get("fn").or_else(|| object.get("n")))
+                .or_else(|| value_string(object.get("file_name")));
+            if item_name.as_deref() != Some(name) {
+                continue;
+            }
+            if let Some(id) = value_string(
+                object
+                    .get("fid")
+                    .or_else(|| object.get("file_id"))
+                    .or_else(|| object.get("cid")),
+            ) {
+                return Ok(Some(id));
+            }
+        }
+        Ok(None)
+    }
+
     /// 更新单个文件或文件夹名称/星标；至少需要提供一项更新内容。
     pub async fn update_file(
         &self,
@@ -2543,6 +2733,51 @@ fn is_http_url(value: &str) -> bool {
     value.starts_with("https://") || value.starts_with("http://")
 }
 
+/// 递归收集目录下的全部普通文件，返回 (绝对路径, 相对路径)。
+///
+/// 相对路径用 `/` 分隔，与云端目录结构一致；结果按路径段数升序排列，保证
+/// 任何父目录都先于其子项出现，调用方可以单趟建目录而无需递归。
+/// 跳过符号链接：拖入的目录可能来自任意位置，跟随链接会造成循环或越界读取。
+fn collect_directory_files(root: &PathBuf) -> Result<Vec<(PathBuf, String)>, String> {
+    let mut pending = vec![root.clone()];
+    let mut files = Vec::new();
+    while let Some(directory) = pending.pop() {
+        let entries = std::fs::read_dir(&directory)
+            .map_err(|error| format!("读取目录 {} 失败：{error}", directory.display()))?;
+        for entry in entries {
+            let entry = entry.map_err(|error| {
+                format!("读取目录 {} 中的条目失败：{error}", directory.display())
+            })?;
+            let metadata = std::fs::symlink_metadata(entry.path()).map_err(|error| {
+                format!("读取文件 {} 信息失败：{error}", entry.path().display())
+            })?;
+            if metadata.file_type().is_symlink() {
+                continue;
+            }
+            if metadata.is_dir() {
+                pending.push(entry.path());
+                continue;
+            }
+            if !metadata.is_file() {
+                continue;
+            }
+            let relative = entry
+                .path()
+                .strip_prefix(root)
+                .map_err(|error| format!("计算相对路径失败：{error}"))?
+                .to_string_lossy()
+                .replace('\\', "/");
+            files.push((entry.path(), relative));
+        }
+    }
+    // 按路径段数排序：父目录下的文件先于更深层的文件被处理。
+    files.sort_by(|a, b| {
+        let depth = |path: &str| path.matches('/').count();
+        depth(&a.1).cmp(&depth(&b.1)).then_with(|| a.1.cmp(&b.1))
+    });
+    Ok(files)
+}
+
 /// 合并两路解析结果，决定播放主线路与后备档位。
 ///
 /// 决策顺序对齐 StarVault：原画成功即为主线路，转码档位降级为后备（不改变首播源）；
@@ -3032,6 +3267,63 @@ compile_error!("Cloud115Provider 当前只允许在已接入系统密钥环的 m
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 目录遍历：相对路径用 `/` 分隔，且父目录的文件必须排在子目录文件之前。
+    #[test]
+    fn collect_directory_files_orders_parent_levels_first() {
+        let root = std::env::temp_dir().join(format!(
+            "sirius-upload-dir-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("a/b")).unwrap();
+        std::fs::create_dir_all(root.join("c")).unwrap();
+        std::fs::write(root.join("top.txt"), b"1").unwrap();
+        std::fs::write(root.join("a/mid.txt"), b"2").unwrap();
+        std::fs::write(root.join("a/b/deep.txt"), b"3").unwrap();
+        std::fs::write(root.join("c/other.txt"), b"4").unwrap();
+
+        let files = collect_directory_files(&root).unwrap();
+        let relative: Vec<&str> = files.iter().map(|(_, path)| path.as_str()).collect();
+        assert_eq!(relative.len(), 4);
+        // 段数少的先出现，保证调用方单趟建目录时父级总是已存在。
+        assert_eq!(relative[0], "top.txt");
+        let depth = |path: &str| path.matches('/').count();
+        assert!(
+            relative
+                .windows(2)
+                .all(|pair| depth(pair[0]) <= depth(pair[1])),
+            "目录深度未按升序排列：{relative:?}"
+        );
+        assert!(relative.contains(&"a/mid.txt"));
+        assert!(relative.contains(&"a/b/deep.txt"));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 符号链接必须跳过：拖入目录可能来自任意位置，跟随链接会造成循环或越界读取。
+    #[test]
+    fn collect_directory_files_skips_symlinks() {
+        let root = std::env::temp_dir().join(format!(
+            "sirius-upload-link-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("real")).unwrap();
+        std::fs::write(root.join("real/kept.txt"), b"1").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(root.join("real"), root.join("link")).unwrap();
+
+        let files = collect_directory_files(&root).unwrap();
+        let relative: Vec<&str> = files.iter().map(|(_, path)| path.as_str()).collect();
+        assert_eq!(relative, vec!["real/kept.txt"]);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn sanitize_remote_file_name_rejects_path_traversal() {

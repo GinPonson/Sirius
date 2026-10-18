@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import {
   Cloud115Service,
   MediaInfoService,
@@ -273,6 +274,12 @@ export function CloudFilesView({ account, query, onQueryChange, onStarredViewCha
   const [uploadSessions, setUploadSessions] = useState<Cloud115UploadSession[]>([]);
   const [dismissedSessions, setDismissedSessions] = useState<Set<string>>(new Set());
   const [resumingId, setResumingId] = useState<string | null>(null);
+  /** 拖拽态：文件被拖到窗口上方时为 true，用于显示上传提示层。 */
+  const [dragActive, setDragActive] = useState(false);
+  /** 文件区容器的引用：拖放事件给的是窗口坐标，需要换算后判断是否落在区域内。 */
+  const dropZoneRef = useRef<HTMLElement | null>(null);
+  /** 最近一次上传/拖拽的目标目录：拖放事件是异步回调，不能依赖闭包里的旧值。 */
+  const dropContextRef = useRef({ targetId: "", enabled: false });
   // 视图状态机：视图模式与密度全局持久化；排序随目录记忆（内存态）。
   const [viewMode, setViewMode] = useState<ViewMode>(readStoredViewMode);
   const [density, setDensity] = useState<Density>(readStoredDensity);
@@ -527,30 +534,136 @@ export function CloudFilesView({ account, query, onQueryChange, onStarredViewCha
 
   const pendingSessions = uploadSessions.filter((session) => !dismissedSessions.has(session.id));
 
-  /** 顺序上传所选文件；115 对控制请求限速，逐个提交比并发更稳。 */
-  async function startUpload() {
-    const filePaths = await cloud115.pickUploadFiles();
-    if (filePaths.length === 0) return;
+  /**
+   * 顺序上传一批本地路径；115 对控制请求限速，逐个提交比并发更稳。
+   *
+   * 文件与目录走不同命令：目录由 Rust 递归展开并在云端重建结构，
+   * 前端不逐层调用，避免深层目录产生大量 IPC 往返。
+   *
+   * @param paths 本地绝对路径（文件或目录）
+   * @param targetId 云端目标目录；拖放事件异步到达，必须显式传入而不是读闭包
+   */
+  async function uploadPaths(paths: string[], targetId: string = currentFolderId) {
+    if (paths.length === 0) return;
     setError(null);
     const failures: string[] = [];
-    for (const [index, filePath] of filePaths.entries()) {
-      const name = filePath.split("/").pop() ?? filePath;
-      setUploading({ name, index: index + 1, total: filePaths.length });
+    let uploaded = 0;
+    for (const [index, path] of paths.entries()) {
+      const name = path.split("/").pop() ?? path;
+      setUploading({ name, index: index + 1, total: paths.length });
       try {
-        await cloud115.uploadFile(filePath, currentFolderId);
+        const result = await cloud115.uploadDirectory(path, targetId);
+        uploaded += result.uploaded;
+        for (const failure of result.failed) {
+          failures.push(`${name}/${failure.relativePath}：${failure.reason}`);
+        }
       } catch (reason) {
+        // 目录上传失败（路径不存在、权限不足等）与单文件失败同等对待：
+        // 记录原因并继续处理后续路径，不因一项失败放弃整批。
         failures.push(`${name}：${String(reason)}`);
+        if (failures.length === paths.length && uploaded === 0) {
+          // 全部失败时不必逐条罗列，直接给出首个真实原因。
+          setUploading(null);
+          setError(`上传失败：${String(reason)}`);
+          return;
+        }
       }
     }
     setUploading(null);
     if (failures.length > 0) {
-      setError(`上传完成，但 ${failures.length} 个文件失败：${failures.join("；")}`);
+      setError(`上传完成，但 ${failures.length} 项失败：${failures.join("；")}`);
     } else {
-      setNotice(`已上传 ${filePaths.length} 个文件到当前目录`);
+      setNotice(`已上传 ${uploaded} 个文件到当前目录`);
     }
     setReloadNonce((nonce) => nonce + 1);
     refreshUploadSessions();
   }
+
+  /** 点击上传按钮：系统选择器选出多文件后交给统一上传入口。 */
+  async function startUpload() {
+    const filePaths = await cloud115.pickUploadFiles();
+    await uploadPaths(filePaths);
+  }
+
+  // 拖拽上下文：目标目录与可用性随渲染更新；事件回调只读 ref，避免拿到旧闭包。
+  dropContextRef.current = {
+    // 收藏是跨目录视图，没有可作用的父目录——与上传按钮的禁用条件保持一致。
+    targetId: currentFolderId,
+    enabled: account?.connected === true && !starredView && uploading === null,
+  };
+
+  /**
+   * 接管系统拖放：Tauri 的 drag-drop 事件能拿到真实本地路径，
+   * 浏览器的 HTML5 drop 在 WebView 里拿不到（安全限制）。
+   *
+   * 只在指针落在文件区时接受投放：拖到侧栏或顶栏不应该触发上传。
+   */
+  useEffect(() => {
+    if (!account?.connected) return;
+    // 拖放是 Tauri 原生能力：纯浏览器（dev-mock 冒烟）没有 Webview API，
+    // 订阅失败只记录不阻断按钮上传。
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+
+    /** 窗口坐标（物理像素）是否落在文件区内。 */
+    function isInsideDropZone(x: number, y: number): boolean {
+      const zone = dropZoneRef.current;
+      if (!zone) return false;
+      const ratio = window.devicePixelRatio || 1;
+      const rect = zone.getBoundingClientRect();
+      const localX = x / ratio;
+      const localY = y / ratio;
+      return localX >= rect.left && localX <= rect.right && localY >= rect.top && localY <= rect.bottom;
+    }
+
+    // 浏览器里没有 Webview API：getCurrentWebview() 返回 undefined，
+    // 同步调用它的方法会抛 TypeError，因此整体包在 try 里。
+    try {
+      const webview = getCurrentWebview();
+      if (!webview || typeof webview.onDragDropEvent !== "function") return;
+      webview
+        .onDragDropEvent((event) => {
+          if (disposed) return;
+          const payload = event.payload;
+          if (payload.type === "enter" || payload.type === "over") {
+            const inside = isInsideDropZone(payload.position.x, payload.position.y);
+            setDragActive(inside && dropContextRef.current.enabled);
+            return;
+          }
+          if (payload.type === "leave") {
+            setDragActive(false);
+            return;
+          }
+          // drop
+          setDragActive(false);
+          const { enabled, targetId } = dropContextRef.current;
+          if (!enabled) return;
+          if (!isInsideDropZone(payload.position.x, payload.position.y)) return;
+          if (payload.paths.length === 0) return;
+          void uploadPaths(payload.paths, targetId);
+        })
+        .then((stop) => {
+          if (disposed) {
+            stop();
+            return;
+          }
+          unlisten = stop;
+        })
+        .catch(() => {
+          // 浏览器无 IPC 通道：拖拽不可用是预期行为，不提示、不阻断按钮上传。
+        });
+    } catch {
+      // 非 Tauri 运行时（dev-mock 冒烟）：静默跳过拖放注册。
+    }
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+      setDragActive(false);
+    };
+    // uploadPaths 内部读取的目录与状态都来自 ref，因此依赖只需账号与视图种类。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [account?.connected, starredView]);
 
   /** 从本地文件继续未完成的 multipart 会话；内容变化会被 Rust 校验拒绝。 */
   async function resumeUploadSession(session: Cloud115UploadSession) {
@@ -1509,7 +1622,16 @@ export function CloudFilesView({ account, query, onQueryChange, onStarredViewCha
   const gridThumbSize = density === "compact" ? 52 : 64;
 
   return (
-    <section className="page-section cloud-files-view">
+    <section className="page-section cloud-files-view" ref={dropZoneRef} data-drag-active={dragActive ? "true" : "false"}>
+      {dragActive && (
+        <div className="cloud-drop-overlay" role="status" aria-live="polite">
+          <div className="cloud-drop-card">
+            <Icon name="upload" size={26} />
+            <strong>松开即可上传</strong>
+            <span>文件与文件夹都会上传到“{path[path.length - 1].name}”，目录结构保持不变。</span>
+          </div>
+        </div>
+      )}
       {error && <div className="cloud-inline-error" role="alert">{error}</div>}
       {notice && <div className="cloud-action-notice" role="status"><Icon name="check" size={14} />{notice}<button aria-label="关闭提示" onClick={() => setNotice(null)}><Icon name="close" size={13} /></button></div>}
 

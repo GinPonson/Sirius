@@ -5200,3 +5200,46 @@
   font-size: 12px;
   text-align: center;
 }
+
+/* 拖拽上传提示层：覆盖文件区，明确「松开即可上传」与目标目录。 */
+.cloud-drop-overlay {
+  position: fixed;
+  inset: var(--shell-header-height) 0 0 var(--shell-sidebar-width);
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  backdrop-filter: blur(3px);
+  pointer-events: none;
+}
+
+.cloud-drop-card {
+  display: flex;
+  max-width: 360px;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 28px 32px;
+  border: 1.5px dashed var(--primary);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--muted);
+  text-align: center;
+  box-shadow: var(--shadow-2);
+}
+
+.cloud-drop-card svg {
+  color: var(--primary-ink);
+}
+
+.cloud-drop-card strong {
+  color: var(--fg);
+  font-size: 15px;
+  font-weight: 620;
+}
+
+.cloud-drop-card span {
+  font-size: 12px;
+  line-height: 1.6;
+}

@@ -20,7 +20,8 @@ use cloud115::{
     Cloud115AccountStatus, Cloud115AuthChallenge, Cloud115AuthPoll, Cloud115ClientApp,
     Cloud115DownloadResult, Cloud115DownloadSource, Cloud115FileMetadata, Cloud115FilePage,
     Cloud115FolderResult, Cloud115PlaybackSource, Cloud115Provider, Cloud115RecyclePage,
-    Cloud115SearchScope, Cloud115SubtitleStream, Cloud115UploadResult, Cloud115UserProfile,
+    Cloud115SearchScope, Cloud115SubtitleStream, Cloud115UploadDirectoryResult,
+    Cloud115UploadResult, Cloud115UserProfile,
 };
 use library::{
     AiChatMessageRow, AiChatSession, AppSettings, BackupPair, BackupScanResult, LibraryRepository,
@@ -235,6 +236,28 @@ async fn cloud115_upload_file(
 ) -> Result<Cloud115UploadResult, String> {
     provider
         .upload_file_from_disk(
+            repository.inner(),
+            &path,
+            &target_id,
+            Some(transfer_progress_callback(&app)),
+        )
+        .await
+}
+
+/// 递归上传一个本地目录，在云端保留相同的目录结构。
+///
+/// 拖拽上传时目录可能同时包含文件与子目录；遍历与建目录都在 Rust 侧完成，
+/// 避免前端逐层 IPC 调用。单个文件失败记录在返回值里，不中断其余文件。
+#[tauri::command]
+async fn cloud115_upload_directory(
+    path: String,
+    target_id: String,
+    provider: State<'_, Arc<Cloud115Provider>>,
+    repository: State<'_, Arc<LibraryRepository>>,
+    app: AppHandle,
+) -> Result<Cloud115UploadDirectoryResult, String> {
+    provider
+        .upload_directory_from_disk(
             repository.inner(),
             &path,
             &target_id,
@@ -1155,6 +1178,7 @@ pub fn run() {
             cloud115_move_files,
             cloud115_copy_files,
             cloud115_upload_file,
+            cloud115_upload_directory,
             cloud115_upload_sessions,
             cloud115_resume_upload,
             backup_list_pairs,

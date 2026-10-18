@@ -1687,6 +1687,63 @@ const HANDLERS: Record<string, CmdHandler> = {
     removeUploadSession(session);
     return { fileName, pickCode: pickCodeOf(entry.id), instant: false };
   },
+  // 拖拽上传：真实实现由 Rust 递归展开目录；mock 用「文件名是否含扩展名」判定，
+  // 并为演示目录造出固定子结构，便于验证目录结构映射。
+  cloud115_upload_directory: async (args) => {
+    const path = str(args.path);
+    if (!path) fail("缺少要上传的本地路径");
+    const targetId = str(args.targetId, ROOT_ID) || ROOT_ID;
+    assertFolderId(targetId, "上传目标目录");
+    const name = path.split("/").pop() ?? path;
+    const looksLikeDirectory = !name.includes(".");
+    if (!looksLikeDirectory) {
+      // 单个文件：直接放到目标目录，不额外包一层同名文件夹。
+      const existing = childrenOf(targetId).find((entry) => entry.name === name);
+      if (existing) return { uploaded: 1, createdFolders: 0, failed: [] };
+      const fileSize = mockUploadFileSize(name);
+      const session = makeUploadSession(name, path, targetId, fileSize, 0);
+      await runUploadSequence(session);
+      makeEntry(nextEntryId(), targetId, name, kindForName(name), { sizeBytes: fileSize, modifiedAt: now() });
+      removeUploadSession(session);
+      return { uploaded: 1, createdFolders: 0, failed: [] };
+    }
+    // 目录：复用同名目录，按固定子结构铺开，验证目录结构映射。
+    let folderId = childrenOf(targetId).find((entry) => entry.name === name && entry.kind === "folder")?.id;
+    let createdFolders = 0;
+    if (!folderId) {
+      folderId = nextEntryId();
+      makeEntry(folderId, targetId, name, "folder", { sizeBytes: 0 });
+      createdFolders += 1;
+    }
+    const tree: Array<{ dir: string; files: string[] }> = [
+      { dir: "", files: [`${name}-说明.txt`] },
+      { dir: "素材", files: ["片段01.mp4", "片段02.mp4"] },
+    ];
+    let uploaded = 0;
+    for (const node of tree) {
+      let parent = folderId;
+      if (node.dir) {
+        const sub = childrenOf(folderId).find((entry) => entry.name === node.dir && entry.kind === "folder");
+        if (sub) {
+          parent = sub.id;
+        } else {
+          parent = nextEntryId();
+          makeEntry(parent, folderId, node.dir, "folder", { sizeBytes: 0 });
+          createdFolders += 1;
+        }
+      }
+      for (const fileName of node.files) {
+        if (childrenOf(parent).some((entry) => entry.name === fileName)) continue;
+        const fileSize = mockUploadFileSize(fileName);
+        const session = makeUploadSession(fileName, `${path}/${fileName}`, parent, fileSize, 0);
+        await runUploadSequence(session);
+        makeEntry(nextEntryId(), parent, fileName, kindForName(fileName), { sizeBytes: fileSize, modifiedAt: now() });
+        removeUploadSession(session);
+        uploaded += 1;
+      }
+    }
+    return { uploaded, createdFolders, failed: [] };
+  },
   cloud115_upload_sessions: () => uploadSessions.map((session) => ({ ...session, completedParts: [...session.completedParts] })),
   cloud115_resume_upload: async (args) => {
     const sessionId = str(args.sessionId);
