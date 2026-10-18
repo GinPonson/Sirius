@@ -242,6 +242,36 @@ export type Cloud115RecycleItem = { id: string; name: string; isFolder: boolean;
 export type Cloud115RecyclePage = { entries: Cloud115RecycleItem[]; total: number; offset: number; limit: number; hasMore: boolean };
 export type Cloud115UploadResult = { fileName: string; pickCode: string; instant: boolean };
 
+/** 一条备份配对：本地目录 → 115 目录的单向同步关系。 */
+export type BackupPair = {
+  id: string;
+  localPath: string;
+  remoteFolderId: string;
+  remoteFolderName: string;
+  /** 最近一次同步时间；从未同步过为 null。 */
+  lastSyncedAt: string | null;
+  /** 已记录同步完成的文件数。 */
+  syncedFiles: number;
+  /** 待同步文件数；列表接口固定为 0，准确值来自扫描。 */
+  pendingFiles: number;
+};
+
+/** 备份扫描结果；pendingPaths 是实际需要上传的相对路径。 */
+export type BackupScanResult = {
+  pairId: string;
+  totalFiles: number;
+  pendingFiles: number;
+  unchangedFiles: number;
+  pendingPaths: string[];
+};
+
+/** 备份执行结果；单个文件失败不影响后续文件。 */
+export type BackupRunResult = {
+  uploaded: number;
+  failed: Array<{ relativePath: string; reason: string }>;
+  completed: boolean;
+};
+
 /** 刮削并持久化的媒体信息；时长/分辨率/编码可能为空，取决于来源。 */
 export type MediaInfo = {
   provider: string;
@@ -368,6 +398,17 @@ export class Cloud115Service {
     return selected;
   }
 
+  /** 选择要备份的本地目录；用户取消时返回 null。 */
+  async pickBackupDirectory(): Promise<string | null> {
+    const selected = await open({
+      multiple: false,
+      directory: true,
+      title: "选择要备份的本地文件夹",
+    });
+    if (selected === null || Array.isArray(selected)) return null;
+    return selected;
+  }
+
   fileMetadata(fileId: string): Promise<Cloud115FileMetadata> {
     return invoke("cloud115_file_metadata", { fileId });
   }
@@ -413,6 +454,31 @@ export class Cloud115Service {
   /** 校验本地文件后，从持久化的首个缺失分片继续上传。 */
   resumeUpload(sessionId: string): Promise<Cloud115UploadResult> {
     return invoke("cloud115_resume_upload", { sessionId });
+  }
+
+  /** 列出全部备份配对（本地目录 → 115 目录）。 */
+  listBackupPairs(): Promise<BackupPair[]> {
+    return invoke("backup_list_pairs");
+  }
+
+  /** 新增备份配对；同一本地目录只能登记一次。 */
+  addBackupPair(localPath: string, remoteFolderId: string, remoteFolderName: string): Promise<BackupPair> {
+    return invoke("backup_add_pair", { localPath, remoteFolderId, remoteFolderName });
+  }
+
+  /** 删除备份配对；只清理本地同步记录，不触碰云端文件。 */
+  deleteBackupPair(pairId: string): Promise<void> {
+    return invoke("backup_delete_pair", { pairId });
+  }
+
+  /** 扫描备份目录，返回需要上传的相对路径；不发起网络请求。 */
+  scanBackupPair(pairId: string): Promise<BackupScanResult> {
+    return invoke("backup_scan_pair", { pairId });
+  }
+
+  /** 执行备份：逐文件上传，单个失败不影响后续文件。 */
+  runBackupPair(pairId: string): Promise<BackupRunResult> {
+    return invoke("backup_run_pair", { pairId });
   }
 
   deleteFiles(fileIds: string[]): Promise<void> {

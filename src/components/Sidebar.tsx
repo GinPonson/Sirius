@@ -11,6 +11,8 @@ import { SidebarAccountMenu } from "./SidebarAccountMenu";
 export type SidebarNavId =
   | "cloud-files"
   | "recycle-bin"
+  | "transfers"
+  | "backup"
   | "tasks"
   | "video"
   | "comics"
@@ -31,11 +33,13 @@ type SidebarProps = {
 const NAVIGATION: Array<{
   id: SidebarNavId;
   label: string;
-  icon: "cloud" | "trash" | "tasks" | "play" | "book" | "images";
+  icon: "cloud" | "trash" | "download" | "refresh" | "tasks" | "play" | "book" | "images";
   group: "workspace" | "content";
 }> = [
   { id: "cloud-files", label: "网盘", icon: "cloud", group: "workspace" },
   { id: "recycle-bin", label: "回收站", icon: "trash", group: "workspace" },
+  { id: "transfers", label: "传输", icon: "download", group: "workspace" },
+  { id: "backup", label: "备份", icon: "refresh", group: "workspace" },
   { id: "video", label: "影视", icon: "play", group: "content" },
   { id: "comics", label: "漫画", icon: "book", group: "content" },
   { id: "albums", label: "相册", icon: "images", group: "content" },

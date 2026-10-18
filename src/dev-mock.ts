@@ -663,6 +663,52 @@ let uploadSessionSeq = 0;
 const uploadSessions: MockUploadSession[] = [];
 const resumingSessionIds = new Set<string>();
 
+/**
+ * 备份配对的演示状态。
+ *
+ * 真实实现扫描的是本地磁盘；mock 环境没有文件系统，因此用一张「本地文件清单」
+ * 代替：每个本地目录对应若干相对路径，扫描时与已同步集合做差集。
+ */
+type MockBackupPair = {
+  id: string;
+  localPath: string;
+  remoteFolderId: string;
+  remoteFolderName: string;
+  lastSyncedAt: string | null;
+  syncedFiles: number;
+  pendingFiles: number;
+};
+type MockBackupScan = {
+  pairId: string;
+  totalFiles: number;
+  pendingFiles: number;
+  unchangedFiles: number;
+  pendingPaths: string[];
+};
+
+let backupSeq = 0;
+const backupPairs: MockBackupPair[] = [];
+const backupScanState = new Map<string, MockBackupScan>();
+/** 本地目录 → 该目录下的演示文件相对路径。 */
+const MOCK_BACKUP_FILES: Record<string, string[]> = {
+  "/Users/演示/下载": ["纪录片花絮.mp4", "工作室纪实.mov", "说明.txt"],
+};
+
+/** 扫描：本地清单与已同步集合的差集即待上传项。 */
+function scanBackupPairMock(pair: MockBackupPair): MockBackupScan {
+  const files = MOCK_BACKUP_FILES[pair.localPath] ?? ["示例文档.txt"];
+  // 已同步数由配对记录反推：前 N 个视为已同步，保证重复扫描结果稳定。
+  const synced = Math.min(pair.syncedFiles, files.length);
+  const pendingPaths = files.slice(synced);
+  return {
+    pairId: pair.id,
+    totalFiles: files.length,
+    pendingFiles: pendingPaths.length,
+    unchangedFiles: synced,
+    pendingPaths,
+  };
+}
+
 /** 从文件名派生 2-5 个分片的演示体积，保证上传事件序列总时长约 2-4 秒。 */
 function mockUploadFileSize(fileName: string): number {
   const parts = 2 + (hashOf(fileName) % 4);
@@ -1661,6 +1707,76 @@ const HANDLERS: Record<string, CmdHandler> = {
     });
     removeUploadSession(session);
     return { fileName: session.fileName, pickCode: pickCodeOf(entry.id), instant: false };
+  },
+
+  // ----- 备份（本地目录 → 云端目录的内存态同步） -----
+  backup_list_pairs: () => backupPairs.map((pair) => ({ ...pair })),
+  backup_add_pair: (args) => {
+    const localPath = str(args.localPath);
+    const remoteFolderId = str(args.remoteFolderId);
+    const remoteFolderName = str(args.remoteFolderName);
+    if (!localPath || !remoteFolderId || !remoteFolderName) fail("备份的本地路径与云端目录都不能为空");
+    assertFolderId(remoteFolderId, "备份目标目录");
+    if (backupPairs.some((pair) => pair.localPath === localPath)) {
+      fail(`该本地目录已在备份列表中：${localPath}`);
+    }
+    const pair = {
+      id: `backup-${(backupSeq += 1)}`,
+      localPath,
+      remoteFolderId,
+      remoteFolderName,
+      lastSyncedAt: null as string | null,
+      syncedFiles: 0,
+      pendingFiles: 0,
+    };
+    backupPairs.push(pair);
+    return { ...pair };
+  },
+  backup_delete_pair: (args) => {
+    const pairId = str(args.pairId);
+    const index = backupPairs.findIndex((pair) => pair.id === pairId);
+    if (index < 0) fail("指定的备份配对不存在");
+    backupPairs.splice(index, 1);
+    backupScanState.delete(pairId);
+    return null;
+  },
+  backup_scan_pair: (args) => {
+    const pairId = str(args.pairId);
+    const pair = backupPairs.find((current) => current.id === pairId);
+    if (!pair) fail("指定的备份配对不存在");
+    const result = scanBackupPairMock(pair);
+    backupScanState.set(pairId, result);
+    return result;
+  },
+  backup_run_pair: async (args) => {
+    const pairId = str(args.pairId);
+    const pair = backupPairs.find((current) => current.id === pairId);
+    if (!pair) fail("指定的备份配对不存在");
+    const scan = backupScanState.get(pairId) ?? scanBackupPairMock(pair);
+    const failed: Array<{ relativePath: string; reason: string }> = [];
+    let uploaded = 0;
+    for (const relativePath of scan.pendingPaths) {
+      const fileName = relativePath.split("/").pop() ?? relativePath;
+      // 与真实上传一致：同名视为秒传，不发传输事件。
+      const existing = childrenOf(pair.remoteFolderId).find((entry) => entry.name === fileName);
+      if (existing) {
+        uploaded += 1;
+        continue;
+      }
+      const fileSize = mockUploadFileSize(fileName);
+      const session = makeUploadSession(fileName, `${pair.localPath}/${relativePath}`, pair.remoteFolderId, fileSize, 0);
+      await runUploadSequence(session);
+      makeEntry(nextEntryId(), pair.remoteFolderId, fileName, kindForName(fileName), {
+        sizeBytes: fileSize,
+        modifiedAt: now(),
+      });
+      removeUploadSession(session);
+      uploaded += 1;
+    }
+    pair.syncedFiles += uploaded;
+    pair.lastSyncedAt = new Date().toISOString().replace("T", " ").slice(0, 19);
+    backupScanState.delete(pairId);
+    return { uploaded, failed, completed: failed.length === 0 };
   },
 
   // ----- AI 整理（按目录实时生成计划，执行真实变更内存状态） -----

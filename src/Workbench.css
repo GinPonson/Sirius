@@ -4854,3 +4854,349 @@
     scroll-behavior: auto;
   }
 }
+
+/* ============================================================================
+   传输页：左侧二级标签 + 右侧列表，与回收站页共用「标题区 → 内容」节奏。
+   ========================================================================== */
+.transfers-view,
+.backup-view {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.transfers-heading,
+.backup-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.transfers-heading h2,
+.backup-heading h2 {
+  margin: 2px 0 0;
+  color: var(--fg);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.transfers-count {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.transfers-layout {
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.transfers-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+}
+
+.transfers-tabs button {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 9px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.transfers-tabs button:hover {
+  background: var(--surface-hover);
+  color: var(--fg);
+}
+
+.transfers-tabs button.active {
+  background: var(--surface);
+  color: var(--fg);
+  font-weight: 560;
+  box-shadow: var(--shadow-1);
+}
+
+.transfers-tab-count {
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary-ink);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.transfers-body {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.transfers-login-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.transfers-login-hint span {
+  flex: 1 1 auto;
+}
+
+.transfers-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.transfers-row {
+  display: flex;
+  min-height: 56px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.transfers-row:last-child {
+  border-bottom: 0;
+}
+
+.transfers-row-icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--surface-sunken);
+  color: var(--muted);
+}
+
+.transfers-row-icon.running {
+  background: var(--primary-soft);
+  color: var(--primary-ink);
+}
+
+.transfers-row-icon.done {
+  background: var(--success-soft);
+  color: var(--success-ink);
+}
+
+.transfers-row-icon.failed {
+  background: var(--warn-soft);
+  color: var(--warn-ink);
+}
+
+.transfers-row-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.transfers-row-copy strong {
+  overflow: hidden;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 560;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transfers-row-copy small {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.transfers-row-progress {
+  display: block;
+  height: 3px;
+  margin-top: 4px;
+  border-radius: 999px;
+  background: var(--hairline-strong);
+  overflow: hidden;
+}
+
+.transfers-row-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary);
+  transition: width var(--duration-fast) var(--ease-standard);
+}
+
+.transfers-row-stage {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.transfers-row-stage.done {
+  color: var(--success-ink);
+}
+
+.transfers-row-stage.failed {
+  color: var(--danger);
+}
+
+.transfers-empty,
+.backup-empty {
+  display: flex;
+  min-height: 220px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px;
+  border: 1px dashed var(--hairline-strong);
+  border-radius: var(--radius-md);
+  color: var(--muted);
+  text-align: center;
+}
+
+.transfers-empty strong,
+.backup-empty strong {
+  color: var(--fg);
+  font-size: 14px;
+  font-weight: 560;
+}
+
+.transfers-empty span,
+.backup-empty span {
+  max-width: 380px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* ============================================================================
+   备份页：配对卡片列表。
+   ========================================================================== */
+.backup-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.backup-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.backup-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.backup-card-main {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 320px;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.backup-card-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--primary-soft);
+  color: var(--primary-ink);
+}
+
+.backup-card-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.backup-card-copy strong {
+  color: var(--fg);
+  font-size: 14px;
+  font-weight: 580;
+}
+
+.backup-card-copy small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backup-card-target {
+  font-variant-numeric: tabular-nums;
+}
+
+.backup-card-scan {
+  color: var(--primary-ink) !important;
+}
+
+.backup-card-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.backup-remove {
+  padding: 0 10px;
+}
+
+.backup-picker-local {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backup-picker-loading {
+  padding: 14px 4px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}

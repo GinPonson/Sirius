@@ -23,8 +23,8 @@ use cloud115::{
     Cloud115SearchScope, Cloud115SubtitleStream, Cloud115UploadResult, Cloud115UserProfile,
 };
 use library::{
-    AiChatMessageRow, AiChatSession, AppSettings, LibraryRepository, LibraryTask, MediaInfo,
-    MediaItem, PlaybackProgress, UploadSession,
+    AiChatMessageRow, AiChatSession, AppSettings, BackupPair, BackupScanResult, LibraryRepository,
+    LibraryTask, MediaInfo, MediaItem, PlaybackProgress, UploadSession,
 };
 use playback::{PlaybackManager, PlaybackSnapshot, RemoteSourceResolver};
 use std::sync::Arc;
@@ -346,6 +346,167 @@ async fn cloud115_upload_sessions(
     tauri::async_runtime::spawn_blocking(move || repository.upload_sessions())
         .await
         .map_err(|error| format!("上传会话查询线程异常终止：{error}"))?
+}
+
+/// 列出全部备份配对（本地目录 → 115 目录）。
+#[tauri::command]
+async fn backup_list_pairs(
+    repository: State<'_, Arc<LibraryRepository>>,
+) -> Result<Vec<BackupPair>, String> {
+    let repository = Arc::clone(repository.inner());
+    tauri::async_runtime::spawn_blocking(move || repository.backup_pairs())
+        .await
+        .map_err(|error| format!("备份列表查询线程异常终止：{error}"))?
+}
+
+/// 新增一条备份配对；同一本地目录只能登记一次。
+#[tauri::command]
+async fn backup_add_pair(
+    local_path: String,
+    remote_folder_id: String,
+    remote_folder_name: String,
+    repository: State<'_, Arc<LibraryRepository>>,
+) -> Result<BackupPair, String> {
+    let repository = Arc::clone(repository.inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        repository.add_backup_pair(&local_path, &remote_folder_id, &remote_folder_name)
+    })
+    .await
+    .map_err(|error| format!("新增备份配对线程异常终止：{error}"))?
+}
+
+/// 删除备份配对；只清理本地同步记录，不触碰云端文件。
+#[tauri::command]
+async fn backup_delete_pair(
+    pair_id: String,
+    repository: State<'_, Arc<LibraryRepository>>,
+) -> Result<(), String> {
+    let repository = Arc::clone(repository.inner());
+    tauri::async_runtime::spawn_blocking(move || repository.delete_backup_pair(&pair_id))
+        .await
+        .map_err(|error| format!("删除备份配对线程异常终止：{error}"))?
+}
+
+/// 扫描备份目录，返回需要上传的相对路径；不发起任何网络请求。
+#[tauri::command]
+async fn backup_scan_pair(
+    pair_id: String,
+    repository: State<'_, Arc<LibraryRepository>>,
+) -> Result<BackupScanResult, String> {
+    let repository = Arc::clone(repository.inner());
+    tauri::async_runtime::spawn_blocking(move || repository.scan_backup_pair(&pair_id))
+        .await
+        .map_err(|error| format!("备份扫描线程异常终止：{error}"))?
+}
+
+/// 备份执行结果；失败条目单独列出，不因个别失败丢弃整体进度。
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BackupRunResult {
+    uploaded: u64,
+    failed: Vec<BackupFailure>,
+    /// 本次是否因为全部成功而刷新了配对的最近同步时间。
+    completed: bool,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BackupFailure {
+    relative_path: String,
+    reason: String,
+}
+
+/// 执行备份：按扫描结果逐文件上传，每个成功后立即写入同步指纹。
+///
+/// 逐个上传而非并发：115 控制面本身有限速，并发只会让限速器互相排队；
+/// 单个文件失败不影响后续文件，失败项如实返回给界面。
+#[tauri::command]
+async fn backup_run_pair(
+    pair_id: String,
+    provider: State<'_, Arc<Cloud115Provider>>,
+    repository: State<'_, Arc<LibraryRepository>>,
+    app: AppHandle,
+) -> Result<BackupRunResult, String> {
+    let repository = Arc::clone(repository.inner());
+    let scan_repository = Arc::clone(&repository);
+    let scan_pair_id = pair_id.clone();
+    let scan = tauri::async_runtime::spawn_blocking(move || {
+        scan_repository.scan_backup_pair(&scan_pair_id)
+    })
+    .await
+    .map_err(|error| format!("备份扫描线程异常终止：{error}"))??;
+
+    let pair = {
+        let query_repository = Arc::clone(&repository);
+        let query_pair_id = pair_id.clone();
+        tauri::async_runtime::spawn_blocking(move || query_repository.backup_pair(&query_pair_id))
+            .await
+            .map_err(|error| format!("备份配对查询线程异常终止：{error}"))??
+    };
+
+    let mut uploaded = 0_u64;
+    let mut failed = Vec::new();
+    for relative_path in &scan.pending_paths {
+        let absolute = std::path::Path::new(&pair.local_path).join(relative_path);
+        let absolute_str = absolute.to_string_lossy().to_string();
+        match provider
+            .upload_file_from_disk(
+                repository.as_ref(),
+                &absolute_str,
+                &pair.remote_folder_id,
+                Some(transfer_progress_callback(&app)),
+            )
+            .await
+        {
+            Ok(result) => {
+                uploaded += 1;
+                // 指纹以「上传成功这一刻」的本地状态为准：上传期间文件若被修改，
+                // 下次扫描会因为大小/时间不符而重新上传，不会漏掉变化。
+                if let Ok(metadata) = std::fs::metadata(&absolute) {
+                    let modified_at = metadata
+                        .modified()
+                        .ok()
+                        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|duration| duration.as_secs())
+                        .unwrap_or(0);
+                    let record_repository = Arc::clone(&repository);
+                    let record_pair_id = pair_id.clone();
+                    let record_path = relative_path.clone();
+                    let size = metadata.len();
+                    let pick_code = result.pick_code.clone();
+                    let _ = tauri::async_runtime::spawn_blocking(move || {
+                        record_repository.record_backup_file(
+                            &record_pair_id,
+                            &record_path,
+                            size,
+                            modified_at,
+                            &pick_code,
+                        )
+                    })
+                    .await;
+                }
+            }
+            Err(reason) => failed.push(BackupFailure {
+                relative_path: relative_path.clone(),
+                reason,
+            }),
+        }
+    }
+
+    let completed = failed.is_empty();
+    if uploaded > 0 {
+        let touch_repository = Arc::clone(&repository);
+        let touch_pair_id = pair_id.clone();
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            touch_repository.touch_backup_pair(&touch_pair_id)
+        })
+        .await;
+    }
+    Ok(BackupRunResult {
+        uploaded,
+        failed,
+        completed,
+    })
 }
 
 /// 从 SQLite 会话恢复 multipart；本地文件按需流式读取与校验，不再有 64 MiB 上限。
@@ -996,6 +1157,11 @@ pub fn run() {
             cloud115_upload_file,
             cloud115_upload_sessions,
             cloud115_resume_upload,
+            backup_list_pairs,
+            backup_add_pair,
+            backup_delete_pair,
+            backup_scan_pair,
+            backup_run_pair,
             cloud115_delete_files,
             cloud115_list_recycle_bin,
             cloud115_restore_recycle_items,

@@ -1,10 +1,50 @@
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::Mutex,
     time::{SystemTime, UNIX_EPOCH},
 };
+
+/// 一条备份配对：本地目录 → 115 目录的单向同步关系。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupPair {
+    pub id: String,
+    pub local_path: String,
+    pub remote_folder_id: String,
+    pub remote_folder_name: String,
+    /// 最近一次同步时间；从未同步过为 None。
+    pub last_synced_at: Option<String>,
+    /// 已记录同步完成的文件数。
+    pub synced_files: u64,
+    /// 待同步文件数；只有扫描命令能给出准确值，列表接口固定为 0。
+    pub pending_files: u64,
+}
+
+/// 单个文件的上次同步指纹；用于判断本地文件是否自上次同步后发生变化。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BackupFileState {
+    pub local_size: u64,
+    pub local_modified_at: u64,
+    pub remote_file_id: String,
+}
+
+/// 扫描结果：需要上传的文件与统计。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupScanResult {
+    pub pair_id: String,
+    /// 本地目录中发现的文件总数。
+    pub total_files: u64,
+    /// 新增或内容已变化、需要上传的文件数。
+    pub pending_files: u64,
+    /// 与上次同步一致、可跳过的文件数。
+    pub unchanged_files: u64,
+    /// 需要上传的相对路径（已排序，供界面预览与逐条执行）。
+    pub pending_paths: Vec<String>,
+}
 
 /// 用户可持久化调整的应用设置。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -335,7 +375,26 @@ impl LibraryRepository {
                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                  );
                  CREATE INDEX IF NOT EXISTS idx_ai_chat_messages_session
-                   ON ai_chat_messages(session_id, seq);",
+                   ON ai_chat_messages(session_id, seq);
+                 CREATE TABLE IF NOT EXISTS backup_pairs (
+                   id TEXT PRIMARY KEY,
+                   local_path TEXT NOT NULL UNIQUE,
+                   remote_folder_id TEXT NOT NULL,
+                   remote_folder_name TEXT NOT NULL,
+                   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                   last_synced_at TEXT
+                 );
+                 CREATE INDEX IF NOT EXISTS idx_backup_pairs_created
+                   ON backup_pairs(created_at DESC);
+                 CREATE TABLE IF NOT EXISTS backup_file_state (
+                   pair_id TEXT NOT NULL REFERENCES backup_pairs(id) ON DELETE CASCADE,
+                   relative_path TEXT NOT NULL,
+                   local_size INTEGER NOT NULL,
+                   local_modified_at INTEGER NOT NULL,
+                   remote_file_id TEXT NOT NULL,
+                   synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                   PRIMARY KEY (pair_id, relative_path)
+                 );",
             )
             .map_err(|error| format!("迁移 SQLite 媒体库失败：{error}"))?;
 
@@ -996,6 +1055,233 @@ impl LibraryRepository {
         Ok(())
     }
 
+    // -----------------------------------------------------------------------
+    // 备份：本地目录 → 115 目录的单向同步状态。
+    // -----------------------------------------------------------------------
+
+    /// 新增一条备份配对；本地路径唯一，重复添加会被 SQLite 拒绝。
+    pub fn add_backup_pair(
+        &self,
+        local_path: &str,
+        remote_folder_id: &str,
+        remote_folder_name: &str,
+    ) -> Result<BackupPair, String> {
+        if local_path.trim().is_empty()
+            || remote_folder_id.trim().is_empty()
+            || remote_folder_name.trim().is_empty()
+        {
+            return Err("备份的本地路径与云端目录都不能为空".to_string());
+        }
+        let id = format!("backup-{}", unix_timestamp_millis()?);
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| "SQLite 媒体库锁已损坏，必须重启应用".to_string())?;
+        connection
+            .execute(
+                "INSERT INTO backup_pairs (id,local_path,remote_folder_id,remote_folder_name)
+                 VALUES (?1,?2,?3,?4)",
+                rusqlite::params![
+                    id,
+                    local_path.trim(),
+                    remote_folder_id.trim(),
+                    remote_folder_name.trim()
+                ],
+            )
+            .map_err(|error| {
+                if error.to_string().contains("UNIQUE") {
+                    format!("该本地目录已在备份列表中：{}", local_path.trim())
+                } else {
+                    format!("保存备份配对失败：{error}")
+                }
+            })?;
+        Ok(BackupPair {
+            id,
+            local_path: local_path.trim().to_string(),
+            remote_folder_id: remote_folder_id.trim().to_string(),
+            remote_folder_name: remote_folder_name.trim().to_string(),
+            last_synced_at: None,
+            synced_files: 0,
+            pending_files: 0,
+        })
+    }
+
+    /// 返回全部备份配对，并附带已同步/待同步文件数（按本地状态表统计）。
+    pub fn backup_pairs(&self) -> Result<Vec<BackupPair>, String> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| "SQLite 媒体库锁已损坏，必须重启应用".to_string())?;
+        let mut statement = connection
+            .prepare(
+                "SELECT p.id,p.local_path,p.remote_folder_id,p.remote_folder_name,p.last_synced_at,
+                        (SELECT COUNT(*) FROM backup_file_state s WHERE s.pair_id = p.id)
+                 FROM backup_pairs p ORDER BY p.created_at DESC, p.id DESC",
+            )
+            .map_err(|error| format!("准备备份列表查询失败：{error}"))?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok(BackupPair {
+                    id: row.get(0)?,
+                    local_path: row.get(1)?,
+                    remote_folder_id: row.get(2)?,
+                    remote_folder_name: row.get(3)?,
+                    last_synced_at: row.get(4)?,
+                    synced_files: row.get::<_, i64>(5)? as u64,
+                    // 待同步数量依赖实时扫描本地目录，列表接口不猜测；由扫描命令单独返回。
+                    pending_files: 0,
+                })
+            })
+            .map_err(|error| format!("执行备份列表查询失败：{error}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| format!("读取备份列表失败：{error}"))
+    }
+
+    /// 删除一条备份配对；已同步记录随外键级联清理，不影响云端文件。
+    pub fn delete_backup_pair(&self, id: &str) -> Result<(), String> {
+        if id.trim().is_empty() {
+            return Err("备份配对 ID 不能为空".to_string());
+        }
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| "SQLite 媒体库锁已损坏，必须重启应用".to_string())?;
+        let affected = connection
+            .execute("DELETE FROM backup_pairs WHERE id=?1", [id])
+            .map_err(|error| format!("删除备份配对失败：{error}"))?;
+        if affected == 0 {
+            return Err("指定的备份配对不存在".to_string());
+        }
+        Ok(())
+    }
+
+    /// 返回某个配对已同步文件的相对路径 → 本地指纹映射，供扫描时判断是否需要上传。
+    pub fn backup_file_states(
+        &self,
+        pair_id: &str,
+    ) -> Result<HashMap<String, BackupFileState>, String> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| "SQLite 媒体库锁已损坏，必须重启应用".to_string())?;
+        let mut statement = connection
+            .prepare(
+                "SELECT relative_path,local_size,local_modified_at,remote_file_id
+                 FROM backup_file_state WHERE pair_id=?1",
+            )
+            .map_err(|error| format!("准备备份状态查询失败：{error}"))?;
+        let rows = statement
+            .query_map([pair_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    BackupFileState {
+                        local_size: row.get::<_, i64>(1)? as u64,
+                        local_modified_at: row.get::<_, i64>(2)? as u64,
+                        remote_file_id: row.get(3)?,
+                    },
+                ))
+            })
+            .map_err(|error| format!("执行备份状态查询失败：{error}"))?;
+        rows.collect::<Result<HashMap<_, _>, _>>()
+            .map_err(|error| format!("读取备份状态失败：{error}"))
+    }
+
+    /// 记录单个文件已同步；同一相对路径重复同步时覆盖指纹。
+    pub fn record_backup_file(
+        &self,
+        pair_id: &str,
+        relative_path: &str,
+        local_size: u64,
+        local_modified_at: u64,
+        remote_file_id: &str,
+    ) -> Result<(), String> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| "SQLite 媒体库锁已损坏，必须重启应用".to_string())?;
+        connection
+            .execute(
+                "INSERT INTO backup_file_state
+                   (pair_id,relative_path,local_size,local_modified_at,remote_file_id)
+                 VALUES (?1,?2,?3,?4,?5)
+                 ON CONFLICT(pair_id,relative_path) DO UPDATE SET
+                   local_size=excluded.local_size,
+                   local_modified_at=excluded.local_modified_at,
+                   remote_file_id=excluded.remote_file_id,
+                   synced_at=CURRENT_TIMESTAMP",
+                rusqlite::params![
+                    pair_id,
+                    relative_path,
+                    local_size as i64,
+                    local_modified_at as i64,
+                    remote_file_id
+                ],
+            )
+            .map_err(|error| format!("记录备份文件状态失败：{error}"))?;
+        Ok(())
+    }
+
+    /// 更新配对的最近同步时间。
+    pub fn touch_backup_pair(&self, pair_id: &str) -> Result<(), String> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| "SQLite 媒体库锁已损坏，必须重启应用".to_string())?;
+        connection
+            .execute(
+                "UPDATE backup_pairs SET last_synced_at=CURRENT_TIMESTAMP WHERE id=?1",
+                [pair_id],
+            )
+            .map_err(|error| format!("更新备份同步时间失败：{error}"))?;
+        Ok(())
+    }
+
+    /// 取单条备份配对；不存在时返回可读错误。
+    pub fn backup_pair(&self, pair_id: &str) -> Result<BackupPair, String> {
+        self.backup_pairs()?
+            .into_iter()
+            .find(|pair| pair.id == pair_id)
+            .ok_or_else(|| "指定的备份配对不存在".to_string())
+    }
+
+    /// 扫描本地目录，对比上次同步指纹，得出需要上传的相对路径。
+    ///
+    /// 只比较「大小 + 修改时间」，不重新计算 SHA1：扫描阶段对整棵目录做摘要
+    /// 会让大目录的预览等待过久，真正的秒传判定由上传链路自己完成。
+    pub fn scan_backup_pair(&self, pair_id: &str) -> Result<BackupScanResult, String> {
+        let pair = self.backup_pair(pair_id)?;
+        let root = validate_scan_directory(&pair.local_path)?;
+        let known = self.backup_file_states(pair_id)?;
+
+        let mut pending_paths = Vec::new();
+        let mut total_files = 0_u64;
+        let mut unchanged_files = 0_u64;
+        for (path, size, modified_at) in collect_backup_files(&root)? {
+            total_files += 1;
+            let relative = path
+                .strip_prefix(&root)
+                .map_err(|error| format!("计算备份相对路径失败：{error}"))?
+                .to_string_lossy()
+                .replace('\\', "/");
+            let changed = known.get(&relative).is_none_or(|state| {
+                state.local_size != size || state.local_modified_at != modified_at
+            });
+            if changed {
+                pending_paths.push(relative);
+            } else {
+                unchanged_files += 1;
+            }
+        }
+        pending_paths.sort();
+        Ok(BackupScanResult {
+            pair_id: pair_id.to_string(),
+            total_files,
+            pending_files: pending_paths.len() as u64,
+            unchanged_files,
+            pending_paths,
+        })
+    }
+
     /// 递归扫描一个本地目录，将视频文件和待刮削任务原子写入 SQLite。
     pub fn scan_local_directory(&self, path: &str) -> Result<LibraryTask, String> {
         let directory = validate_scan_directory(path)?;
@@ -1307,6 +1593,45 @@ fn validate_scan_directory(path: &str) -> Result<PathBuf, String> {
         .map_err(|error| format!("解析扫描目录失败：{error}"))
 }
 
+/// 递归收集备份目录下的全部普通文件，返回 (绝对路径, 字节数, 修改时间秒)。
+///
+/// 与媒体扫描共用同一套遍历约束：显式栈、跳过符号链接、跳过非普通文件。
+/// 修改时间统一为秒级时间戳，便于与 SQLite 中记录的历史指纹直接比较。
+fn collect_backup_files(root: &Path) -> Result<Vec<(PathBuf, u64, u64)>, String> {
+    let mut pending = vec![root.to_path_buf()];
+    let mut files = Vec::new();
+    while let Some(directory) = pending.pop() {
+        let entries = std::fs::read_dir(&directory)
+            .map_err(|error| format!("读取备份目录 {} 失败：{error}", directory.display()))?;
+        for entry in entries {
+            let entry = entry.map_err(|error| {
+                format!("读取备份目录 {} 中的条目失败：{error}", directory.display())
+            })?;
+            let metadata = std::fs::symlink_metadata(entry.path()).map_err(|error| {
+                format!("读取备份文件 {} 信息失败：{error}", entry.path().display())
+            })?;
+            if metadata.file_type().is_symlink() {
+                continue;
+            }
+            if metadata.is_dir() {
+                pending.push(entry.path());
+                continue;
+            }
+            if !metadata.is_file() {
+                continue;
+            }
+            let modified_at = metadata
+                .modified()
+                .ok()
+                .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+                .map(|duration| duration.as_secs())
+                .unwrap_or(0);
+            files.push((entry.path(), metadata.len(), modified_at));
+        }
+    }
+    Ok(files)
+}
+
 /// 使用显式栈遍历目录，跳过符号链接以避免循环。
 fn collect_video_files(root: &Path) -> Result<Vec<ScannedFile>, String> {
     let mut pending = vec![root.to_path_buf()];
@@ -1369,6 +1694,14 @@ fn new_task_id() -> Result<String, String> {
         .duration_since(UNIX_EPOCH)
         .map_err(|error| format!("系统时间异常，无法创建任务：{error}"))?;
     Ok(format!("scan-{}", timestamp.as_nanos()))
+}
+
+/// 毫秒时间戳；备份配对 ID 需要单调且可读，毫秒精度足够区分用户操作。
+fn unix_timestamp_millis() -> Result<u128, String> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .map_err(|error| format!("系统时间异常，无法创建备份记录：{error}"))
 }
 
 const VIDEO_EXTENSIONS: &[&str] = &["mkv", "mp4", "mov", "avi", "webm", "m4v", "ts"];
@@ -1822,5 +2155,113 @@ mod tests {
         let _ = fs::remove_file(&path);
         let _ = fs::remove_file(path.with_extension("sqlite3-wal"));
         let _ = fs::remove_file(path.with_extension("sqlite3-shm"));
+    }
+
+    /// 备份配对：新增、去重、级联清理与状态记录必须自洽。
+    #[test]
+    fn backup_pairs_persist_and_cascade() {
+        let repository = LibraryRepository::open(Path::new(":memory:")).unwrap();
+        assert!(repository.backup_pairs().unwrap().is_empty());
+
+        let pair = repository
+            .add_backup_pair("/tmp/sirius-backup-a", "folder-9", "纪录片")
+            .unwrap();
+        assert_eq!(pair.remote_folder_id, "folder-9");
+        assert_eq!(pair.synced_files, 0);
+        assert!(pair.last_synced_at.is_none());
+
+        // 同一本地目录不允许重复登记，错误信息必须点明原因。
+        let duplicate = repository
+            .add_backup_pair("/tmp/sirius-backup-a", "folder-1", "电影")
+            .unwrap_err();
+        assert!(duplicate.contains("已在备份列表"), "实际错误：{duplicate}");
+
+        repository
+            .record_backup_file(&pair.id, "a/b.txt", 12, 1_700_000_000, "pick-1")
+            .unwrap();
+        // 同一相对路径再次记录是覆盖而非插入。
+        repository
+            .record_backup_file(&pair.id, "a/b.txt", 24, 1_700_000_100, "pick-2")
+            .unwrap();
+        let states = repository.backup_file_states(&pair.id).unwrap();
+        assert_eq!(states.len(), 1);
+        assert_eq!(states["a/b.txt"].local_size, 24);
+        assert_eq!(states["a/b.txt"].remote_file_id, "pick-2");
+        assert_eq!(repository.backup_pairs().unwrap()[0].synced_files, 1);
+
+        repository.touch_backup_pair(&pair.id).unwrap();
+        assert!(repository.backup_pairs().unwrap()[0]
+            .last_synced_at
+            .is_some());
+
+        // 删除配对必须级联清理同步记录，避免孤儿行。
+        repository.delete_backup_pair(&pair.id).unwrap();
+        assert!(repository.backup_pairs().unwrap().is_empty());
+        assert!(repository.backup_file_states(&pair.id).unwrap().is_empty());
+        let missing = repository.delete_backup_pair(&pair.id).unwrap_err();
+        assert!(missing.contains("不存在"), "实际错误：{missing}");
+    }
+
+    /// 备份扫描只比较「大小 + 修改时间」：指纹未变的文件必须跳过。
+    #[test]
+    fn backup_scan_skips_unchanged_files() {
+        let root = std::env::temp_dir().join(format!(
+            "sirius-backup-scan-{}",
+            SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(root.join("nested")).unwrap();
+        fs::write(root.join("top.txt"), b"top").unwrap();
+        fs::write(root.join("nested/inner.txt"), b"inner").unwrap();
+
+        let repository = LibraryRepository::open(Path::new(":memory:")).unwrap();
+        let pair = repository
+            .add_backup_pair(&root.to_string_lossy(), "folder-1", "目标")
+            .unwrap();
+
+        let first = repository.scan_backup_pair(&pair.id).unwrap();
+        assert_eq!(first.total_files, 2);
+        assert_eq!(first.pending_files, 2);
+        assert_eq!(first.unchanged_files, 0);
+        assert_eq!(first.pending_paths, vec!["nested/inner.txt", "top.txt"]);
+
+        // 把两个文件都标记为已同步，且指纹与磁盘当前状态一致。
+        for relative in ["nested/inner.txt", "top.txt"] {
+            let metadata = fs::metadata(root.join(relative)).unwrap();
+            let modified_at = metadata
+                .modified()
+                .ok()
+                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|duration| duration.as_secs())
+                .unwrap_or(0);
+            repository
+                .record_backup_file(&pair.id, relative, metadata.len(), modified_at, "pick")
+                .unwrap();
+        }
+        let second = repository.scan_backup_pair(&pair.id).unwrap();
+        assert_eq!(second.pending_files, 0);
+        assert_eq!(second.unchanged_files, 2);
+
+        // 修改内容后（大小变化）必须重新进入待上传列表。
+        fs::write(root.join("top.txt"), b"top changed").unwrap();
+        let third = repository.scan_backup_pair(&pair.id).unwrap();
+        assert_eq!(third.pending_paths, vec!["top.txt"]);
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// 未登记配对或目录不存在时，扫描必须显式失败而不是返回空结果。
+    #[test]
+    fn backup_scan_rejects_unknown_pair_and_missing_directory() {
+        let repository = LibraryRepository::open(Path::new(":memory:")).unwrap();
+        assert!(repository.scan_backup_pair("backup-missing").is_err());
+
+        let pair = repository
+            .add_backup_pair("/tmp/sirius-definitely-missing-dir", "folder-1", "目标")
+            .unwrap();
+        let error = repository.scan_backup_pair(&pair.id).unwrap_err();
+        assert!(error.contains("不是目录"), "实际错误：{error}");
     }
 }

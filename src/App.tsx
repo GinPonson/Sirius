@@ -13,6 +13,8 @@ import { BrandMark } from "./components/BrandMark";
 import { TaskDrawer } from "./components/TaskDrawer";
 import { CloudFilesView } from "./components/CloudFilesView";
 import { RecycleBinView } from "./components/RecycleBinView";
+import { TransfersView } from "./components/TransfersView";
+import { BackupView } from "./components/BackupView";
 import { ComicsView } from "./components/ComicsView";
 import {
   AiOrganizationService,
@@ -871,6 +873,10 @@ function App() {
             onRequireLogin={() => setForceGate(true)}
             onRestored={handleRecycleRestored}
           />
+        ) : section === "transfers" ? (
+          <TransfersView account={cloudAccount} onRequireLogin={() => setForceGate(true)} />
+        ) : section === "backup" ? (
+          <BackupView account={cloudAccount} onRequireLogin={() => setForceGate(true)} />
         ) : (
           <CloudFilesView
             account={cloudAccount}
@@ -1055,6 +1061,8 @@ function sectionTitle(section: AppSection): string {
     albums: "相册",
     "cloud-files": "网盘文件",
     "recycle-bin": "回收站",
+    transfers: "传输",
+    backup: "备份",
     tasks: "整理任务",
   }[section];
 }
