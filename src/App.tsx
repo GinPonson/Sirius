@@ -74,7 +74,6 @@ function isVideoSection(section: AppSection): section is "home" | "library" | "d
 }
 
 /** 轻量导航历史条目：主视图 + 媒体详情两级；详情按 id 回放时重新解析。 */
-type NavHistoryEntry = { section: AppSection; mediaId: string | null };
 
 const repository = new TauriMediaRepository();
 const sourceResolver = new LocalSourceResolver();
@@ -181,8 +180,6 @@ function App() {
    */
   const [cloudFilesRefreshNonce, setCloudFilesRefreshNonce] = useState(0);
   // 轻量历史栈：覆盖主视图切换与媒体详情进出，不追求完整浏览器式历史。
-  const [backStack, setBackStack] = useState<NavHistoryEntry[]>([]);
-  const [forwardStack, setForwardStack] = useState<NavHistoryEntry[]>([]);
   // 首次确认账号状态时决定默认分区；用户一旦手动导航便不再自动跳转。
   const defaultSectionResolved = useRef(false);
   // 记录最近一次由播放快照设置的错误，恢复成功后只清除该条，不误伤其他错误横幅。
@@ -692,17 +689,9 @@ function App() {
   // 登录首屏在未登录或会话失效时接管整窗；启动确认期间展示启动画面。
   const gateVisible = cloudAccount?.connected === false || forceGate;
 
-  /** 记录当前视图快照并清空前进栈；主视图切换与详情进入共用。 */
-  function pushHistory() {
-    const entry: NavHistoryEntry = { section, mediaId: selectedMedia?.id ?? null };
-    setBackStack((stack) => [...stack.slice(-49), entry]);
-    setForwardStack([]);
-  }
-
   /** 主视图切换（侧栏/影视内切换/查看全部等）；离开网盘文件时清空目录搜索词。 */
   function navigate(next: AppSection) {
     if (next === section && selectedMedia === null) return;
-    pushHistory();
     setSection(next);
     setSelectedMedia(null);
     if (next !== "cloud-files") setFileQuery("");
@@ -720,39 +709,8 @@ function App() {
 
   /** 打开媒体详情：记录历史并展开右侧面板（详情标签由面板在 detailKey 变化时自动切换）。 */
   function openMedia(item: MediaItem) {
-    if (selectedMedia?.id !== item.id) pushHistory();
     setSelectedMedia(item);
     setAiPanelOpen(true);
-  }
-
-  /** 将历史条目落回界面；详情条目按 id 从当前媒体列表重新解析，缺失则回退为列表态。 */
-  function applyHistoryEntry(entry: NavHistoryEntry) {
-    setSection(entry.section);
-    const nextMedia =
-      entry.mediaId ? media.find((item) => item.id === entry.mediaId) ?? null : null;
-    setSelectedMedia(nextMedia);
-    if (nextMedia) setAiPanelOpen(true);
-    if (entry.section !== "cloud-files") setFileQuery("");
-  }
-
-  /** 顶栏后退：回退到上一条视图/详情快照，当前快照进入前进栈。 */
-  function goBack() {
-    if (backStack.length === 0) return;
-    const entry = backStack[backStack.length - 1];
-    const currentEntry: NavHistoryEntry = { section, mediaId: selectedMedia?.id ?? null };
-    setBackStack((stack) => stack.slice(0, -1));
-    setForwardStack((stack) => [currentEntry, ...stack]);
-    applyHistoryEntry(entry);
-  }
-
-  /** 顶栏前进：重放前进栈顶快照，当前快照回到后退栈。 */
-  function goForward() {
-    if (forwardStack.length === 0) return;
-    const entry = forwardStack[0];
-    const currentEntry: NavHistoryEntry = { section, mediaId: selectedMedia?.id ?? null };
-    setBackStack((stack) => [...stack, currentEntry]);
-    setForwardStack((stack) => stack.slice(1));
-    applyHistoryEntry(entry);
   }
 
   /** 登录成功后进入文件工作区；退出或失效时回到登录首屏。 */
@@ -801,10 +759,6 @@ function App() {
           sidebarExpanded={sidebarExpanded}
           onToggleSidebar={() => setSidebarExpanded((value) => !value)}
           search={topBarSearch}
-          canGoBack={backStack.length > 0}
-          canGoForward={forwardStack.length > 0}
-          onBack={goBack}
-          onForward={goForward}
           taskDrawer={
             <TaskDrawer
               tasks={tasks}

@@ -458,44 +458,6 @@
 
 /* 顶栏导航历史：后退/前进（chevron 翻转）；禁用态用 fg-disabled 明示不可用。
    与侧栏开合同组，位于标题左侧。 */
-.shell-nav-cluster {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: var(--space-1);
-}
-
-.shell-nav-button {
-  display: grid;
-  width: 30px;
-  height: 30px;
-  flex: 0 0 auto;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
-}
-
-.shell-nav-button:hover:not(:disabled) {
-  background: var(--surface-hover);
-  color: var(--fg);
-}
-
-.shell-nav-button:disabled {
-  color: var(--fg-disabled);
-  opacity: 1;
-  cursor: default;
-}
-
-/* chevron 默认朝右（ChevronRight）：后退翻 180° 朝左，前进保持朝右。 */
-.shell-nav-button.back svg {
-  transform: rotate(180deg);
-}
-
 .app-content {
   min-height: 100vh;
   margin-left: var(--shell-sidebar-width);
