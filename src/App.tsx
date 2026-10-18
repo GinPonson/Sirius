@@ -170,6 +170,8 @@ function App() {
   const lastVolumeRef = useRef(60);
   // 顶栏文件搜索：查询词由应用壳持有并下发到网盘文件页，防抖仍留在该页。
   const [fileQuery, setFileQuery] = useState("");
+  // 文件页是否处于收藏视图；收藏不参与关键词检索，顶栏搜索框据此隐藏。
+  const [cloudStarredView, setCloudStarredView] = useState(false);
   // 轻量历史栈：覆盖主视图切换与媒体详情进出，不追求完整浏览器式历史。
   const [backStack, setBackStack] = useState<NavHistoryEntry[]>([]);
   const [forwardStack, setForwardStack] = useState<NavHistoryEntry[]>([]);
@@ -180,9 +182,10 @@ function App() {
 
   // 顶栏搜索范围：影视页检索媒体库，网盘文件页检索当前目录；
   // 漫画/相册等尚无搜索能力的页面返回 null，顶栏不渲染搜索框。
+  // 收藏视图是全账号列表、不支持关键词检索，由文件页上报后一并隐藏搜索框。
   const searchScope: TopBarSearchScope | null = isVideoSection(section)
     ? "media"
-    : section === "cloud-files"
+    : section === "cloud-files" && !cloudStarredView
       ? "files"
       : null;
   const topBarSearch: TopBarSearch | null =
@@ -851,6 +854,7 @@ function App() {
             account={cloudAccount}
             query={fileQuery}
             onQueryChange={setFileQuery}
+            onStarredViewChange={setCloudStarredView}
             onRequireLogin={() => setForceGate(true)}
             onPlay={playCloudFile}
           />

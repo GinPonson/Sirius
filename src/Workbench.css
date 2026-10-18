@@ -145,22 +145,51 @@
   background: var(--bg);
 }
 
+/* 路径上下文：账号与加载进度紧跟面包屑，属于「我在哪」的信息，
+   不参与右侧筛选/操作的宽度竞争；窄窗口整体收起。 */
+.cloud-path-meta {
+  display: inline-flex;
+  min-width: 0;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 12px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .file-breadcrumbs {
-  flex: 1;
-  flex-wrap: wrap;
-  row-gap: var(--space-1);
+  /* 单行布局里空间不足时优先压缩面包屑（尾部省略），把宽度让给筛选与操作；
+     保底 120px，避免只剩「115 ...」这种不可读状态。 */
+  min-width: 120px;
+  flex: 1 1 0;
+  flex-wrap: nowrap;
+  overflow: hidden;
 }
 
 .file-breadcrumbs > span {
-  color: var(--muted);
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  flex: 0 1 auto;
+}
+
+.file-breadcrumbs > span:last-child {
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .file-breadcrumbs button {
   max-width: 200px;
+  overflow: hidden;
   padding: 4px 7px;
   border-radius: 5px;
   color: var(--muted);
   font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .file-breadcrumbs > span:first-child button {
@@ -178,31 +207,46 @@
 
 .cloud-filter-options {
   display: flex;
-  flex: 0 0 auto;
+  /* 单行布局：筛选组内部不换行。整体允许收缩（flex-shrink: 1），
+     压缩顺序由子项的 min-width 决定：类型筛选最后才滚动。 */
+  flex-wrap: nowrap;
+  min-width: 0;
+  flex: 0 1 auto;
   align-items: center;
-  gap: 18px;
+  gap: 14px;
 }
 
 .cloud-filter-options > span {
+  flex: 0 0 auto;
   color: var(--muted);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 已加载计数：单行布局下允许被压缩到省略；空间紧张时由媒体查询整体隐藏。 */
+.cloud-loaded-count {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 连接态徽标：账号入口已迁至侧栏底部，这里保留一行连接标识，
    避免文件页本身看不出当前操作的是哪个 115 账号。
-   极窄窗口下整体可截断，保证右侧视图控件与操作不被挤出。 */
+   单行布局下可压缩为省略号，但保留最小宽度，优先保证操作按钮完整。 */
 .cloud-account-badge {
   display: inline-flex;
-  min-width: 0;
+  min-width: 64px;
   flex: 0 1 auto;
   align-items: center;
   gap: 6px;
   overflow: hidden;
   color: var(--muted);
   font-size: 12px;
-  white-space: nowrap;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .cloud-account-badge > i {
@@ -225,8 +269,10 @@
   font-weight: 400;
 }
 
-/* 类型筛选：条目较多，窄窗口优先压缩内边距而不是换行，超出部分横向滚动。 */
+/* 类型筛选：单行布局里优先保住完整宽度（七个筛选项是主要操作），
+   空间不足时才横向滚动；不参与收缩，避免被挤成只剩前几项。 */
 .file-filter-row .cloud-type-filter {
+  flex: 0 0 auto;
   max-width: 100%;
   overflow-x: auto;
   scrollbar-width: none;
@@ -247,6 +293,45 @@
   background: var(--primary-soft);
   color: var(--primary-ink);
   box-shadow: none;
+}
+
+/* 视图/密度/排序的单入口按钮：与 .secondary-action 同高，但更紧凑；
+   当前排序值直接显示在按钮上，收起菜单后仍能看出状态。 */
+.cloud-view-menu-control {
+  flex: 0 0 auto;
+}
+
+.cloud-view-menu-button {
+  display: inline-flex;
+  height: 28px;
+  max-width: 190px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
+}
+
+.cloud-view-menu-button:hover,
+.cloud-view-menu-button[aria-expanded="true"] {
+  background: var(--surface-sunken);
+  color: var(--fg);
+}
+
+.cloud-view-menu-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cloud-view-menu-caret {
+  display: inline-flex;
+  flex: 0 0 auto;
 }
 
 .file-table {
@@ -850,6 +935,53 @@
   gap: 0;
 }
 
+@container content-pane (max-width: 1240px) {
+  /* 单行工具栏按实际容器宽度让位（窗口尺寸不等于内容宽度：侧栏开合会改变可用空间）。
+     顺序：先收起账号徽标与加载计数，再让面包屑尾部省略，最后才轮到类型筛选横向滚动。 */
+  .cloud-path-meta {
+    display: none;
+  }
+}
+
+@container content-pane (max-width: 1040px) {
+  .cloud-view-menu-label {
+    display: none;
+  }
+}
+
+@container content-pane (max-width: 900px) {
+  .file-breadcrumbs {
+    min-width: 72px;
+  }
+
+  .cloud-view-menu-button {
+    max-width: 64px;
+  }
+}
+
+@container content-pane (max-width: 780px) {
+  /* 极窄容器：类型筛选是主要操作，保留可用宽度；面包屑压到最短，
+     操作按钮只留图标语义（文字随宽度自然收缩）。 */
+  .file-breadcrumbs {
+    min-width: 56px;
+  }
+
+  .cloud-toolbar-actions {
+    gap: 6px;
+  }
+
+  .cloud-toolbar-actions .secondary-action {
+    padding: 0 8px;
+  }
+}
+
+@media (max-width: 1280px) {
+  /* 窄窗口下侧栏通常也收起，这里保留一条媒体查询兜底：账号与计数整体隐藏。 */
+  .cloud-path-meta {
+    display: none;
+  }
+}
+
 @media (max-width: 1100px) {
   .comics-view .section-heading,
   .albums-view .section-heading {
@@ -859,6 +991,10 @@
 
   .cloud-filter-options {
     gap: 10px;
+  }
+
+  .cloud-account-badge {
+    display: none;
   }
 
   .file-name small {
@@ -879,6 +1015,17 @@
 
   .cloud-filter-options > span {
     display: none;
+  }
+
+  /* 单行工具栏在窄窗口先让位：账号徽标与计数收起（账号入口仍在侧栏底部），
+     面包屑继续省略尾部，保证操作按钮始终可见。 */
+  .cloud-account-badge,
+  .cloud-loaded-count {
+    display: none;
+  }
+
+  .cloud-view-menu-button {
+    max-width: 120px;
   }
 
   .preferences-body .ai-text-input {
@@ -2867,9 +3014,9 @@
   box-shadow: var(--shadow-1);
 }
 
+/* 工具栏固定单行：筛选组内部同样不换行，靠类型筛选横向滚动与窄窗口隐藏次要信息让位。 */
 .cloud-filter-options {
-  flex-wrap: wrap;
-  row-gap: 6px;
+  flex-wrap: nowrap;
 }
 
 /* 排序控件：工具栏按钮打开统一菜单（FileContextMenu）；口径标注「已加载项」。 */
@@ -3225,27 +3372,7 @@
   color: var(--primary-ink);
 }
 
-.cloud-recycle-button {
-  display: inline-flex;
-  height: 36px;
-  align-items: center;
-  gap: 6px;
-  padding: 0 12px;
-  border: 1px solid var(--hairline-strong);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--muted);
-  font-size: 13px;
-  cursor: pointer;
-  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
-}
-
-.cloud-recycle-button:hover {
-  background: var(--surface-sunken);
-  color: var(--fg);
-}
-
-/* 收藏视图入口：与回收站按钮同族；激活态用主色区分当前处于跨目录视图。 */
+/* 收藏视图入口：激活态用主色区分当前处于跨目录视图。 */
 .cloud-starred-button {
   display: inline-flex;
   height: 36px;
@@ -3272,9 +3399,12 @@
   color: var(--primary-ink);
 }
 
+/* 工具栏固定单行：面包屑 + 筛选 + 操作。视图/密度/排序已合并进单个菜单，
+   因此不需要换行；窄窗口靠面包屑收缩与类型筛选横向滚动让位。 */
 .file-filter-row {
-  flex-wrap: wrap;
-  row-gap: 8px;
+  flex-wrap: nowrap;
+  min-width: 0;
+  gap: 16px;
 }
 
 /* 回收站面板：表头与行共用 file-table 基座，仅列宽按回收站语义调整。 */

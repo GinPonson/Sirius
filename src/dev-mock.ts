@@ -325,8 +325,14 @@ function seedFilesystem() {
   makeEntry("f1", "d1", "Arrival.2016.mkv", "video", { sizeBytes: 356 * MiB, durationSeconds: 7163, starred: true });
   makeEntry("f2", "d1", "Perfect.Days.2023.mkv", "video", { sizeBytes: 412 * MiB, durationSeconds: 7371 });
   makeEntry("f3", "d1", "Arrival.2016.chs.srt", "subtitle", { sizeBytes: 88 * 1024 });
+  // 音频夹具：用于验证「视频播放中双击音频」时播放条接管、且不被视频会话释放失败阻断。
+  makeEntry("f5", "d1", "Arrival.2016.OST.flac", "file", { sizeBytes: 64 * MiB, durationSeconds: 271 });
   // 纪录片
   makeEntry("g1", "d2", "蓝色星球.II.第01集.mkv", "video", { sizeBytes: 298 * MiB, durationSeconds: 2834, starred: true });
+  // 收藏里的嵌套目录夹具：父级是「纪录片」而非根目录，用于验证从收藏打开目录时
+  // 面包屑按真实路径重建（而不是拼到进入收藏前的目录后面）。
+  makeEntry("d5", "d2", "幕后花絮", "folder", { starred: true });
+  makeEntry("g2", "d5", "拍摄日志.txt", "file", { sizeBytes: 6 * 1024 });
   // 照片（相册索引起始状态只收录 d3）
   makeEntry("p1", "d3", "IMG_0001.jpg", "image", {
     sizeBytes: 3 * MiB,
@@ -1277,7 +1283,13 @@ function listFilesImpl(args: Record<string, unknown>) {
   const parentId = str(args.parentId, ROOT_ID) || ROOT_ID;
   assertFolderId(parentId, "目录");
   const keyword = str(args.query).trim().toLowerCase();
-  const matched = childrenOf(parentId)
+  // 搜索范围与真实 115 对齐：global 用 cid=0 表示跨目录 substring 匹配，
+  // 与「只在当前目录内搜」是两种语义；不模拟这一层，mock 冒烟会给出假阴性。
+  const globalScope = str(args.searchScope, "current") === "global";
+  const candidates = keyword !== "" && globalScope
+    ? [...FS.values()]
+    : childrenOf(parentId);
+  const matched = candidates
     .filter((entry) => keyword === "" || entry.name.toLowerCase().includes(keyword))
     .sort((a, b) => {
       const folderBias = (entry: MockEntry) => (entry.kind === "folder" ? 0 : 1);

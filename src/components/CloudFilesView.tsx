@@ -60,6 +60,13 @@ type CloudFilesViewProps = {
   /** 顶栏下发的当前目录搜索词；防抖与取数仍由本组件负责。 */
   query: string;
   onQueryChange: (value: string) => void;
+  /**
+   * 通知应用壳当前是否处于收藏视图。
+   *
+   * 收藏是全账号列表、不支持关键词检索，顶栏搜索框必须随之隐藏——否则用户输入的关键词
+   * 不会作用在列表上，却仍会触发重新请求并影响空态文案。
+   */
+  onStarredViewChange: (starred: boolean) => void;
   onRequireLogin: () => void;
   onPlay: (entry: Cloud115FileEntry) => Promise<void>;
 };
@@ -73,12 +80,14 @@ type SortField = "name" | "size" | "modifiedAt";
 type SortOrder = "asc" | "desc";
 type SortState = { field: SortField; order: SortOrder };
 
-/** 统一浮层菜单的打开状态：entry 为空表示页级菜单（排序），否则是单条目菜单。 */
+/** 统一浮层菜单的打开状态：entry 为空表示页级菜单（视图/排序/更多），否则是单条目菜单。 */
 type PaneMenu = {
   entry: Cloud115FileEntry | null;
+  /** 页级菜单种类：视图设置（含排序）、仅排序、或工具区更多操作。单条目菜单忽略此字段。 */
+  pageMenu?: "view" | "sort" | "more";
   x: number;
   y: number;
-  /** 关闭后焦点送回触发位置：行元素、更多按钮或排序按钮。 */
+  /** 关闭后焦点送回触发位置：行元素、更多按钮或视图/排序按钮。 */
   restoreTo: HTMLElement | null;
 };
 
@@ -180,7 +189,7 @@ function splitLongName(name: string): { head: string; tail: string } | null {
 }
 
 /** 空状态分类：读取中 / 目录为空 / 搜索或筛选无结果 / 读取失败 / 回收站为空。 */
-type FileEmptyKind = "directory-empty" | "no-results" | "load-error" | "recycle-empty";
+type FileEmptyKind = "directory-empty" | "starred-empty" | "no-results" | "load-error" | "recycle-empty";
 
 /** 将秒数格式化为 h:mm:ss 的紧凑时长。 */
 function formatDuration(seconds: number): string {
@@ -242,7 +251,7 @@ function formatTransferBytes(bytes: number): string {
 }
 
 /** 115 网盘真实文件浏览页；批量移动/复制的目标策略由 Rust 侧统一校验。 */
-export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, onPlay }: CloudFilesViewProps) {
+export function CloudFilesView({ account, query, onQueryChange, onStarredViewChange, onRequireLogin, onPlay }: CloudFilesViewProps) {
   const [path, setPath] = useState<FolderPick[]>([{ id: ROOT_ID, name: "115 网盘" }]);
   const [entries, setEntries] = useState<Cloud115FileEntry[]>([]);
   const [filter, setFilter] = useState<CloudFileFilter>("all");
@@ -337,6 +346,12 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
   const [searchScope, setSearchScope] = useState<Cloud115SearchScope>("current");
   // 收藏视图：与目录浏览互斥，进入后列表只显示全账号星标项，不跟随目录切换。
   const [starredView, setStarredView] = useState(false);
+  // 收藏视图不参与关键词检索：顶栏搜索框由应用壳据此隐藏，避免输入无效关键词。
+  useEffect(() => {
+    onStarredViewChange(starredView);
+  }, [starredView, onStarredViewChange]);
+  // 离开文件页时复位，避免顶栏搜索框在其它页面被误隐藏。
+  useEffect(() => () => onStarredViewChange(false), [onStarredViewChange]);
   const requestKey = `${currentFolderId}\u0000${query.trim()}\u0000${searchScope}\u0000${starredView ? "starred" : "dir"}`;
   const requestKeyRef = useRef(requestKey);
   requestKeyRef.current = requestKey;
@@ -635,7 +650,7 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
   /** 行的主打开动作：文件夹进入、视频/音频播放、图片查看；其余类型交给更多菜单。 */
   function openEntryPrimary(entry: Cloud115FileEntry, rowElement?: HTMLElement | null) {
     if (entry.kind === "folder") {
-      openFolder(entry);
+      void openFolder(entry);
       return;
     }
     if (entry.kind === "video") {
@@ -681,15 +696,42 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
     dirUiMemoryRef.current.set(folderId, { scrollTop: window.scrollY, sort });
   }
 
-  function openFolder(entry: Cloud115FileEntry) {
+  /**
+   * 进入文件夹。
+   *
+   * 收藏是跨目录视图，其中的目录与「进入收藏前所在目录」没有父子关系，不能把目标目录
+   * 追加到当前 path 后面——否则面包屑会显示一条不存在的层级，点上级还会落到无关目录。
+   * 收藏态下改用文件详情里的真实路径（根 → 直接父目录）重建面包屑。
+   */
+  async function openFolder(entry: Cloud115FileEntry) {
     if (entry.kind !== "folder") return;
-    // 收藏是跨目录视图；点开其中某个目录意味着回到目录浏览，先退出收藏态。
-    setStarredView(false);
+    const fromStarredView = starredView;
     rememberCurrentDirUi(currentFolderId);
+    if (fromStarredView) {
+      setLoading(true);
+      setError(null);
+      try {
+        const metadata = await cloud115.fileMetadata(entry.id);
+        // paths 按「根目录 → 直接父目录」排列，不含目标目录自身；面包屑末尾补目标目录。
+        const ancestors = metadata.path.filter((node) => node.id !== "");
+        const basePath: FolderPick[] = ancestors[0]?.id === ROOT_ID
+          ? ancestors.map((node) => ({ id: node.id, name: node.name || "未命名目录" }))
+          : [{ id: ROOT_ID, name: "115 网盘" }, ...ancestors.map((node) => ({ id: node.id, name: node.name || "未命名目录" }))];
+        setPath([...basePath, { id: entry.id, name: entry.name }]);
+      } catch (reason) {
+        // 拿不到真实路径时不能退回「拼到当前目录后面」的旧行为——那正是本函数要修的错误。
+        setLoading(false);
+        setError(`无法确定“${entry.name}”所在位置，暂不能打开：${String(reason)}`);
+        return;
+      }
+      // 收藏态已退出：目标目录的真实位置已经写入 path。
+      setStarredView(false);
+    } else {
+      setPath((current) => [...current, { id: entry.id, name: entry.name }]);
+    }
     const memory = dirUiMemoryRef.current.get(entry.id) ?? null;
     pendingDirScrollRef.current = memory ? memory.scrollTop : 0;
     setSort(memory?.sort ?? DEFAULT_SORT);
-    setPath((current) => [...current, { id: entry.id, name: entry.name }]);
     // 目录搜索范围限定当前目录：进入下级时同步清空顶栏搜索框。
     onQueryChange("");
     setFilter("all");
@@ -1351,8 +1393,14 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
   // 统一浮层菜单：右键、行尾更多、排序共用；关闭时把焦点送回触发位置。
   // ---------------------------------------------------------------------------
 
-  function openPaneMenu(entry: Cloud115FileEntry | null, x: number, y: number, restoreTo: HTMLElement | null) {
-    setPaneMenu({ entry, x, y, restoreTo });
+  function openPaneMenu(
+    entry: Cloud115FileEntry | null,
+    x: number,
+    y: number,
+    restoreTo: HTMLElement | null,
+    pageMenu: "view" | "sort" | "more" = "sort",
+  ) {
+    setPaneMenu({ entry, pageMenu, x, y, restoreTo });
   }
 
   function closePaneMenu() {
@@ -1373,7 +1421,7 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
     const close = () => closePaneMenu();
     const items: FileMenuItem[] = [];
     if (entry.kind === "folder") {
-      items.push({ id: "open", label: "打开", icon: "chevron", hint: "进入此文件夹", onSelect: () => { close(); openFolder(entry); } });
+      items.push({ id: "open", label: "打开", icon: "chevron", hint: "进入此文件夹", onSelect: () => { close(); void openFolder(entry); } });
     } else if (entry.kind === "video") {
       items.push({ id: "play", label: "播放", icon: "play", hint: "用内置播放器播放", onSelect: () => { close(); void playEntry(entry); } });
     } else if (entry.kind === "image") {
@@ -1415,6 +1463,44 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
       { kind: "separator", id: "sort-order-sep" },
       { id: "sort-order-asc", label: "升序", checked: sort.order === "asc", onSelect: () => { close(); setSort((current) => ({ ...current, order: "asc" })); } },
       { id: "sort-order-desc", label: "降序", checked: sort.order === "desc", onSelect: () => { close(); setSort((current) => ({ ...current, order: "desc" })); } },
+    ];
+  }
+
+  /**
+   * 视图菜单：把视图模式、显示密度与排序合并到一个入口。
+   *
+   * 文件页工具栏原本是两行（路径/筛选 + 操作按钮），视图、密度、排序三个控件占了
+   * 第一行近一半宽度。合并成单个菜单后，第一行只保留面包屑、类型筛选与操作按钮。
+   */
+  function buildViewMenuItems(): FileMenuItem[] {
+    const close = () => closePaneMenu();
+    return [
+      { id: "view-list", label: "列表视图", checked: viewMode === "list", onSelect: () => { close(); switchViewMode("list"); } },
+      { id: "view-grid", label: "网格视图", checked: viewMode === "grid", onSelect: () => { close(); switchViewMode("grid"); } },
+      { kind: "separator", id: "view-density-sep" },
+      { id: "density-comfortable", label: "舒适密度", checked: density === "comfortable", onSelect: () => { close(); setDensity("comfortable"); } },
+      { id: "density-compact", label: "紧凑密度", checked: density === "compact", onSelect: () => { close(); setDensity("compact"); } },
+      { kind: "separator", id: "view-sort-sep" },
+      ...buildSortMenuItems().filter((item) => item.kind !== "separator"),
+    ];
+  }
+
+  /**
+   * 工具区「更多」菜单：收纳不常用的页级入口。
+   *
+   * 回收站是低频操作，常驻按钮会与上传/新建等主操作争抢单行工具栏宽度，
+   * 因此收进菜单；收藏视图不参与目录操作，但仍可查看回收站。
+   */
+  function buildMoreMenuItems(): FileMenuItem[] {
+    const close = () => closePaneMenu();
+    return [
+      {
+        id: "recycle-bin",
+        label: "回收站",
+        icon: "trash",
+        hint: "查看已删除文件，可还原或彻底删除",
+        onSelect: () => { close(); openRecycleView(); },
+      },
     ];
   }
 
@@ -1531,11 +1617,25 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
     }
   }
 
-  /** 空状态分类：按「读取失败 → 搜索 → 筛选 → 真空目录」的优先级归类，文案不发明数据。 */
+  /** 空状态分类：按「读取失败 → 搜索 → 筛选 → 真空目录/空收藏」的优先级归类，文案不发明数据。 */
   const emptyKind: FileEmptyKind | null = loading || visibleEntries.length > 0 ? null
     : entries.length === 0 && error ? "load-error"
       : query.trim() || filter !== "all" ? "no-results"
-        : "directory-empty";
+        : starredView ? "starred-empty"
+          : "directory-empty";
+
+  /**
+   * 空态里的「新建文件夹」入口。
+   *
+   * 收藏是跨目录视图，没有可作用的父目录：这里不提供入口，否则会以进入收藏前的目录
+   * 为目标创建，用户在当前视图看不到任何结果。
+   */
+  const emptyStateNewFolder = starredView
+    ? undefined
+    : () => {
+      setNewFolderName("");
+      setNewFolderOpen(true);
+    };
 
   /** 计数口径说明：明确「已加载」边界，排序与批量操作都不作用于未加载分页。 */
   const loadedCountLabel = loading
@@ -1626,10 +1726,18 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
                     </span>
                   ))}
                 </nav>
+                {/* 账号与加载进度属于路径上下文：放在面包屑一侧，避免挤占筛选与操作的空间。 */}
+                <span className="cloud-path-meta">
+                  <span className="cloud-account-badge" title={`115 账号：${account.userName ?? "已连接"}`}>
+                    <i aria-hidden="true" />
+                    {account.userName ?? "115 已连接"}
+                  </span>
+                  <span className="cloud-loaded-count">{loadedCountLabel}</span>
+                </span>
                 <div className="cloud-filter-options">
-                  {/* 搜索范围：仅在搜索激活时出现。当前目录 / 全账号是 115 的两种真实语义，
-                      不把「全账号」伪装成筛选，避免用户误以为只搜当前目录。 */}
-                  {query.trim() !== "" && (
+                  {/* 搜索范围：仅在目录内搜索激活时出现。当前目录 / 全账号是 115 的两种真实
+                      语义，不把「全账号」伪装成筛选。收藏视图不参与关键词搜索，故不渲染。 */}
+                  {query.trim() !== "" && !starredView && (
                     <div className="segmented-control cloud-scope-toggle" role="group" aria-label="搜索范围">
                       <button
                         className={searchScope === "current" ? "active" : ""}
@@ -1660,55 +1768,31 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
                       </button>
                     ))}
                   </div>
-                  <div className="segmented-control cloud-view-toggle" role="group" aria-label="视图切换">
+                  {/* 视图/密度/排序合并为单入口：工具栏只占一行，把宽度让给面包屑与操作按钮。
+                      当前值直接写在按钮上，收起后仍能看出状态，不需要展开菜单确认。 */}
+                  <div className="cloud-view-menu-control">
                     <button
-                      className={viewMode === "list" ? "active" : ""}
-                      aria-pressed={viewMode === "list"}
-                      title="列表视图"
-                      aria-label="列表视图"
-                      onClick={() => switchViewMode("list")}
-                    >
-                      <Icon name="tasks" size={15} />
-                    </button>
-                    <button
-                      className={viewMode === "grid" ? "active" : ""}
-                      aria-pressed={viewMode === "grid"}
-                      title="网格视图"
-                      aria-label="网格视图"
-                      onClick={() => switchViewMode("grid")}
-                    >
-                      <Icon name="library" size={15} />
-                    </button>
-                  </div>
-                  <div className="segmented-control cloud-density-toggle" role="group" aria-label="显示密度">
-                    <button className={density === "comfortable" ? "active" : ""} aria-pressed={density === "comfortable"} onClick={() => setDensity("comfortable")}>舒适</button>
-                    <button className={density === "compact" ? "active" : ""} aria-pressed={density === "compact"} onClick={() => setDensity("compact")}>紧凑</button>
-                  </div>
-                  <div className="cloud-sort-control">
-                    <button
-                      className="cloud-sort-button"
+                      className="cloud-view-menu-button"
                       aria-haspopup="menu"
-                      aria-expanded={paneMenu !== null && paneMenu.entry === null}
-                      title={`按已加载的 ${entries.length} 项排序`}
+                      aria-expanded={paneMenu !== null && paneMenu.entry === null && paneMenu.pageMenu === "view"}
+                      title={`视图：${viewMode === "list" ? "列表" : "网格"} · ${density === "compact" ? "紧凑" : "舒适"} · 排序：${SORT_FIELD_LABELS[sort.field]} ${sort.order === "asc" ? "升序" : "降序"}（仅作用于已加载的 ${entries.length} 项）`}
                       onClick={(event) => {
                         const button = event.currentTarget;
-                        if (paneMenu !== null && paneMenu.entry === null) {
+                        if (paneMenu !== null && paneMenu.entry === null && paneMenu.pageMenu === "view") {
                           closePaneMenu();
                           return;
                         }
                         const rect = button.getBoundingClientRect();
-                        openPaneMenu(null, rect.right, rect.bottom + 4, button);
+                        openPaneMenu(null, rect.right, rect.bottom + 4, button, "view");
                       }}
                     >
-                      排序：{SORT_FIELD_LABELS[sort.field]} {sort.order === "asc" ? "升序" : "降序"}
-                      <span className="cloud-sort-caret" aria-hidden="true"><Icon name="chevron" size={12} /></span>
+                      <Icon name={viewMode === "list" ? "tasks" : "library"} size={15} />
+                      <span className="cloud-view-menu-label">
+                        {SORT_FIELD_LABELS[sort.field]} {sort.order === "asc" ? "升序" : "降序"}
+                      </span>
+                      <span className="cloud-view-menu-caret" aria-hidden="true"><Icon name="chevron" size={12} /></span>
                     </button>
                   </div>
-                  <span className="cloud-account-badge" title={`115 账号：${account.userName ?? "已连接"}`}>
-                    <i aria-hidden="true" />
-                    {account.userName ?? "115 已连接"}
-                  </span>
-                  <span>{loadedCountLabel}</span>
                 </div>
                 <div className="cloud-toolbar-actions">
                   <button
@@ -1747,7 +1831,13 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
                     aria-label={starredView ? "返回当前目录" : "查看收藏"}
                     aria-pressed={starredView}
                     onClick={() => {
-                      setStarredView((current) => !current);
+                      setStarredView((current) => {
+                        const next = !current;
+                        // 搜索只作用于目录内结果；进出收藏时清空关键词，避免留下一个
+                        // 对当前视图无效、却仍在驱动请求与空态文案的搜索词。
+                        if (next) onQueryChange("");
+                        return next;
+                      });
                       clearSelection();
                     }}
                   >
@@ -1755,13 +1845,23 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
                     {starredView ? "返回目录" : "收藏"}
                   </button>
                   <button
-                    className="cloud-recycle-button"
-                    title="查看回收站，可还原或彻底删除"
-                    aria-label="回收站"
-                    onClick={openRecycleView}
+                    className="secondary-action cloud-more-button"
+                    title="更多：回收站等低频操作"
+                    aria-label="更多操作"
+                    aria-haspopup="menu"
+                    aria-expanded={paneMenu !== null && paneMenu.entry === null && paneMenu.pageMenu === "more"}
+                    onClick={(event) => {
+                      const button = event.currentTarget;
+                      if (paneMenu !== null && paneMenu.entry === null && paneMenu.pageMenu === "more") {
+                        closePaneMenu();
+                        return;
+                      }
+                      const rect = button.getBoundingClientRect();
+                      openPaneMenu(null, rect.right, rect.bottom + 4, button, "more");
+                    }}
                   >
-                    <Icon name="trash" size={15} />
-                    回收站
+                    <Icon name="more" size={15} />
+                    更多
                   </button>
                 </div>
               </>
@@ -1947,7 +2047,7 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
                     <time>{formatModifiedAt(entry.modifiedAt)}</time>
                     <div className="file-row-actions">
                       {entry.kind === "video" && <button className="file-play" disabled={playingId === entry.id} onClick={(event) => { event.stopPropagation(); void playEntry(entry); }}><Icon name="play" size={14} />{playingId === entry.id ? "解析中" : "播放"}</button>}
-                      {entry.kind === "folder" && <button className="file-open" onClick={(event) => { event.stopPropagation(); openFolder(entry); }} aria-label={`打开${entry.name}`}><Icon name="chevron" size={16} /></button>}
+                      {entry.kind === "folder" && <button className="file-open" onClick={(event) => { event.stopPropagation(); void openFolder(entry); }} aria-label={`打开${entry.name}`}><Icon name="chevron" size={16} /></button>}
                       <button
                         className="file-more"
                         aria-label={`${entry.name}的更多操作`}
@@ -1975,10 +2075,7 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
                     setError(null);
                     setReloadNonce((nonce) => nonce + 1);
                   }}
-                  onNewFolder={() => {
-                    setNewFolderName("");
-                    setNewFolderOpen(true);
-                  }}
+                  onNewFolder={emptyStateNewFolder}
                 />
               )}
             </div>
@@ -2065,10 +2162,7 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
                     setError(null);
                     setReloadNonce((nonce) => nonce + 1);
                   }}
-                  onNewFolder={() => {
-                    setNewFolderName("");
-                    setNewFolderOpen(true);
-                  }}
+                  onNewFolder={emptyStateNewFolder}
                 />
               )}
             </div>
@@ -2094,9 +2188,29 @@ export function CloudFilesView({ account, query, onQueryChange, onRequireLogin, 
         <FileContextMenu
           x={paneMenu.x}
           y={paneMenu.y}
-          items={paneMenu.entry ? buildFileMenuItems(paneMenu.entry) : buildSortMenuItems()}
-          note={paneMenu.entry ? undefined : `仅对已加载的 ${entries.length} 项生效`}
-          label={paneMenu.entry ? `${paneMenu.entry.name}的操作菜单` : "排序方式"}
+          items={
+            paneMenu.entry
+              ? buildFileMenuItems(paneMenu.entry)
+              : paneMenu.pageMenu === "view"
+                ? buildViewMenuItems()
+                : paneMenu.pageMenu === "more"
+                  ? buildMoreMenuItems()
+                  : buildSortMenuItems()
+          }
+          note={
+            paneMenu.entry || paneMenu.pageMenu === "more"
+              ? undefined
+              : `排序仅对已加载的 ${entries.length} 项生效`
+          }
+          label={
+            paneMenu.entry
+              ? `${paneMenu.entry.name}的操作菜单`
+              : paneMenu.pageMenu === "view"
+                ? "视图与排序"
+                : paneMenu.pageMenu === "more"
+                  ? "更多操作"
+                  : "排序方式"
+          }
           onClose={closePaneMenu}
         />
       )}
@@ -2391,6 +2505,15 @@ function FileEmptyState({
           {hasQuery && <button className="secondary-action file-empty-action" onClick={onClearQuery}>清除搜索</button>}
           {hasFilter && <button className="secondary-action file-empty-action" onClick={onClearFilter}>清除类型筛选</button>}
         </div>
+      </div>
+    );
+  }
+  if (kind === "starred-empty") {
+    return (
+      <div className="file-empty" role="status">
+        <Icon name="star" size={22} />
+        <strong>还没有收藏项</strong>
+        <span>在文件上右键选择「收藏」，就会出现在这里；收藏是跨目录的全账号列表。</span>
       </div>
     );
   }
