@@ -10,6 +10,7 @@ import { SidebarAccountMenu } from "./SidebarAccountMenu";
 /** 侧栏导航标识；AI 整理并入右下角对话面板，不再占用侧栏入口。 */
 export type SidebarNavId =
   | "cloud-files"
+  | "recycle-bin"
   | "tasks"
   | "video"
   | "comics"
@@ -30,10 +31,11 @@ type SidebarProps = {
 const NAVIGATION: Array<{
   id: SidebarNavId;
   label: string;
-  icon: "cloud" | "tasks" | "play" | "book" | "images";
+  icon: "cloud" | "trash" | "tasks" | "play" | "book" | "images";
   group: "workspace" | "content";
 }> = [
   { id: "cloud-files", label: "网盘", icon: "cloud", group: "workspace" },
+  { id: "recycle-bin", label: "回收站", icon: "trash", group: "workspace" },
   { id: "video", label: "影视", icon: "play", group: "content" },
   { id: "comics", label: "漫画", icon: "book", group: "content" },
   { id: "albums", label: "相册", icon: "images", group: "content" },

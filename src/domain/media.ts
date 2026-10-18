@@ -6,6 +6,7 @@ export type AppSection =
   | "comics"
   | "albums"
   | "cloud-files"
+  | "recycle-bin"
   | "tasks";
 
 /** 媒体类型；后续剧集可以继续扩展季、集模型。 */

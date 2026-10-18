@@ -4,7 +4,6 @@ import {
   MediaInfoService,
   type Cloud115AccountStatus,
   type Cloud115FileEntry,
-  type Cloud115RecycleItem,
   type Cloud115SearchScope,
   type Cloud115UploadSession,
 } from "../services/mediaServices";
@@ -67,6 +66,13 @@ type CloudFilesViewProps = {
    * 不会作用在列表上，却仍会触发重新请求并影响空态文案。
    */
   onStarredViewChange: (starred: boolean) => void;
+  /**
+   * 外部要求刷新列表的序号。
+   *
+   * 回收站是独立页面：在其中还原文件后，本页当前目录的内容可能已变化，
+   * 由应用壳递增此值触发一次重载。序号而非布尔量，保证连续多次还原都能触发。
+   */
+  refreshNonce: number;
   onRequireLogin: () => void;
   onPlay: (entry: Cloud115FileEntry) => Promise<void>;
 };
@@ -83,8 +89,8 @@ type SortState = { field: SortField; order: SortOrder };
 /** 统一浮层菜单的打开状态：entry 为空表示页级菜单（视图/排序/更多），否则是单条目菜单。 */
 type PaneMenu = {
   entry: Cloud115FileEntry | null;
-  /** 页级菜单种类：视图设置（含排序）、仅排序、或工具区更多操作。单条目菜单忽略此字段。 */
-  pageMenu?: "view" | "sort" | "more";
+  /** 页级菜单种类：视图设置（含排序）或仅排序。单条目菜单忽略此字段。 */
+  pageMenu?: "view" | "sort";
   x: number;
   y: number;
   /** 关闭后焦点送回触发位置：行元素、更多按钮或视图/排序按钮。 */
@@ -148,13 +154,6 @@ function readRecentTargets(): RecentTarget[] {
   }
 }
 
-/** 回收站确认对话框中的人读清单；与批量删除同节奏。 */
-function describeRecycleTargets(targets: Cloud115RecycleItem[]): string {
-  if (targets.length <= 2) {
-    return targets.map((item) => `“${item.name}”`).join("、");
-  }
-  return `“${targets[0].name}”、“${targets[1].name}”等 ${targets.length} 项`;
-}
 
 /**
  * 已加载项的客户端排序：目录始终在前；同值回退文件名，保证顺序稳定。
@@ -189,7 +188,7 @@ function splitLongName(name: string): { head: string; tail: string } | null {
 }
 
 /** 空状态分类：读取中 / 目录为空 / 搜索或筛选无结果 / 读取失败 / 回收站为空。 */
-type FileEmptyKind = "directory-empty" | "starred-empty" | "no-results" | "load-error" | "recycle-empty";
+type FileEmptyKind = "directory-empty" | "starred-empty" | "no-results" | "load-error";
 
 /** 将秒数格式化为 h:mm:ss 的紧凑时长。 */
 function formatDuration(seconds: number): string {
@@ -251,7 +250,7 @@ function formatTransferBytes(bytes: number): string {
 }
 
 /** 115 网盘真实文件浏览页；批量移动/复制的目标策略由 Rust 侧统一校验。 */
-export function CloudFilesView({ account, query, onQueryChange, onStarredViewChange, onRequireLogin, onPlay }: CloudFilesViewProps) {
+export function CloudFilesView({ account, query, onQueryChange, onStarredViewChange, refreshNonce, onRequireLogin, onPlay }: CloudFilesViewProps) {
   const [path, setPath] = useState<FolderPick[]>([{ id: ROOT_ID, name: "115 网盘" }]);
   const [entries, setEntries] = useState<Cloud115FileEntry[]>([]);
   const [filter, setFilter] = useState<CloudFileFilter>("all");
@@ -288,15 +287,6 @@ export function CloudFilesView({ account, query, onQueryChange, onStarredViewCha
   // 新建文件夹：行内对话框命名，成功后刷新当前目录。
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
-  // 回收站面板：文件区顶部入口切换到回收站列表（还原 / 彻底删除）。
-  const [recycleView, setRecycleView] = useState(false);
-  const [recycleEntries, setRecycleEntries] = useState<Cloud115RecycleItem[]>([]);
-  const [recycleTotal, setRecycleTotal] = useState(0);
-  const [recycleLoading, setRecycleLoading] = useState(false);
-  const [recycleLoadingMore, setRecycleLoadingMore] = useState(false);
-  const [recycleHasMore, setRecycleHasMore] = useState(false);
-  const [recycleSelected, setRecycleSelected] = useState<Set<string>>(new Set());
-  const [recyclePurgeTargets, setRecyclePurgeTargets] = useState<Cloud115RecycleItem[]>([]);
   // 目标选择器「最近使用」：最近 5 个目标目录，持久化 localStorage。
   const [recentTargets, setRecentTargets] = useState<RecentTarget[]>(readRecentTargets);
   // 查重面板：只扫当前目录（不含子目录）与当前目录的「目录 ID」，切换目录即作废。
@@ -418,7 +408,7 @@ export function CloudFilesView({ account, query, onQueryChange, onStarredViewCha
     };
     // entries.length 仅用于判断首次加载后的刷新场景，不作为触发条件。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [account?.connected, currentFolderId, query, searchScope, starredView, reloadNonce]);
+  }, [account?.connected, currentFolderId, query, searchScope, starredView, reloadNonce, refreshNonce]);
 
   // 搜索词由顶栏下发：口径变化立即清空选择，避免批量操作作用于即将不可见的文件。
   useEffect(() => {
@@ -775,6 +765,30 @@ export function CloudFilesView({ account, query, onQueryChange, onStarredViewCha
     }
   }
 
+  /**
+   * 无限滚动：底部哨兵进入视口即加载下一页，取代「加载更多」按钮。
+   * 哨兵仅在仍有下一页时挂载，因此依赖里的 hasMore 变化会重建观察器；
+   * 已加载条数变化同样重建，使短内容在数据落地后继续预取，直到填满一屏。
+   * 进行中的请求由 loadingMore 拦截。
+   */
+  requestNextPageRef.current = () => {
+    if (hasMore && !loadingMore && !loading && !refreshing) void loadMore();
+  };
+
+  useEffect(() => {
+    const sentinel = loadMoreSentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (records) => {
+        if (records.some((record) => record.isIntersecting)) requestNextPageRef.current();
+      },
+      // 提前约一屏预取，滚动到接近底部时无缝续接下一页。
+      { rootMargin: "0px 0px 480px 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, entries.length]);
+
   async function playEntry(entry: Cloud115FileEntry) {
     setPlayingId(entry.id);
     setError(null);
@@ -986,9 +1000,8 @@ export function CloudFilesView({ account, query, onQueryChange, onStarredViewCha
     }
   }
 
-  /** 打开查重面板并立即开始扫描；回收站视图下入口不可用（扫描对象是当前普通目录）。 */
+  /** 打开查重面板并立即开始扫描。 */
   function openDuplicatePanel() {
-    if (recycleView) return;
     setDuplicateOpen(true);
     setDuplicatePanelError(null);
     void scanDuplicates();
@@ -1252,144 +1265,6 @@ export function CloudFilesView({ account, query, onQueryChange, onStarredViewCha
   }
 
   // ---------------------------------------------------------------------------
-  // 回收站面板：还原 / 彻底删除，走既有 cloud115_list_recycle_bin 命令族。
-  // ---------------------------------------------------------------------------
-
-  async function loadRecyclePage(offset: number) {
-    const append = offset > 0;
-    if (append) {
-      setRecycleLoadingMore(true);
-    } else {
-      setRecycleLoading(true);
-    }
-    setError(null);
-    try {
-      const page = await cloud115.listRecycleBin(offset, PAGE_LIMIT);
-      setRecycleEntries((current) => append ? [...current, ...page.entries] : page.entries);
-      setRecycleTotal(page.total);
-      setRecycleHasMore(page.hasMore);
-    } catch (reason) {
-      setError(`读取回收站失败：${String(reason)}`);
-    } finally {
-      if (append) {
-        setRecycleLoadingMore(false);
-      } else {
-        setRecycleLoading(false);
-      }
-    }
-  }
-
-  /**
-   * 无限滚动：底部哨兵进入视口即加载下一页，取代「加载更多」按钮。
-   * 哨兵仅在仍有下一页时挂载，因此依赖里的 hasMore / recycleHasMore 变化
-   * 会重建观察器；已加载条数变化同样重建，使短内容在数据落地后继续预取，
-   * 直到填满一屏或没有更多。进行中的请求由 loadingMore / recycleLoadingMore 拦截。
-   */
-  requestNextPageRef.current = () => {
-    if (recycleView) {
-      if (recycleHasMore && !recycleLoadingMore && !recycleLoading) void loadRecyclePage(recycleEntries.length);
-      return;
-    }
-    if (hasMore && !loadingMore && !loading && !refreshing) void loadMore();
-  };
-
-  useEffect(() => {
-    const sentinel = loadMoreSentinelRef.current;
-    if (!sentinel) return;
-    const observer = new IntersectionObserver(
-      (records) => {
-        if (records.some((record) => record.isIntersecting)) requestNextPageRef.current();
-      },
-      // 提前约一屏预取，滚动到接近底部时无缝续接下一页。
-      { rootMargin: "0px 0px 480px 0px" },
-    );
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [recycleView, hasMore, recycleHasMore, entries.length, recycleEntries.length]);
-
-  function openRecycleView() {
-    setRecycleView(true);
-    setRecycleSelected(new Set());
-    void loadRecyclePage(0);
-  }
-
-  function closeRecycleView() {
-    setRecycleView(false);
-    setRecycleSelected(new Set());
-    setRecyclePurgeTargets([]);
-  }
-
-  function toggleRecycleSelected(itemId: string) {
-    setRecycleSelected((current) => {
-      const next = new Set(current);
-      if (next.has(itemId)) {
-        next.delete(itemId);
-      } else {
-        next.add(itemId);
-      }
-      return next;
-    });
-  }
-
-  const allRecycleSelected = recycleEntries.length > 0 && recycleEntries.every((item) => recycleSelected.has(item.id));
-
-  function toggleAllRecycle() {
-    setRecycleSelected(() => {
-      if (allRecycleSelected) return new Set();
-      return new Set(recycleEntries.map((item) => item.id));
-    });
-  }
-
-  /** 还原到删除前的原位置；原位置正是当前目录时同步刷新文件列表。 */
-  async function confirmRecycleRestore(itemIds: string[]) {
-    if (itemIds.length === 0) return;
-    setBusyAction(true);
-    setError(null);
-    try {
-      await cloud115.restoreRecycleItems(itemIds);
-      const restored = recycleEntries.filter((item) => itemIds.includes(item.id));
-      setNotice(itemIds.length === 1
-        ? `“${restored[0]?.name ?? "项目"}”已还原到原位置`
-        : `${itemIds.length} 项已还原到原位置`);
-      setRecycleSelected(new Set());
-      void loadRecyclePage(0);
-      if (restored.some((item) => item.parentId === currentFolderId)) {
-        setReloadNonce((nonce) => nonce + 1);
-      }
-    } catch (reason) {
-      setError(`还原失败：${String(reason)}`);
-    } finally {
-      setBusyAction(false);
-    }
-  }
-
-  /** 彻底删除不可恢复；必须先经二次确认对话框。 */
-  async function confirmRecyclePurge() {
-    if (recyclePurgeTargets.length === 0) return;
-    setBusyAction(true);
-    setError(null);
-    try {
-      await cloud115.deleteRecycleItems(recyclePurgeTargets.map((item) => item.id));
-      const removed = new Set(recyclePurgeTargets.map((item) => item.id));
-      setRecycleEntries((current) => current.filter((item) => !removed.has(item.id)));
-      setRecycleTotal((current) => Math.max(0, current - recyclePurgeTargets.length));
-      setNotice(recyclePurgeTargets.length === 1
-        ? `“${recyclePurgeTargets[0].name}”已彻底删除`
-        : `${recyclePurgeTargets.length} 项已彻底删除`);
-      setRecycleSelected((current) => {
-        const next = new Set(current);
-        for (const id of removed) next.delete(id);
-        return next;
-      });
-      setRecyclePurgeTargets([]);
-    } catch (reason) {
-      setError(`彻底删除失败：${String(reason)}`);
-    } finally {
-      setBusyAction(false);
-    }
-  }
-
-  // ---------------------------------------------------------------------------
   // 统一浮层菜单：右键、行尾更多、排序共用；关闭时把焦点送回触发位置。
   // ---------------------------------------------------------------------------
 
@@ -1398,7 +1273,7 @@ export function CloudFilesView({ account, query, onQueryChange, onStarredViewCha
     x: number,
     y: number,
     restoreTo: HTMLElement | null,
-    pageMenu: "view" | "sort" | "more" = "sort",
+    pageMenu: "view" | "sort" = "sort",
   ) {
     setPaneMenu({ entry, pageMenu, x, y, restoreTo });
   }
@@ -1482,25 +1357,6 @@ export function CloudFilesView({ account, query, onQueryChange, onStarredViewCha
       { id: "density-compact", label: "紧凑密度", checked: density === "compact", onSelect: () => { close(); setDensity("compact"); } },
       { kind: "separator", id: "view-sort-sep" },
       ...buildSortMenuItems().filter((item) => item.kind !== "separator"),
-    ];
-  }
-
-  /**
-   * 工具区「更多」菜单：收纳不常用的页级入口。
-   *
-   * 回收站是低频操作，常驻按钮会与上传/新建等主操作争抢单行工具栏宽度，
-   * 因此收进菜单；收藏视图不参与目录操作，但仍可查看回收站。
-   */
-  function buildMoreMenuItems(): FileMenuItem[] {
-    const close = () => closePaneMenu();
-    return [
-      {
-        id: "recycle-bin",
-        label: "回收站",
-        icon: "trash",
-        hint: "查看已删除文件，可还原或彻底删除",
-        onSelect: () => { close(); openRecycleView(); },
-      },
     ];
   }
 
@@ -1604,13 +1460,6 @@ export function CloudFilesView({ account, query, onQueryChange, onStarredViewCha
     const target = event.target as HTMLElement;
     // 输入框内不劫持 Esc；行级清理由行键盘处理器完成（那里会 stopPropagation）。
     if (target.closest("input, textarea")) return;
-    if (recycleView) {
-      if (recycleSelected.size > 0) {
-        event.stopPropagation();
-        setRecycleSelected(new Set());
-      }
-      return;
-    }
     if (selectedIds.size > 0) {
       event.stopPropagation();
       clearSelection();
@@ -1707,25 +1556,17 @@ export function CloudFilesView({ account, query, onQueryChange, onStarredViewCha
 
           {/* 搜索已上移顶栏；工具区保持「路径/筛选行 → 列头 → 内容」稳定节奏。 */}
           <div className="file-filter-row">
-            {recycleView ? (
-              <div className="recycle-header">
-                <button className="secondary-action" onClick={closeRecycleView}>返回文件列表</button>
-                <strong>回收站</strong>
-                <span>已加载 {recycleEntries.length} / {recycleTotal} 项</span>
-              </div>
-            ) : (
-              <>
-                <nav className="file-breadcrumbs" aria-label="当前网盘路径">
-                  {starredView ? (
-                    // 收藏是全账号视图，展示真实路径会误导成「在某个目录内」，只标注范围。
-                    <span><button className="active" onClick={() => setStarredView(false)}>全账号收藏</button></span>
-                  ) : path.map((item, index) => (
-                    <span key={item.id}>
-                      {index > 0 && <Icon name="chevron" size={13} />}
-                      <button className={index === path.length - 1 ? "active" : ""} onClick={() => navigateToPath(index)}>{item.name}</button>
-                    </span>
-                  ))}
-                </nav>
+            <nav className="file-breadcrumbs" aria-label="当前网盘路径">
+              {starredView ? (
+                // 收藏是全账号视图，展示真实路径会误导成「在某个目录内」，只标注范围。
+                <span><button className="active" onClick={() => setStarredView(false)}>全账号收藏</button></span>
+              ) : path.map((item, index) => (
+                <span key={item.id}>
+                  {index > 0 && <Icon name="chevron" size={13} />}
+                  <button className={index === path.length - 1 ? "active" : ""} onClick={() => navigateToPath(index)}>{item.name}</button>
+                </span>
+              ))}
+            </nav>
                 {/* 账号与加载进度属于路径上下文：放在面包屑一侧，避免挤占筛选与操作的空间。 */}
                 <span className="cloud-path-meta">
                   <span className="cloud-account-badge" title={`115 账号：${account.userName ?? "已连接"}`}>
@@ -1844,45 +1685,10 @@ export function CloudFilesView({ account, query, onQueryChange, onStarredViewCha
                     <Icon name="star" size={15} />
                     {starredView ? "返回目录" : "收藏"}
                   </button>
-                  <button
-                    className="secondary-action cloud-more-button"
-                    title="更多：回收站等低频操作"
-                    aria-label="更多操作"
-                    aria-haspopup="menu"
-                    aria-expanded={paneMenu !== null && paneMenu.entry === null && paneMenu.pageMenu === "more"}
-                    onClick={(event) => {
-                      const button = event.currentTarget;
-                      if (paneMenu !== null && paneMenu.entry === null && paneMenu.pageMenu === "more") {
-                        closePaneMenu();
-                        return;
-                      }
-                      const rect = button.getBoundingClientRect();
-                      openPaneMenu(null, rect.right, rect.bottom + 4, button, "more");
-                    }}
-                  >
-                    <Icon name="more" size={15} />
-                    更多
-                  </button>
                 </div>
-              </>
-            )}
           </div>
 
-          {recycleView && recycleSelected.size > 0 && (
-            <div className="file-batch-bar" role="toolbar" aria-label="回收站批量操作">
-              <span>已选 {recycleSelected.size} 项</span>
-              <div>
-                <button disabled={busyAction} onClick={() => void confirmRecycleRestore([...recycleSelected])}>还原</button>
-                <button className="danger" disabled={busyAction} onClick={() => {
-                  const targets = recycleEntries.filter((item) => recycleSelected.has(item.id));
-                  if (targets.length > 0) setRecyclePurgeTargets(targets);
-                }}>彻底删除</button>
-                <button disabled={busyAction} onClick={() => setRecycleSelected(new Set())}>取消选择</button>
-              </div>
-            </div>
-          )}
-
-          {!recycleView && selectedIds.size > 0 && (
+          {selectedIds.size > 0 && (
             <div className="file-batch-bar" role="toolbar" aria-label="批量操作">
               <span>已选 {selectedIds.size} 项</span>
               <div>
@@ -1896,48 +1702,7 @@ export function CloudFilesView({ account, query, onQueryChange, onStarredViewCha
             </div>
           )}
 
-          {recycleView ? (
-            <div className="file-table recycle-table" role="table" aria-label="回收站">
-              <div className="file-table-head" role="row">
-                <input
-                  type="checkbox"
-                  className="file-check"
-                  aria-label="选择全部回收站项目"
-                  checked={allRecycleSelected}
-                  onChange={toggleAllRecycle}
-                />
-                <span role="columnheader">名称</span>
-                <span role="columnheader">大小</span>
-                <span role="columnheader">删除时间</span>
-                <span role="columnheader">原位置</span>
-                <span aria-hidden="true" />
-              </div>
-              {recycleLoading ? <FileLoadingLabel /> : recycleEntries.length > 0 ? recycleEntries.map((item) => (
-                <div className={`file-row${recycleSelected.has(item.id) ? " selected" : ""}`} role="row" key={item.id}>
-                  <input
-                    type="checkbox"
-                    className="file-check"
-                    aria-label={`选择 ${item.name}`}
-                    checked={recycleSelected.has(item.id)}
-                    onChange={() => toggleRecycleSelected(item.id)}
-                  />
-                  <span className="file-name">
-                    <FileThumbnail kind={item.isFolder ? "folder" : "file"} src={null} size={28} />
-                    <span><strong title={item.name}>{item.name}</strong></span>
-                  </span>
-                  <span className="file-size">{formatBytes(item.sizeBytes)}</span>
-                  <time>{formatModifiedAt(item.deletedAt)}</time>
-                  <span className="recycle-origin" title={item.parentName}>{item.parentName}</span>
-                  <div className="recycle-row-actions">
-                    <button disabled={busyAction} onClick={() => void confirmRecycleRestore([item.id])}><Icon name="history" size={13} />还原</button>
-                    <button className="danger" disabled={busyAction} onClick={() => setRecyclePurgeTargets([item])}><Icon name="trash" size={13} />彻底删除</button>
-                  </div>
-                </div>
-              )) : (
-                <FileEmptyState kind="recycle-empty" errorText={null} hasQuery={false} hasFilter={false} onClearQuery={() => {}} onClearFilter={() => {}} onRetry={() => {}} />
-              )}
-            </div>
-          ) : viewMode === "list" ? (
+          {viewMode === "list" ? (
             <div
               className="file-table"
               role="table"
@@ -2168,9 +1933,9 @@ export function CloudFilesView({ account, query, onQueryChange, onStarredViewCha
             </div>
           )}
           {/* 哨兵：滚到这里即自动续页；仅在仍有下一页时挂载，避免无数据时常驻占位。 */}
-          {(hasMore || recycleHasMore) && (
+          {hasMore && (
             <div className="cloud-load-sentinel" ref={loadMoreSentinelRef}>
-              {(loadingMore || recycleLoadingMore) && <span>正在加载…</span>}
+              {loadingMore && <span>正在加载…</span>}
             </div>
           )}
 
@@ -2193,23 +1958,15 @@ export function CloudFilesView({ account, query, onQueryChange, onStarredViewCha
               ? buildFileMenuItems(paneMenu.entry)
               : paneMenu.pageMenu === "view"
                 ? buildViewMenuItems()
-                : paneMenu.pageMenu === "more"
-                  ? buildMoreMenuItems()
-                  : buildSortMenuItems()
+                : buildSortMenuItems()
           }
-          note={
-            paneMenu.entry || paneMenu.pageMenu === "more"
-              ? undefined
-              : `排序仅对已加载的 ${entries.length} 项生效`
-          }
+          note={paneMenu.entry ? undefined : `排序仅对已加载的 ${entries.length} 项生效`}
           label={
             paneMenu.entry
               ? `${paneMenu.entry.name}的操作菜单`
               : paneMenu.pageMenu === "view"
                 ? "视图与排序"
-                : paneMenu.pageMenu === "more"
-                  ? "更多操作"
-                  : "排序方式"
+                : "排序方式"
           }
           onClose={closePaneMenu}
         />
@@ -2217,7 +1974,6 @@ export function CloudFilesView({ account, query, onQueryChange, onStarredViewCha
 
       {renameEntry && <div className="cloud-operation-backdrop" onPointerDown={(event) => event.target === event.currentTarget && !busyAction && setRenameEntry(null)}><form className="cloud-operation-dialog" onSubmit={(event) => { event.preventDefault(); void submitRename(); }}><strong>重命名</strong><span>为“{renameEntry.name}”输入新名称</span><input autoFocus value={renameValue} onChange={(event) => setRenameValue(event.currentTarget.value)} /><div><button type="button" className="secondary-action" disabled={busyAction} onClick={() => setRenameEntry(null)}>取消</button><button type="submit" className="primary-action" disabled={busyAction || !renameValue.trim()}>保存</button></div></form></div>}
       {newFolderOpen && <div className="cloud-operation-backdrop" onPointerDown={(event) => event.target === event.currentTarget && !busyAction && setNewFolderOpen(false)}><form className="cloud-operation-dialog" onSubmit={(event) => { event.preventDefault(); void submitNewFolder(); }}><strong>新建文件夹</strong><span>在“{path[path.length - 1].name}”中创建；同名冲突由 115 校验。</span><input autoFocus placeholder="文件夹名称" value={newFolderName} onChange={(event) => setNewFolderName(event.currentTarget.value)} /><div><button type="button" className="secondary-action" disabled={busyAction} onClick={() => setNewFolderOpen(false)}>取消</button><button type="submit" className="primary-action" disabled={busyAction || !newFolderName.trim()}>创建</button></div></form></div>}
-      {recyclePurgeTargets.length > 0 && <div className="cloud-operation-backdrop" onPointerDown={(event) => event.target === event.currentTarget && !busyAction && setRecyclePurgeTargets([])}><section className="cloud-operation-dialog"><strong>{recyclePurgeTargets.length === 1 ? "彻底删除 1 项？" : `彻底删除 ${recyclePurgeTargets.length} 项？`}</strong><span>{describeRecycleTargets(recyclePurgeTargets)}将从回收站永久移除，此操作不可恢复。</span><div><button className="secondary-action" disabled={busyAction} onClick={() => setRecyclePurgeTargets([])}>取消</button><button className="danger-action" disabled={busyAction} onClick={() => void confirmRecyclePurge()}>{busyAction ? "正在删除" : "彻底删除"}</button></div></section></div>}
       {deleteTargets.length > 0 && <div className="cloud-operation-backdrop" onPointerDown={(event) => event.target === event.currentTarget && !busyAction && setDeleteTargets([])}><section className="cloud-operation-dialog"><strong>{deleteTargets.length === 1 ? "移入回收站？" : `移入回收站 ${deleteTargets.length} 项？`}</strong><span>{describeTargets(deleteTargets)}将从当前目录移除，可稍后在回收站恢复。</span><div><button className="secondary-action" disabled={busyAction} onClick={() => setDeleteTargets([])}>取消</button><button className="danger-action" disabled={busyAction} onClick={() => void confirmDelete()}>{busyAction ? "正在删除" : "删除"}</button></div></section></div>}
       {duplicateOpen && (
         <div className="cloud-operation-backdrop" onPointerDown={(event) => {
@@ -2476,15 +2232,7 @@ function FileEmptyState({
   onRetry: () => void;
   onNewFolder?: () => void;
 }) {
-  if (kind === "recycle-empty") {
-    return (
-      <div className="file-empty" role="status">
-        <Icon name="history" size={22} />
-        <strong>回收站为空</strong>
-        <span>删除的文件会先进入回收站，可在这里还原或彻底删除。</span>
-      </div>
-    );
-  }
+
   if (kind === "load-error") {
     return (
       <div className="file-empty" role="status">

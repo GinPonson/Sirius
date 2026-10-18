@@ -3407,25 +3407,40 @@
   gap: 16px;
 }
 
-/* 回收站面板：表头与行共用 file-table 基座，仅列宽按回收站语义调整。 */
-.recycle-header {
+/* 回收站页：表头与行共用 file-table 基座，仅列宽按回收站语义调整。 */
+/* 回收站独立页：与文件页共用表格基座，页头按「标题 + 计数」单行排布。 */
+.recycle-bin-view {
   display: flex;
-  flex: 1;
-  min-width: 0;
-  align-items: center;
+  flex-direction: column;
   gap: 14px;
 }
 
-.recycle-header strong {
-  color: var(--fg);
-  font-size: 15px;
-  font-weight: 600;
+.recycle-bin-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
 }
 
-.recycle-header > span {
+.recycle-bin-heading h2 {
+  margin: 2px 0 0;
+  color: var(--fg);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.recycle-bin-count {
   color: var(--muted);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+}
+
+.recycle-bin-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .recycle-table .file-table-head,

@@ -12,6 +12,7 @@ import { AiChatPanel } from "./components/AiChatPanel";
 import { BrandMark } from "./components/BrandMark";
 import { TaskDrawer } from "./components/TaskDrawer";
 import { CloudFilesView } from "./components/CloudFilesView";
+import { RecycleBinView } from "./components/RecycleBinView";
 import { ComicsView } from "./components/ComicsView";
 import {
   AiOrganizationService,
@@ -172,6 +173,11 @@ function App() {
   const [fileQuery, setFileQuery] = useState("");
   // 文件页是否处于收藏视图；收藏不参与关键词检索，顶栏搜索框据此隐藏。
   const [cloudStarredView, setCloudStarredView] = useState(false);
+  /**
+   * 文件页外部刷新序号：回收站还原文件后递增，让文件页重新读取当前目录。
+   * 还原目标目录只有 115 知道，文件页无法自行判断是否需要刷新，因此统一重载一次。
+   */
+  const [cloudFilesRefreshNonce, setCloudFilesRefreshNonce] = useState(0);
   // 轻量历史栈：覆盖主视图切换与媒体详情进出，不追求完整浏览器式历史。
   const [backStack, setBackStack] = useState<NavHistoryEntry[]>([]);
   const [forwardStack, setForwardStack] = useState<NavHistoryEntry[]>([]);
@@ -700,6 +706,16 @@ function App() {
     if (next !== "cloud-files") setFileQuery("");
   }
 
+  /**
+   * 回收站还原文件后的处理。
+   *
+   * 还原目标目录由 115 决定，文件页无法自行判断当前目录是否受影响，
+   * 因此统一递增刷新序号：下次回到文件页会重新读取当前目录。
+   */
+  function handleRecycleRestored() {
+    setCloudFilesRefreshNonce((nonce) => nonce + 1);
+  }
+
   /** 打开媒体详情：记录历史并展开右侧面板（详情标签由面板在 detailKey 变化时自动切换）。 */
   function openMedia(item: MediaItem) {
     if (selectedMedia?.id !== item.id) pushHistory();
@@ -849,12 +865,19 @@ function App() {
           <AlbumsView />
         ) : section === "tasks" ? (
           <TasksView tasks={tasks} scanning={scanning} onScan={scanDirectory} />
+        ) : section === "recycle-bin" ? (
+          <RecycleBinView
+            account={cloudAccount}
+            onRequireLogin={() => setForceGate(true)}
+            onRestored={handleRecycleRestored}
+          />
         ) : (
           <CloudFilesView
             account={cloudAccount}
             query={fileQuery}
             onQueryChange={setFileQuery}
             onStarredViewChange={setCloudStarredView}
+            refreshNonce={cloudFilesRefreshNonce}
             onRequireLogin={() => setForceGate(true)}
             onPlay={playCloudFile}
           />
@@ -1031,6 +1054,7 @@ function sectionTitle(section: AppSection): string {
     comics: "漫画",
     albums: "相册",
     "cloud-files": "网盘文件",
+    "recycle-bin": "回收站",
     tasks: "整理任务",
   }[section];
 }
