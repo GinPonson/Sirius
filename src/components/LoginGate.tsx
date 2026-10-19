@@ -10,6 +10,8 @@ import { Icon } from "./Icon";
 
 type LoginGateProps = {
   onAccountChange: (account: Cloud115AccountStatus) => void;
+  /** 启动时读取 115 账号失败后展示的错误和恢复指引。 */
+  initialError?: string | null;
 };
 
 const cloud115 = new Cloud115Service();
@@ -18,7 +20,7 @@ const cloud115 = new Cloud115Service();
  * 登录专属首屏：非对称双区构图。深色叙事舞台承载品牌与能力说明，
  * 浅色操作面板承载二维码与应用身份切换；未登录时不展示任何受保护界面。
  */
-export function LoginGate({ onAccountChange }: LoginGateProps) {
+export function LoginGate({ onAccountChange, initialError = null }: LoginGateProps) {
   const [apps, setApps] = useState<Cloud115ClientApp[]>([]);
   const [clientId, setClientId] = useState("");
   const [challenge, setChallenge] = useState<Cloud115AuthChallenge | null>(null);
@@ -28,6 +30,8 @@ export function LoginGate({ onAccountChange }: LoginGateProps) {
   const [showAppPicker, setShowAppPicker] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 扫码流程的当前错误更具体；启动读取错误在流程成功前持续可见。
+  const visibleError = error ?? initialError;
   const appSwitcherRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -212,7 +216,7 @@ export function LoginGate({ onAccountChange }: LoginGateProps) {
         </button>
         {!expired && <strong className="login-status">{busy ? "正在生成登录二维码" : message}</strong>}
         {!expired && <span className="login-tip">二维码失效后点击二维码区域可重新生成</span>}
-        {error && <p className="cloud-inline-error" role="alert">{error}</p>}
+        {visibleError && <p className="cloud-inline-error" role="alert">{visibleError}</p>}
       </section>
     </div>
   );

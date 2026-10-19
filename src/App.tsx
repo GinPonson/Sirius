@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+// 界面版本取自构建清单，避免覆盖安装后仍展示旧的手写版本号。
+import { version as appVersion } from "../package.json";
 import "./App.css";
 import "./Shell.css";
 import "./Workbench.css";
@@ -26,6 +28,9 @@ import { LoginGate } from "./components/LoginGate";
 import { MediaDetail } from "./components/MediaDetail";
 import { PosterCard } from "./components/PosterCard";
 import { Sidebar, type SidebarNavId } from "./components/Sidebar";
+import { showToast, ToastHost } from "./components/Toast";
+import { PlayerWindowService } from "./services/playerWindowService";
+import type { PlayerActionRequest, PlayerWindowClosed, PlayerWindowState } from "./domain/playerWindow";
 import { TopBar, type TopBarSearch, type TopBarSearchScope } from "./components/TopBar";
 import type {
   AppSection,
@@ -56,6 +61,7 @@ const IDLE_SNAPSHOT: PlaybackSnapshot = {
   durationSeconds: null,
   volume: 80,
   error: null,
+  warning: null,
 };
 
 /** 侧栏展开态持久化键；值 "0" 表示收起，缺省视为展开。 */
@@ -81,6 +87,7 @@ const playbackService = new PlaybackService();
 const libraryTaskService = new LibraryTaskService();
 const cloud115Service = new Cloud115Service();
 const appSettingsService = new AppSettingsService();
+const playerWindowService = new PlayerWindowService();
 
 /** 演示阶段的播放截图；真实链路接入后由播放记录返回截图 URL。 */
 const WATCH_STILLS: Record<string, string> = {
@@ -116,8 +123,16 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [busyMediaId, setBusyMediaId] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // 错误统一走 toast：setError(null) 为兼容旧调用点的清空操作（toast 自行过期）；
+  // 写入文本立即弹出轻提示，不再占据内容区顶部的常驻横幅。
+  const errorRef = useRef<string | null>(null);
+  const setError = useCallback((next: string | null | ((current: string | null) => string | null)) => {
+    const value = typeof next === "function" ? next(errorRef.current) : next;
+    errorRef.current = value;
+    if (value) showToast(value, "error");
+  }, []);
   const [cloudAccount, setCloudAccount] = useState<Cloud115AccountStatus | null>(null);
+  const [cloudAccountError, setCloudAccountError] = useState<string | null>(null);
   const [cloudProfile, setCloudProfile] = useState<Cloud115UserProfile | null>(null);
   // 设置弹窗开合：从侧栏账号菜单进入，承载通用设置。
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -132,25 +147,6 @@ function App() {
   const [activeSubtitles, setActiveSubtitles] = useState<Cloud115SubtitleStream[]>([]);
   // 当前 115 视频的 pickCode；画质切换前用它重新解析短时效直链。
   const [activePickCode, setActivePickCode] = useState<string>("");
-  // 画质菜单开合：瞬态 UI 状态，切换播放源或卸载时无需持久化。
-  const [qualityMenuOpen, setQualityMenuOpen] = useState(false);
-  // 画质菜单开启时响应 Esc 与点击外部，与项目内其它浮层菜单行为一致。
-  const qualityPickerRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (!qualityMenuOpen) return;
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setQualityMenuOpen(false);
-    }
-    function handlePointerDown(event: PointerEvent) {
-      if (!qualityPickerRef.current?.contains(event.target as Node)) setQualityMenuOpen(false);
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("pointerdown", handlePointerDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("pointerdown", handlePointerDown);
-    };
-  }, [qualityMenuOpen]);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   // 侧栏双态：收起为 80px 图标轨道，展开为图标配文字；用户选择持久化。
@@ -166,10 +162,10 @@ function App() {
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [aiPanelOverlay, setAiPanelOverlay] = useState(false);
   const lastProgressSaveAt = useRef(0);
-  // 播放条拖动：拖动中只更新本地预览位置，松手或停顿后才提交 seek（限频），避免持续发跳转请求。
-  const [seekPreview, setSeekPreview] = useState<number | null>(null);
-  const seekCommitTimer = useRef<number | null>(null);
   const lastVolumeRef = useRef(60);
+  const playerActionBusy = useRef(false);
+  const stoppingFromMain = useRef(false);
+  const playbackRevision = useRef(0);
   // 顶栏文件搜索：查询词由应用壳持有并下发到网盘文件页，防抖仍留在该页。
   const [fileQuery, setFileQuery] = useState("");
   // 文件页是否处于收藏视图；收藏不参与关键词检索，顶栏搜索框据此隐藏。
@@ -255,12 +251,20 @@ function App() {
   useEffect(() => {
     let active = true;
     cloud115Service.accountStatus()
-      .then((status) => active && setCloudAccount(status))
+      .then((status) => {
+        if (!active) return;
+        setCloudAccount(status);
+        setCloudAccountError(null);
+      })
       .catch((reason) => {
         if (!active) return;
-        // 钥匙串拒绝或旧开发签名无法读取时按未登录处理，引导用户重新完成授权。
-        setCloudAccount({ connected: false, userName: null, userId: null });
-        setError(`读取 115 登录状态失败：${String(reason)}`);
+        // 读取失败不是未登录；保留 null 并让登录首屏展示真实错误和恢复指引。
+        const message = `读取 115 登录状态失败：${String(reason)}`;
+        setCloudAccountError(
+          message.includes("重新打开应用")
+            ? message
+            : `${message}。如系统提示钥匙串访问授权，请允许 Sirius 访问此凭据后重新打开应用`,
+        );
       });
     return () => { active = false; };
   }, []);
@@ -331,25 +335,36 @@ function App() {
 
   useEffect(() => {
     if (!snapshot.initialized) return;
+    let active = true;
+    let pending = false;
     const interval = window.setInterval(() => {
+      if (pending || playerActionBusy.current) return;
+      pending = true;
+      const revision = playbackRevision.current;
       playbackService
         .snapshot()
         .then((next) => {
+          // 已关闭的会话或控制命令之前发出的旧快照不能重新覆盖权威结果。
+          if (!active || revision !== playbackRevision.current) return;
           setSnapshot(next);
-          // 远程播放恢复失败时把播放器错误呈现在横幅；恢复成功后只清除该条。
+          // 轮询 500ms 一次，播放器错误会持续非空：只在内容变化时弹一次提示，
+          // 否则同一条「远程播放中断」会反复刷屏。错误消失只清记录，不批量撤回 toast。
           if (next.error) {
-            lastPlaybackError.current = next.error;
-            setError((current) => (current === next.error ? current : next.error));
-          } else if (lastPlaybackError.current) {
-            const cleared = lastPlaybackError.current;
+            if (lastPlaybackError.current !== next.error) {
+              lastPlaybackError.current = next.error;
+              setError(next.error);
+            }
+          } else {
             lastPlaybackError.current = null;
-            setError((current) => (current === cleared ? null : current));
           }
         })
-        .catch((reason) => setError(`读取播放状态失败：${String(reason)}`));
+        .catch((reason) => {
+          if (active && revision === playbackRevision.current) setError(`读取播放状态失败：${String(reason)}`);
+        })
+        .finally(() => { pending = false; });
     }, 500);
-    return () => window.clearInterval(interval);
-  }, [snapshot.initialized]);
+    return () => { active = false; window.clearInterval(interval); };
+  }, [snapshot.initialized, setError]);
 
   useEffect(() => {
     if (
@@ -369,20 +384,6 @@ function App() {
   const visibleMedia = useMemo(() => {
     return media.filter((item) => filter === "all" || item.kind === filter);
   }, [filter, media]);
-
-  const progressPercent = useMemo(() => {
-    if (
-      snapshot.positionSeconds === null ||
-      snapshot.durationSeconds === null ||
-      snapshot.durationSeconds <= 0
-    ) {
-      return 0;
-    }
-    return Math.min(
-      100,
-      Math.max(0, (snapshot.positionSeconds / snapshot.durationSeconds) * 100),
-    );
-  }, [snapshot.durationSeconds, snapshot.positionSeconds]);
 
   /** 完整播放链：媒体实体 → 来源解析 → PlaybackSource → Rust 播放器。 */
   async function playMedia(item: MediaItem) {
@@ -458,13 +459,14 @@ function App() {
           : Promise.resolve(null),
       ]);
       let next: PlaybackSnapshot;
-      // 降级提示先攒起来：后续续播失败提示可以再覆盖，但两者都不能丢。
-      let degradeNotice: string | null = null;
+      const resumeAt = savedProgress && savedProgress.positionSeconds >= 5 &&
+        savedProgress.positionSeconds < savedProgress.durationSeconds - 30
+        ? savedProgress.positionSeconds : null;
       // 本次实际生效的画质名。必须用局部变量而不是 activeQuality：setActiveQuality 不会
       // 回写当前闭包，读 state 会拿到上一部视频的档位，导致菜单把转码线路标成「原画」。
       let effectiveQuality = source.quality;
       try {
-        next = await playbackService.openRemote(source, subtitles, entry.pickCode);
+        next = await playbackService.openRemote(source, subtitles, entry.pickCode, false, resumeAt);
       } catch (primaryError) {
         // 原画直链可能因签名失效或源站异常无法起播；此时降级到第一档转码线路重试一次。
         // 只重试一次，且必须把降级事实告知用户——不能静默替换播放源。
@@ -476,22 +478,14 @@ function App() {
           { ...source, url: fallback.url },
           subtitles,
           entry.pickCode,
+          false,
+          resumeAt,
         );
         effectiveQuality = fallback.quality || "备用线路";
-        degradeNotice = `《${entry.name}》以${source.quality}起播失败，已降级到${effectiveQuality}播放：${String(primaryError)}`;
+        const degradeNotice = `《${entry.name}》以${source.quality}起播失败，已降级到${effectiveQuality}播放：${String(primaryError)}`;
         setError(degradeNotice);
       }
       setActiveQuality(effectiveQuality);
-      if (savedProgress && savedProgress.positionSeconds >= 5 && savedProgress.positionSeconds < savedProgress.durationSeconds - 30) {
-        try {
-          next = await playbackService.seek(savedProgress.positionSeconds);
-        } catch (reason) {
-          // 媒体已成功打开时，续播失败必须保留可控播放会话并显式提示。
-          // 若已发生降级，两条信息都要保留，不能相互覆盖。
-          const resumeNotice = `视频已开始播放，但恢复上次进度失败：${String(reason)}`;
-          setError(degradeNotice ? `${degradeNotice}；${resumeNotice}` : resumeNotice);
-        }
-      }
       setPlayingMedia({
         id: `cloud115-${entry.id}`,
         title: entry.name,
@@ -540,7 +534,8 @@ function App() {
   /**
    * 切换播放画质：把选定档位的 URL 交给同一播放会话重开，并尽量保留当前进度。
    *
-   * 画质切换本质是换媒体源，进度会从 0 开始，因此这里显式 seek 回原位置。
+   * 画质切换本质是换媒体源，进度通过 loadfile 的 start 选项随新媒体一起生效，
+   * 避免异步加载尚未完成时直接 seek 返回 PropertyUnavailable 并丢失位置。
    * 115 直链是短时效签名地址，切档前先按 pickCode 重新解析一次，避免使用初次播放时
    * 签发、可能已过期的地址；重解析失败时明确报错并保留原会话，不静默换档。
    */
@@ -564,15 +559,14 @@ function App() {
         { url: targetUrl, userAgent: activeUserAgent },
         // 重新 loadfile 会丢弃字幕轨，必须把本次会话的字幕一并重挂。
         activeSubtitles,
-        playingCloudFileId,
+        activePickCode,
+        false,
+        resumeAt,
       );
       setSnapshot(next);
       setActiveQuality(targetQuality);
-      if (resumeAt && resumeAt > 1) {
-        setSnapshot(await playbackService.seek(resumeAt));
-      }
     } catch (reason) {
-      setError(`切换到${targetQuality}失败：${String(reason)}`);
+      throw new Error(`切换到${targetQuality}失败：${String(reason)}`);
     }
   }
 
@@ -580,7 +574,7 @@ function App() {
     try {
       setSnapshot(await playbackService.togglePause());
     } catch (reason) {
-      setError(`播放控制失败：${String(reason)}`);
+      throw new Error(`播放控制失败：${String(reason)}`);
     }
   }
 
@@ -588,17 +582,8 @@ function App() {
     try {
       setSnapshot(await playbackService.seek(seconds));
     } catch (reason) {
-      setError(`播放跳转失败：${String(reason)}`);
+      throw new Error(`播放跳转失败：${String(reason)}`);
     }
-  }
-
-  /** 相对当前进度跳转 ±10s，按 [0, duration] 截断。 */
-  function skipBy(deltaSeconds: number) {
-    const current = snapshot.positionSeconds;
-    if (current === null) return;
-    const duration = snapshot.durationSeconds;
-    const target = Math.max(0, duration === null ? current + deltaSeconds : Math.min(duration, current + deltaSeconds));
-    void seek(target);
   }
 
   /** 音量（0-100）与静音：静音即音量归零，恢复时回到最近一次非零音量。 */
@@ -608,16 +593,33 @@ function App() {
       if (clamped > 0) lastVolumeRef.current = clamped;
       setSnapshot(await playbackService.setVolume(clamped));
     } catch (reason) {
-      setError(`音量调整失败：${String(reason)}`);
+      throw new Error(`音量调整失败：${String(reason)}`);
     }
   }
 
-  function toggleMute() {
+  /** 静音前记住播放器实际音量；取消静音时恢复该值，包含首次尚未拖动音量滑杆的场景。 */
+  async function toggleMute() {
     const current = snapshot.volume;
-    void changeVolume(current > 0 ? 0 : (lastVolumeRef.current > 0 ? lastVolumeRef.current : 60));
+    // libmpv 初始音量可能与前端默认值不同，不能只在用户拖动滑杆时记录音量。
+    if (current > 0) lastVolumeRef.current = current;
+    await changeVolume(current > 0 ? 0 : (lastVolumeRef.current > 0 ? lastVolumeRef.current : 60));
   }
 
+  /** 清理视频展示状态；原生资源必须先由 Rust 完成释放。 */
+  function clearVideoState() {
+    playbackRevision.current += 1;
+    setSnapshot(IDLE_SNAPSHOT);
+    setPlayingMedia(null);
+    setPlayingCloudFileId(null);
+    setQualityOptions([]);
+    setActiveQuality("");
+    setActiveSubtitles([]);
+    setActivePickCode("");
+  }
+
+  /** 保存已知进度后关闭唯一播放会话；保存失败不阻止资源释放。 */
   async function stopPlayback() {
+    stoppingFromMain.current = true;
     let progressError: string | null = null;
     if (
       appSettings?.playbackHistory === true &&
@@ -635,21 +637,117 @@ function App() {
 
     try {
       await playbackService.destroy();
-      setSnapshot(IDLE_SNAPSHOT);
-      setPlayingMedia(null);
-      setPlayingCloudFileId(null);
-      // 会话已销毁：画质档位、字幕与当前档位不再有意义，一并清空避免残留在下一次播放。
-      setQualityOptions([]);
-      setActiveQuality("");
-      setActiveSubtitles([]);
-      setActivePickCode("");
-      setQualityMenuOpen(false);
-      if (progressError) setError(progressError);
+      clearVideoState();
     } catch (reason) {
       const destroyError = `关闭播放会话失败：${String(reason)}`;
-      setError(progressError ? `${progressError}；${destroyError}` : destroyError);
+      throw new Error(progressError ? `${progressError}；${destroyError}` : destroyError);
+    } finally {
+      stoppingFromMain.current = false;
     }
+    if (progressError) throw new Error(progressError);
   }
+
+  const playerWindowState: PlayerWindowState = useMemo(() => ({
+    title: playingMedia?.title ?? "正在准备播放",
+    initialized: audioTrack === null && snapshot.initialized && playingMedia !== null,
+    paused: snapshot.paused,
+    positionSeconds: snapshot.positionSeconds,
+    durationSeconds: snapshot.durationSeconds,
+    volume: snapshot.volume,
+    error: snapshot.error,
+    warning: snapshot.warning,
+    qualities: qualityOptions.map((option) => option.quality || "备用线路"),
+    activeQuality,
+  }), [activeQuality, audioTrack, playingMedia, qualityOptions, snapshot]);
+
+  // 监听只注册一次，通过 ref 读取当前会话，避免 500ms 状态更新反复注销监听产生空档。
+  const playerRequestHandler = useRef<(request: PlayerActionRequest) => Promise<void>>(async () => {});
+  const playerClosedHandler = useRef<(result: PlayerWindowClosed) => void>(() => {});
+  const playerCloseErrorHandler = useRef<(result: PlayerWindowClosed) => void>(() => {});
+  playerRequestHandler.current = async ({ id, action }) => {
+    let error: string | null = null;
+    let ownsAction = false;
+    try {
+      if (action.type === "ready") {
+        await playerWindowService.publishState(playerWindowState);
+      } else {
+        if (!playerWindowState.initialized) throw new Error("视频会话尚未准备好");
+        if (playerActionBusy.current) throw new Error("上一项播放操作尚未完成，请稍后重试");
+        playerActionBusy.current = true;
+        playbackRevision.current += 1;
+        ownsAction = true;
+        switch (action.type) {
+          case "pause": await togglePause(); break;
+          case "seek": await seek(action.seconds); break;
+          case "volume": await changeVolume(action.volume); break;
+          case "mute": await toggleMute(); break;
+          case "stop": await stopPlayback(); break;
+          case "quality": {
+            const option = qualityOptions.find((candidate) => (candidate.quality || "备用线路") === action.quality);
+            if (!option) throw new Error("该画质已不可用，请重新选择");
+            await switchQuality(option);
+            break;
+          }
+        }
+      }
+    } catch (reason) {
+      error = String(reason);
+      // 结束播放可能已经销毁接收结果的控件页，相关错误仍需在工作区可见。
+      if (action.type === "stop") setError(error);
+    } finally {
+      if (ownsAction) {
+        playbackRevision.current += 1;
+        playerActionBusy.current = false;
+      }
+    }
+    await playerWindowService.reply({ id, error });
+  };
+  playerClosedHandler.current = ({ error }) => {
+    // 用户点击原生关闭按钮时，Rust 已先释放 CGL/mpv，再通知主界面保存最后一次快照。
+    // 主界面主动结束已经保存过进度，不能再用同一关闭事件重复提交。
+    if (!stoppingFromMain.current && appSettings?.playbackHistory && playingCloudFileId &&
+        snapshot.positionSeconds !== null && snapshot.durationSeconds !== null) {
+      void cloud115Service.savePlaybackProgress(playingCloudFileId, snapshot.positionSeconds, snapshot.durationSeconds)
+        .catch((reason) => setError(`保存播放进度失败：${String(reason)}`));
+    }
+    clearVideoState();
+    if (error) setError(error);
+  };
+  playerCloseErrorHandler.current = ({ error }) => {
+    if (!error) return;
+    setError(error);
+    void playerWindowService.publishState({ ...playerWindowState, error })
+      .catch((reason) => setError(`同步播放器关闭错误失败：${String(reason)}`));
+  };
+
+  useEffect(() => {
+    let disposed = false;
+    const removers: Array<() => void> = [];
+    void Promise.allSettled([
+      playerWindowService.listenActions((request) => {
+        void playerRequestHandler.current(request).catch((reason) => setError(`播放器通信失败：${String(reason)}`));
+      }),
+      playerWindowService.listenClosed((result) => playerClosedHandler.current(result)),
+      playerWindowService.listenCloseError((result) => playerCloseErrorHandler.current(result)),
+    ]).then((results) => {
+      for (const result of results) {
+        if (result.status === "fulfilled") {
+          if (disposed) result.value();
+          else removers.push(result.value);
+        } else if (!disposed) setError(`注册播放器监听失败：${String(result.reason)}`);
+      }
+    });
+    return () => {
+      disposed = true;
+      removers.forEach((remove) => remove());
+    };
+  }, [setError]);
+
+  useEffect(() => {
+    if (audioTrack !== null || playingMedia === null) return;
+    void playerWindowService.publishState(playerWindowState)
+      .catch((reason) => setError(`同步播放器状态失败：${String(reason)}`));
+  }, [audioTrack, playingMedia, playerWindowState, setError]);
 
   /** 原子保存设置；失败时保留上一次已确认的内存状态。 */
   async function updateAppSettings(next: AppSettings) {
@@ -716,6 +814,7 @@ function App() {
   /** 登录成功后进入文件工作区；退出或失效时回到登录首屏。 */
   function updateCloudAccount(nextAccount: Cloud115AccountStatus) {
     setCloudAccount(nextAccount);
+    setCloudAccountError(null);
     setSettingsOpen(false);
     setForceGate(false);
     if (nextAccount.connected) {
@@ -724,7 +823,7 @@ function App() {
     }
   }
 
-  if (cloudAccount === null) {
+  if (cloudAccount === null && cloudAccountError === null) {
     return (
       <div className="boot-splash" role="status" aria-label="正在启动 Sirius">
         <span className="brand-mark"><BrandMark size={22} /></span>
@@ -732,8 +831,8 @@ function App() {
     );
   }
 
-  if (gateVisible) {
-    return <LoginGate onAccountChange={updateCloudAccount} />;
+  if (cloudAccount === null || gateVisible) {
+    return <LoginGate onAccountChange={updateCloudAccount} initialError={cloudAccountError} />;
   }
 
   return (
@@ -768,16 +867,6 @@ function App() {
             />
           }
         />
-
-        {error && (
-          <aside className="error-banner" role="alert">
-            <Icon name="alert" size={18} />
-            <span>{error}</span>
-            <button aria-label="关闭错误" onClick={() => setError(null)}>
-              <Icon name="close" size={16} />
-            </button>
-          </aside>
-        )}
 
         {isVideoSection(section) ? (
           <>
@@ -874,110 +963,19 @@ function App() {
       )}
 
       {audioTrack === null && snapshot.initialized && playingMedia && (
-        <aside className="now-playing" aria-label="当前播放">
-          <div className="now-playing-art">
-            <img src={posterFallback} alt="" />
-          </div>
+        <aside className="now-playing now-playing-summary" aria-label="当前视频播放">
+          <div className="now-playing-art"><img src={posterFallback} alt="" /></div>
           <div className="now-playing-copy">
-            <small>正在播放</small>
-            <strong>{playingMedia.title}</strong>
+            <small>{snapshot.paused ? "已暂停" : "视频正在独立窗口播放"}</small>
+            <strong title={playingMedia.title}>{playingMedia.title}</strong>
           </div>
-          {/* 画质切换：只有一档时纯展示（不可点），避免弹出「只有一个选项」的空菜单。 */}
-          {qualityOptions.length > 1 && (
-            <div className="quality-picker" ref={qualityPickerRef}>
-              <button
-                type="button"
-                className="quality-picker-button"
-                aria-haspopup="menu"
-                aria-expanded={qualityMenuOpen}
-                title="切换画质"
-                onClick={() => setQualityMenuOpen((open) => !open)}
-              >
-                {activeQuality || "画质"}
-                <Icon name="chevron" size={12} />
-              </button>
-              {qualityMenuOpen && (
-                <div className="quality-picker-menu" role="menu" aria-label="选择画质">
-                  {qualityOptions.map((option) => (
-                    <button
-                      key={option.url}
-                      type="button"
-                      role="menuitemradio"
-                      aria-checked={option.quality === activeQuality}
-                      className={option.quality === activeQuality ? "active" : ""}
-                      onClick={() => {
-                        setQualityMenuOpen(false);
-                        if (option.quality === activeQuality) return;
-                        void switchQuality(option);
-                      }}
-                    >
-                      {option.quality || "备用线路"}
-                      {option.quality === activeQuality && <Icon name="check" size={13} />}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-          <button className="round-control" onClick={togglePause} aria-label={snapshot.paused ? "继续播放" : "暂停"}>
-            {snapshot.paused ? <Icon name="play" /> : <span className="pause-icon" />}
-          </button>
-          <button className="round-control" onClick={() => skipBy(-10)} aria-label="后退 10 秒" title="后退 10 秒">
-            <Icon name="back10" size={17} />
-          </button>
-          <button className="round-control" onClick={() => skipBy(10)} aria-label="前进 10 秒" title="前进 10 秒">
-            <Icon name="forward10" size={17} />
-          </button>
-          <div className="mini-progress">
-            <input
-              aria-label="播放进度"
-              type="range"
-              min="0"
-              max={snapshot.durationSeconds ?? 1}
-              step="0.1"
-              value={seekPreview ?? snapshot.positionSeconds ?? 0}
-              onChange={(event) => {
-                // 拖动中：只更新本地预览，不提交跳转。
-                const value = Number(event.currentTarget.value);
-                setSeekPreview(value);
-                if (seekCommitTimer.current !== null) window.clearTimeout(seekCommitTimer.current);
-                // 停顿 300ms 视为停止拖动，提交一次跳转。
-                seekCommitTimer.current = window.setTimeout(() => {
-                  setSeekPreview(null);
-                  void seek(value);
-                }, 300);
-              }}
-              onPointerUp={(event) => {
-                // 松手立即提交，并取消停顿定时器。
-                if (seekCommitTimer.current !== null) window.clearTimeout(seekCommitTimer.current);
-                const value = Number((event.currentTarget as HTMLInputElement).value);
-                setSeekPreview(null);
-                void seek(value);
-              }}
-              style={{ "--progress": `${progressPercent}%` } as React.CSSProperties}
-            />
-            <span>
-              {formatTime(seekPreview ?? snapshot.positionSeconds)} / {formatTime(snapshot.durationSeconds)}
-            </span>
-          </div>
-          <div className="volume-control">
-            <button className="round-control" onClick={toggleMute} aria-label={snapshot.volume > 0 ? "静音" : "取消静音"} title={snapshot.volume > 0 ? "静音" : "取消静音"}>
-              <Icon name={snapshot.volume > 0 ? "volume" : "volumeOff"} size={17} />
-            </button>
-            <input
-              aria-label="音量"
-              type="range"
-              min="0"
-              max="100"
-              step="1"
-              value={snapshot.volume}
-              onChange={(event) => void changeVolume(Number(event.currentTarget.value))}
-              style={{ "--progress": `${snapshot.volume}%` } as React.CSSProperties}
-            />
-          </div>
-          <button className="stop-control" onClick={stopPlayback}>
-            结束播放
-          </button>
+          <span className="now-playing-time">{formatTime(snapshot.positionSeconds)} / {formatTime(snapshot.durationSeconds)}</span>
+          <button className="player-return-button" onClick={() => {
+            void playerWindowService.show().catch((reason) => setError(`打开播放器失败：${String(reason)}`));
+          }}><Icon name="play" size={16} />返回播放器</button>
+          <button className="stop-control" onClick={() => {
+            void stopPlayback().catch((reason) => setError(String(reason)));
+          }}>结束播放</button>
         </aside>
       )}
 
@@ -996,6 +994,9 @@ function App() {
           />
         </SettingsModal>
       )}
+
+      {/* 应用级轻提示：错误与降级通知统一经 setError 汇入此处，不打断当前操作。 */}
+      <ToastHost />
     </div>
   );
 }
@@ -1518,7 +1519,7 @@ function SettingsView({
             <strong>Sirius Desktop</strong>
             <p>115 第三方客户端桌面端</p>
           </div>
-          <span className="setting-value">0.1.0</span>
+          <span className="setting-value">{appVersion}</span>
         </div>
       </div>
     </>

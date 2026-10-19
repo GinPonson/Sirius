@@ -2,12 +2,14 @@ use crate::cloud115::{
     sanitize_remote_file_name, Cloud115FileEntry, Cloud115FilePage, Cloud115FolderResult,
     Cloud115Provider,
 };
+use crate::credentials::CredentialCache;
 use crate::library::{AiProviderSettings, LibraryRepository};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 /// AI 整理密钥只存放在 macOS 钥匙串（开发构建使用 0600 临时文件），绝不进入 SQLite、日志或前端。
@@ -75,7 +77,7 @@ pub struct AiProviderUpdateInput {
 }
 
 #[cfg(debug_assertions)]
-fn load_api_key() -> Result<Option<String>, String> {
+fn load_api_key_from_storage() -> Result<Option<String>, String> {
     match std::fs::read_to_string(std::env::temp_dir().join(DEV_AI_KEY_FILE)) {
         Ok(value) => {
             let trimmed = value.trim().to_string();
@@ -87,7 +89,7 @@ fn load_api_key() -> Result<Option<String>, String> {
 }
 
 #[cfg(debug_assertions)]
-fn save_api_key(api_key: &str) -> Result<(), String> {
+fn save_api_key_to_storage(api_key: &str) -> Result<(), String> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
 
@@ -109,8 +111,8 @@ fn save_api_key(api_key: &str) -> Result<(), String> {
 }
 
 #[cfg(all(not(debug_assertions), target_os = "macos"))]
-fn load_api_key() -> Result<Option<String>, String> {
-    match security_framework::passwords::get_generic_password(
+fn load_api_key_from_storage() -> Result<Option<String>, String> {
+    let result = match security_framework::passwords::get_generic_password(
         AI_KEYCHAIN_SERVICE,
         AI_KEYCHAIN_ACCOUNT,
     ) {
@@ -120,19 +122,37 @@ fn load_api_key() -> Result<Option<String>, String> {
             let trimmed = value.trim().to_string();
             Ok((!trimmed.is_empty()).then_some(trimmed))
         }
-        Err(error) if error.code() == -25300 => Ok(None),
+        Err(error) if error.code() == -25300 => return Ok(None),
         Err(error) => Err(format!("读取 macOS 钥匙串失败：{error}")),
-    }
+    };
+    result.map_err(crate::credentials::keychain_read_error)
 }
 
 #[cfg(all(not(debug_assertions), target_os = "macos"))]
-fn save_api_key(api_key: &str) -> Result<(), String> {
+fn save_api_key_to_storage(api_key: &str) -> Result<(), String> {
     security_framework::passwords::set_generic_password(
         AI_KEYCHAIN_SERVICE,
         AI_KEYCHAIN_ACCOUNT,
         api_key.as_bytes(),
     )
     .map_err(|error| format!("保存 AI 密钥到 macOS 钥匙串失败：{error}"))
+}
+
+static API_KEY_CACHE: OnceLock<CredentialCache<String>> = OnceLock::new();
+
+/// 返回进程共享的 AI 服务商密钥缓存。
+fn api_key_cache() -> &'static CredentialCache<String> {
+    API_KEY_CACHE.get_or_init(CredentialCache::new)
+}
+
+/// 读取进程内缓存的 AI 密钥；首次调用才会访问当前构建对应的持久存储。
+fn load_api_key() -> Result<Option<String>, String> {
+    api_key_cache().load(load_api_key_from_storage)
+}
+
+/// 持久化 AI 密钥并同步更新进程缓存，避免后续状态查询再次读取钥匙串。
+fn save_api_key(api_key: &str) -> Result<(), String> {
+    api_key_cache().save(api_key.to_string(), || save_api_key_to_storage(api_key))
 }
 
 /// 当前是否已保存服务商密钥；只返回布尔值。

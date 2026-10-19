@@ -1,0 +1,110 @@
+/* 轻提示浮层：frosted 表面固定于右下角，避开底部播放条与侧栏。 */
+.toast-host {
+  position: fixed;
+  right: 24px;
+  bottom: 88px;
+  z-index: 40;
+  display: grid;
+  gap: 10px;
+  width: min(380px, calc(100vw - 48px));
+  justify-items: end;
+  pointer-events: none;
+}
+
+.toast {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 22px;
+  align-items: start;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 13px;
+  border: 1px solid var(--frosted-border);
+  border-radius: var(--radius-lg);
+  background: var(--frosted-bg);
+  box-shadow: var(--shadow-3), inset 0 1px 0 var(--frosted-highlight);
+  -webkit-backdrop-filter: var(--frosted-blur);
+  backdrop-filter: var(--frosted-blur);
+  color: var(--fg);
+  font-size: var(--text-meta);
+  line-height: 1.55;
+  pointer-events: auto;
+  animation: toast-in var(--duration-panel) var(--ease-spring) both;
+}
+
+.toast-icon {
+  display: grid;
+  place-items: center;
+  padding-top: 1px;
+}
+
+.toast-message {
+  overflow-wrap: anywhere;
+}
+
+.toast button {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease-standard),
+    background var(--duration-fast) var(--ease-standard);
+}
+
+.toast button:hover {
+  background: var(--surface-hover);
+  color: var(--fg);
+}
+
+.toast.tone-error {
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--frosted-border));
+  color: var(--danger-ink);
+}
+
+.toast.tone-error .toast-icon {
+  color: var(--danger);
+}
+
+.toast.tone-success {
+  color: var(--success-ink);
+}
+
+.toast.tone-success .toast-icon {
+  color: var(--success);
+}
+
+.toast.tone-info {
+  color: var(--fg);
+}
+
+.toast.tone-info .toast-icon {
+  color: var(--primary);
+}
+
+.toast button:focus-visible,
+.toast:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+  }
+}

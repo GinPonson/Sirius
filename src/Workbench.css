@@ -4123,13 +4123,6 @@
   background: var(--primary);
 }
 
-/* 播放条容纳更多控件：窄屏允许换行 */
-@media (max-width: 1180px) {
-  .now-playing {
-    grid-template-columns: 42px minmax(110px, 180px) 34px 34px 34px minmax(140px, 1fr) auto auto;
-  }
-}
-
 /* 详情标签激活时隐藏 AI 输入区（对话状态仍保留在内存中） */
 .ai-chat-composer[data-active="false"] { display: none; }
 

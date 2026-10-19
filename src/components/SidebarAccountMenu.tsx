@@ -1,4 +1,5 @@
 import { forwardRef, useState } from "react";
+import { version as appVersion } from "../../package.json";
 import {
   Cloud115Service,
   type Cloud115AccountStatus,
@@ -96,7 +97,7 @@ export const SidebarAccountMenu = forwardRef<HTMLDivElement, SidebarAccountMenuP
               <strong>Sirius Desktop</strong>
               <small>115 第三方客户端</small>
             </span>
-            <span className="account-menu-row-value">0.1.0</span>
+            <span className="account-menu-row-value">{appVersion}</span>
           </div>
         </div>
 

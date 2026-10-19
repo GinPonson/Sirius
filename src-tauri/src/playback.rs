@@ -1,3 +1,4 @@
+use crate::player_window::VideoWindow;
 use glutin::{
     config::{ConfigTemplateBuilder, GlConfig},
     context::{ContextApi, ContextAttributesBuilder, NotCurrentGlContext, Version},
@@ -24,7 +25,6 @@ use std::{
     thread::{self, JoinHandle},
     time::Duration,
 };
-use tauri::Window;
 
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 const RENDER_TICK: Duration = Duration::from_millis(16);
@@ -42,8 +42,10 @@ pub struct PlaybackSnapshot {
     pub position_seconds: Option<f64>,
     pub duration_seconds: Option<f64>,
     pub volume: f64,
-    /// 远程播放自动恢复失败后的显式错误；恢复成功时清空。
+    /// 远程播放自动恢复失败等会中断播放的显式错误；恢复成功时清空。
     pub error: Option<String>,
+    /// 不影响视频播放的提示，例如外挂字幕挂载失败。
+    pub warning: Option<String>,
 }
 
 /// 渲染线程可以执行的播放器命令。
@@ -53,9 +55,14 @@ struct RemoteSession {
     pick_code: String,
     last_position: Option<f64>,
     recoveries: u32,
-    /// 本次会话的外挂字幕地址；自动恢复重新 loadfile 后必须重新挂载，
+    /// 本次会话待挂载的外挂字幕地址；自动恢复重新 loadfile 后必须重新挂载，
     /// 否则 `replace` 会随旧条目丢弃字幕轨，用户侧表现为「播到一半字幕消失」。
+    ///
+    /// 在渲染线程事件循环内维护：媒体未 ready 时 `sub-add` 会直接返回
+    /// `MPV_ERROR_COMMAND`，因此 Open 只登记地址，等到媒体加载完成事件后再挂。
     subtitle_urls: Vec<String>,
+    /// 已进入挂载流程的字幕条数；用于跨事件幂等推进，避免重复挂载同一条。
+    subtitles_mounted: usize,
 }
 
 /// 远程会话自动恢复上限；超过后停止重试并把错误呈报给前端。
@@ -68,6 +75,68 @@ fn recovery_allowed(remote: Option<&RemoteSession>) -> bool {
         None => false,
     }
 }
+
+/// 把会话登记的远程字幕挂到当前媒体上；无待挂字幕时立即返回。
+///
+/// `loadfile` 与 `sub-add` 在同一同步区间连续调用时后者必然失败：libmpv 的
+/// `sub-add` 只在媒体进入 ready 状态（收到 FileLoaded / PlaybackRestart）后才会
+/// 被接受，booting 阶段一律返回 `MPV_ERROR_COMMAND`。因此挂载必须在事件循环内
+/// 由这两个事件触发，而不是塞进 Open 的同步路径。
+///
+/// 失败语义：单条字幕加载失败（URL 过期、404、格式不支持）只写提示性 error，
+/// 绝不中断播放会话——视频可以没有字幕播放，不能反过来。
+fn mount_pending_subtitles(
+    mpv: &Mpv,
+    remote: Option<&mut RemoteSession>,
+    last_error: &mut Option<String>,
+) {
+    let Some(state) = remote else {
+        return;
+    };
+    let plan = plan_subtitle_mounts(state);
+    if plan.is_empty() {
+        return;
+    }
+    let mut failures: Vec<String> = Vec::new();
+    for (index, selection) in plan {
+        let subtitle_url = &state.subtitle_urls[index];
+        if let Err(error) = mpv.command("sub-add", &[subtitle_url, selection]) {
+            // 单条失败给出序号便于用户对照字幕列表；多条时序号更能定位问题轨。
+            failures.push(format!("第 {} 条：{error}", index + 1));
+        }
+    }
+    // 无论成败都推进到末尾：失败 URL 不会因为事件重放而变成可用，重复重试只刷屏；
+    // FileLoaded 与 PlaybackRestart 都可能多次触发，进度必须幂等。
+    state.subtitles_mounted = state.subtitle_urls.len();
+    if failures.is_empty() {
+        // 本次字幕全部就位：清掉此前的字幕提示，不碰播放中断错误。
+        if last_error
+            .as_deref()
+            .is_some_and(|message| message.starts_with(SUBTITLE_ERROR_PREFIX))
+        {
+            *last_error = None;
+        }
+    } else {
+        *last_error = Some(format!("{SUBTITLE_ERROR_PREFIX}{}", failures.join("；")));
+    }
+}
+
+/// 计算下一次挂载动作：返回 (索引, 选择模式)。第一条字幕 select，其余 auto。
+///
+/// 纯函数，供单测覆盖：调用方拿到计划后执行 mpv 命令，并必须把
+/// `subtitles_mounted` 推进到 `subtitle_urls.len()`，否则每次
+/// FileLoaded/PlaybackRestart 都会重复尝试同一条失败 URL。
+fn plan_subtitle_mounts(state: &RemoteSession) -> Vec<(usize, &'static str)> {
+    (state.subtitles_mounted..state.subtitle_urls.len())
+        .map(|index| {
+            let selection = if index == 0 { "select" } else { "auto" };
+            (index, selection)
+        })
+        .collect()
+}
+
+/// 字幕类提示前缀；用于区分非致命提示与播放中断错误，两者不能互相覆盖。
+const SUBTITLE_ERROR_PREFIX: &str = "字幕加载失败：";
 
 /// 由 lib.rs 注入的远程源恢复解析器：把 pick_code 重新解析为 (url, user_agent)。
 pub type RemoteSourceResolver = Arc<dyn Fn(&str) -> Result<(String, String), String> + Send + Sync>;
@@ -82,6 +151,7 @@ enum PlaybackRequest {
         user_agent: Option<String>,
         subtitle_urls: Vec<String>,
         pick_code: Option<String>,
+        start_position_seconds: Option<f64>,
         reply: SyncSender<Result<PlaybackSnapshot, String>>,
     },
     TogglePause {
@@ -133,8 +203,12 @@ impl PlaybackManager {
     ///
     /// # 参数
     /// - `path`: 文件选择器返回的绝对本地路径。
-    /// - `window`: 不含 WebView 的 Tauri 原生视频窗口。
-    pub fn open_local_file(&self, path: &str, window: Window) -> Result<PlaybackSnapshot, String> {
+    /// - `window`: Tauri 宿主窗口与其独立原生视频 NSView 组成的表面句柄。
+    pub fn open_local_file(
+        &self,
+        path: &str,
+        window: VideoWindow,
+    ) -> Result<PlaybackSnapshot, String> {
         let canonical_path = validate_local_media_path(path)?;
         let source = canonical_path.to_string_lossy().into_owned();
         let mut guard = self.lock_worker()?;
@@ -151,18 +225,27 @@ impl PlaybackManager {
             user_agent: None,
             subtitle_urls: Vec::new(),
             pick_code: None,
+            start_position_seconds: None,
             reply,
         })
     }
 
-    /// 打开经过 Provider 校验的 HTTP(S) 远程媒体地址。
+    /// 打开经过 Provider 校验的 HTTP(S) 远程媒体地址，并在媒体加载时恢复可选位置。
+    ///
+    /// # 参数
+    /// - `start_position_seconds`: 起播位置（秒）；`None` 表示从默认位置开始。
+    /// - 其余参数分别是媒体 URL、请求 User-Agent、字幕 URL、115 `pick_code` 与原生窗口句柄。
+    ///
+    /// # 返回
+    /// 返回 libmpv 当前会话快照；参数无效或播放初始化失败时返回错误。
     pub fn open_remote_url(
         &self,
         url: &str,
         user_agent: &str,
         subtitle_urls: Vec<String>,
         pick_code: &str,
-        window: Window,
+        start_position_seconds: Option<f64>,
+        window: VideoWindow,
     ) -> Result<PlaybackSnapshot, String> {
         // 115 的转码 HLS 目前可能签发 http URL；仍严格拒绝文件路径和其它自定义协议。
         if !(url.starts_with("https://") || url.starts_with("http://"))
@@ -176,6 +259,8 @@ impl PlaybackManager {
         if subtitle_urls.iter().any(|url| !is_http_url(url)) {
             return Err("远程字幕必须使用 HTTP(S) 地址".to_string());
         }
+        // 在窗口/worker 创建之前验证 Tauri 输入，避免无效位置留下隐藏播放器窗口。
+        loadfile_command_arguments(start_position_seconds)?;
         let mut guard = self.lock_worker()?;
         if guard.is_none() {
             let recovery = self.recovery.lock().ok().and_then(|guard| guard.clone());
@@ -189,6 +274,7 @@ impl PlaybackManager {
             user_agent: Some(user_agent.to_string()),
             subtitle_urls,
             pick_code: Some(pick_code.to_string()),
+            start_position_seconds,
             reply,
         })
     }
@@ -231,10 +317,18 @@ impl PlaybackManager {
 
     /// 终止渲染线程并释放 OpenGL、RenderContext 和 libmpv。
     pub fn destroy(&self) -> Result<(), String> {
-        let worker = self
-            .lock_worker()?
-            .take()
-            .ok_or_else(|| "播放会话尚未初始化，请先选择视频文件".to_string())?;
+        // shutdown 必须在管理锁已损坏时仍取出并 join worker；否则窗口关闭会释放仍被
+        // CGL 使用的 NSView。把锁损坏作为结果保留，但先完成能做的资源清理。
+        let (worker, lock_error) = match self.worker.lock() {
+            Ok(mut guard) => (guard.take(), None),
+            Err(poisoned) => (
+                poisoned.into_inner().take(),
+                Some("播放管理器锁已损坏，关闭时已尝试回收渲染线程".to_string()),
+            ),
+        };
+        let Some(worker) = worker else {
+            return lock_error.map_or(Ok(()), Err);
+        };
         let (reply_sender, reply_receiver) = mpsc::sync_channel(1);
         let request_result = worker
             .sender
@@ -251,7 +345,14 @@ impl PlaybackManager {
             .join_handle
             .join()
             .map_err(|_| "播放渲染线程在关闭时发生 panic".to_string());
-        combine_shutdown_results(request_result, join_result)
+        let mut result = combine_shutdown_results(request_result, join_result);
+        if let Some(lock_error) = lock_error {
+            result = match result {
+                Ok(()) => Err(lock_error),
+                Err(error) => Err(format!("{lock_error}；{error}")),
+            };
+        }
+        result
     }
 
     fn with_worker<T>(
@@ -274,7 +375,7 @@ impl PlaybackManager {
 
 /// 创建工作线程，并等待图形环境完成初始化。
 fn spawn_playback_worker(
-    window: Window,
+    window: VideoWindow,
     recovery: Option<RemoteSourceResolver>,
 ) -> Result<PlaybackWorker, String> {
     let (sender, receiver) = mpsc::sync_channel(64);
@@ -310,7 +411,7 @@ fn spawn_playback_worker(
 /// 初始化顺序必须保持为：CGL display → surface/context → libmpv →
 /// RenderContext。销毁时 Rust 的逆序 drop 会先释放 RenderContext，再释放 mpv。
 fn run_render_thread(
-    window: Window,
+    window: VideoWindow,
     receiver: Receiver<PlaybackRequest>,
     redraw_sender: SyncSender<PlaybackRequest>,
     ready_sender: SyncSender<Result<(), String>>,
@@ -325,7 +426,7 @@ fn run_render_thread(
         .map_err(|error| format!("读取 macOS 窗口句柄失败：{error}"))?
         .as_raw();
 
-    // SAFETY: Tauri Window 由本线程持有，原生 display/window 句柄在整个渲染循环中有效。
+    // SAFETY: VideoWindow 由本线程持有，其宿主窗口与原生视频 NSView 在整个渲染循环中有效。
     let display = unsafe { Display::new(raw_display, DisplayApiPreference::Cgl) }
         .map_err(|error| format!("创建 CGL display 失败：{error}"))?;
     let template = ConfigTemplateBuilder::new()
@@ -339,13 +440,14 @@ fn run_render_thread(
         .ok_or_else(|| "系统没有可用的 OpenGL 配置".to_string())?;
 
     let size = window
+        .window()
         .inner_size()
         .map_err(|error| format!("读取播放器窗口尺寸失败：{error}"))?;
     let width = non_zero_dimension(size.width, "宽度")?;
     let height = non_zero_dimension(size.height, "高度")?;
     let surface_attributes =
         SurfaceAttributesBuilder::<WindowSurface>::new().build(raw_window, width, height);
-    // SAFETY: raw_window 来自仍存活的 Tauri Window，尺寸均为非零物理像素。
+    // SAFETY: raw_window 指向 VideoWindow 持有的原生视频 NSView，尺寸均为非零物理像素。
     let surface = unsafe { display.create_window_surface(&config, &surface_attributes) }
         .map_err(|error| format!("创建 OpenGL 窗口表面失败：{error}"))?;
     let context_attributes = ContextAttributesBuilder::new()
@@ -399,6 +501,7 @@ fn run_render_thread(
                 user_agent,
                 subtitle_urls,
                 pick_code,
+                start_position_seconds,
                 reply,
             }) => {
                 let result = (|| {
@@ -406,45 +509,28 @@ fn run_render_thread(
                         mpv.set_property("user-agent", value)
                             .map_err(|error| format!("设置远程播放 User-Agent 失败：{error}"))?;
                     }
-                    mpv.command("loadfile", &[&next_source, "replace"])
-                        .map_err(|error| format!("libmpv 无法加载所选文件：{error}"))?;
+                    loadfile_with_start(
+                        &mpv,
+                        &next_source,
+                        start_position_seconds,
+                        "libmpv 无法加载所选文件：",
+                    )?;
                     source = Some(next_source);
                     // 只有 115 远程会话记录 pick_code，供流错误时重新解析播放源。
-                    // 字幕地址一并留存：自动恢复会重新 loadfile，必须能重新挂载字幕轨。
+                    // 字幕地址一并登记：媒体 ready 后由事件循环统一挂载，
+                    // 自动恢复重新 loadfile 时也能重新走一遍挂载流程。
                     remote = pick_code.map(|pick_code| RemoteSession {
                         pick_code,
-                        last_position: None,
+                        last_position: start_position_seconds,
                         recoveries: 0,
-                        subtitle_urls: subtitle_urls.clone(),
+                        subtitle_urls,
+                        subtitles_mounted: 0,
                     });
                     last_error = None;
 
-                    let opened = (|| {
-                        // 第一条字幕由 mpv 自动选中，其余轨道继续追加供播放器切换。
-                        for (index, subtitle_url) in subtitle_urls.iter().enumerate() {
-                            let selection = if index == 0 { "select" } else { "auto" };
-                            mpv.command("sub-add", &[subtitle_url, selection])
-                                .map_err(|error| format!("libmpv 无法加载远程字幕：{error}"))?;
-                        }
-                        snapshot_from_mpv(&mpv, source.as_deref(), last_error.as_deref())
-                    })();
-
-                    match opened {
-                        Ok(snapshot) => Ok(snapshot),
-                        Err(open_error) => {
-                            // loadfile 已成功时，后续任何失败都必须停止新媒体并清空状态，
-                            // 避免前端收到错误后仍有隐藏音频或不可控会话继续运行。
-                            let stop_result = mpv.command("stop", &[]).map_err(|error| {
-                                format!("回滚失败播放会话时无法停止媒体：{error}")
-                            });
-                            source = None;
-                            remote = None;
-                            match stop_result {
-                                Ok(()) => Err(open_error),
-                                Err(stop_error) => Err(format!("{open_error}；{stop_error}")),
-                            }
-                        }
-                    }
+                    // loadfile 成功即代表媒体已接管会话；字幕挂载挪到事件循环，
+                    // 见 mount_pending_subtitles 的说明。快照按当前 mpv 状态如实返回。
+                    snapshot_from_mpv(&mpv, source.as_deref(), last_error.as_deref())
                 })();
                 let _ = reply.send(result);
             }
@@ -499,6 +585,11 @@ fn run_render_thread(
         // 轮询 libmpv 事件：远程会话遇到流错误（URL 过期等）时自动重建播放源并恢复时间码。
         while let Some(event) = mpv.wait_event(0.0) {
             match event {
+                // 媒体加载完成是 sub-add 合法的最早时点：booting 阶段命令会被拒绝。
+                // 首条字幕默认选中，其余按 auto 追加供播放器内切换。
+                Ok(Event::FileLoaded) | Ok(Event::PlaybackRestart) => {
+                    mount_pending_subtitles(&mpv, remote.as_mut(), &mut last_error);
+                }
                 Ok(Event::EndFile(reason)) if reason == mpv_end_file_reason::Error => {
                     let Some(state) = remote.as_mut() else {
                         continue;
@@ -526,25 +617,16 @@ fn run_render_thread(
                                     mpv.set_property("user-agent", user_agent).map_err(
                                         |error| format!("设置远程播放 User-Agent 失败：{error}"),
                                     )?;
-                                    mpv.command("loadfile", &[&url, "replace"]).map_err(
-                                        |error| format!("libmpv 重新加载播放源失败：{error}"),
+                                    loadfile_with_start(
+                                        &mpv,
+                                        &url,
+                                        state.last_position,
+                                        "libmpv 重新加载播放源失败：",
                                     )?;
-                                    // replace 会随旧条目丢弃字幕轨，恢复后按原顺序重新挂载，
+                                    // replace 会随旧条目丢弃字幕轨：置零挂载进度，
+                                    // 由 FileLoaded/PlaybackRestart 事件重新挂载，
                                     // 否则用户会在恢复瞬间丢失字幕且界面无任何提示。
-                                    for (index, subtitle_url) in
-                                        state.subtitle_urls.iter().enumerate()
-                                    {
-                                        let selection = if index == 0 { "select" } else { "auto" };
-                                        mpv.command("sub-add", &[subtitle_url, selection])
-                                            .map_err(|error| {
-                                                format!("libmpv 恢复远程字幕失败：{error}")
-                                            })?;
-                                    }
-                                    if let Some(position) = state.last_position {
-                                        mpv.set_property("time-pos", position).map_err(
-                                            |error| format!("恢复播放位置失败：{error}"),
-                                        )?;
-                                    }
+                                    state.subtitles_mounted = 0;
                                     Ok(())
                                 })()
                                 .ok()
@@ -577,6 +659,77 @@ fn is_http_url(value: &str) -> bool {
     value.starts_with("https://") || value.starts_with("http://")
 }
 
+/// 构造 `loadfile` 的参数，并将可选起播位置作为媒体级 `start` 选项原子设置。
+///
+/// mpv 0.38 起 `loadfile` 第三个参数用于索引；使用第四个 per-file options 参数时，
+/// 必须显式传入 `-1` 作为第三参数。起播位置约束为有限、非负秒数。
+///
+/// # 参数
+/// - `start_position_seconds`: 起播位置秒数；`None` 保持 mpv 默认行为。
+///
+/// # 返回
+/// 返回 `loadfile` 的 flags、index 与 per-file options 参数；非法位置返回错误。
+pub(crate) fn loadfile_command_arguments(
+    start_position_seconds: Option<f64>,
+) -> Result<Vec<String>, String> {
+    let mut arguments = vec!["replace".to_string()];
+    let Some(seconds) = start_position_seconds else {
+        return Ok(arguments);
+    };
+    if !seconds.is_finite() || seconds < 0.0 {
+        return Err("初始播放位置必须是有限且非负的秒数".to_string());
+    }
+
+    // mpv 将带负号的 start 解释为从媒体末尾倒数；将 -0.0 规范成普通零。
+    let seconds = if seconds == 0.0 { 0.0 } else { seconds };
+    let mut start_option = format!("{seconds:.9}");
+    while start_option.contains('.') && start_option.ends_with('0') {
+        start_option.pop();
+    }
+    if start_option.ends_with('.') {
+        start_option.pop();
+    }
+
+    arguments.push("-1".to_string());
+    arguments.push(format!("start={start_option}"));
+    Ok(arguments)
+}
+
+/// 以单条 `loadfile` 命令加载媒体，避免在媒体尚未 ready 时另发 `time-pos` seek。
+///
+/// # 参数
+/// - `mpv`: 当前专用渲染线程中的 libmpv 实例。
+/// - `source`: 要加载的本地路径或已校验 HTTP(S) URL。
+/// - `start_position_seconds`: 可选非负起播时间。
+/// - `error_prefix`: libmpv 命令失败时附加的上下文前缀。
+///
+/// # 返回
+/// 命令成功时返回 `Ok(())`，参数校验或 libmpv 失败时返回错误。
+fn loadfile_with_start(
+    mpv: &Mpv,
+    source: &str,
+    start_position_seconds: Option<f64>,
+    error_prefix: &str,
+) -> Result<(), String> {
+    let options = loadfile_command_arguments(start_position_seconds)?;
+    let mut arguments = Vec::with_capacity(options.len() + 1);
+    arguments.push(source);
+    arguments.extend(options.iter().map(String::as_str));
+    mpv.command("loadfile", &arguments)
+        .map_err(|error| format!("{error_prefix}{error}"))
+}
+
+/// 将不影响会话存活的字幕失败与播放错误分开提供给前端。
+fn playback_error_fields(error: Option<&str>) -> (Option<String>, Option<String>) {
+    match error {
+        Some(message) if message.starts_with(SUBTITLE_ERROR_PREFIX) => {
+            (None, Some(message.to_string()))
+        }
+        Some(message) => (Some(message.to_string()), None),
+        None => (None, None),
+    }
+}
+
 /// OpenGL 函数加载器；libmpv 使用它解析当前 CGL display 的符号。
 struct GlProcLoader {
     display: Display,
@@ -591,12 +744,13 @@ fn get_proc_address(loader: &GlProcLoader, name: &str) -> *mut c_void {
 
 /// 将最新视频帧绘制到窗口默认 framebuffer 并交换前后缓冲。
 fn render_frame(
-    window: &Window,
+    window: &VideoWindow,
     surface: &glutin::surface::Surface<WindowSurface>,
     context: &glutin::context::PossiblyCurrentContext,
     render_context: &libmpv2::render::RenderContext<'_>,
 ) -> Result<(), String> {
     let size = window
+        .window()
         .inner_size()
         .map_err(|error| format!("读取播放器窗口尺寸失败：{error}"))?;
     let width = non_zero_dimension(size.width, "宽度")?;
@@ -637,6 +791,7 @@ fn snapshot_from_mpv(
     source: Option<&str>,
     error: Option<&str>,
 ) -> Result<PlaybackSnapshot, String> {
+    let (error, warning) = playback_error_fields(error);
     Ok(PlaybackSnapshot {
         initialized: source.is_some(),
         source: source.map(str::to_string),
@@ -648,7 +803,8 @@ fn snapshot_from_mpv(
         volume: mpv
             .get_property::<f64>("volume")
             .map_err(|error| format!("读取音量失败：{error}"))?,
-        error: error.map(str::to_string),
+        error,
+        warning,
     })
 }
 
@@ -661,6 +817,7 @@ fn idle_snapshot() -> PlaybackSnapshot {
         duration_seconds: None,
         volume: 80.0,
         error: None,
+        warning: None,
     }
 }
 
@@ -714,18 +871,50 @@ fn validate_local_media_path(path: &str) -> Result<PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use super::RemoteSession;
-    use super::{combine_shutdown_results, recovery_allowed, validate_local_media_path};
+    use super::{
+        combine_shutdown_results, loadfile_command_arguments, plan_subtitle_mounts,
+        playback_error_fields, recovery_allowed, validate_local_media_path,
+    };
+
+    #[test]
+    fn loadfile_start_option_is_atomic_and_uses_fourth_argument() {
+        assert_eq!(loadfile_command_arguments(None).unwrap(), vec!["replace"]);
+        assert_eq!(
+            loadfile_command_arguments(Some(1222.4)).unwrap(),
+            vec!["replace", "-1", "start=1222.4"]
+        );
+        assert_eq!(
+            loadfile_command_arguments(Some(-0.0)).unwrap(),
+            vec!["replace", "-1", "start=0"]
+        );
+    }
+
+    #[test]
+    fn loadfile_start_option_rejects_invalid_positions() {
+        assert!(loadfile_command_arguments(Some(-0.01)).is_err());
+        assert!(loadfile_command_arguments(Some(f64::NAN)).is_err());
+        assert!(loadfile_command_arguments(Some(f64::INFINITY)).is_err());
+        assert!(loadfile_command_arguments(Some(f64::NEG_INFINITY)).is_err());
+    }
+
+    #[test]
+    fn subtitle_failure_is_a_warning_not_a_playback_error() {
+        assert_eq!(
+            playback_error_fields(Some("字幕加载失败：第 1 条：Raw(-12)")),
+            (None, Some("字幕加载失败：第 1 条：Raw(-12)".to_string()))
+        );
+        assert_eq!(
+            playback_error_fields(Some("远程播放中断")),
+            (Some("远程播放中断".to_string()), None)
+        );
+        assert_eq!(playback_error_fields(None), (None, None));
+    }
 
     #[test]
     fn recovery_policy_limits_remote_sessions_only() {
         // 本地文件流错误不属于远程恢复的适用范围。
         assert!(!recovery_allowed(None));
-        let mut state = RemoteSession {
-            pick_code: "pick".to_string(),
-            last_position: None,
-            recoveries: 0,
-            subtitle_urls: Vec::new(),
-        };
+        let mut state = local_session();
         assert!(recovery_allowed(Some(&state)));
         // 达到重试上限后停止自动恢复。
         state.recoveries = 3;
@@ -758,5 +947,55 @@ mod tests {
             combine_shutdown_results(Err("请求失败".into()), Err("线程失败".into())).unwrap_err(),
             "请求失败；线程失败"
         );
+    }
+
+    #[test]
+    fn subtitle_mount_plan_selects_first_track_only() {
+        let state = RemoteSession {
+            pick_code: "pick".to_string(),
+            last_position: None,
+            recoveries: 0,
+            subtitle_urls: vec![
+                "https://115.com/a.ass?x=1".to_string(),
+                "https://115.com/b.srt?x=2".to_string(),
+                "https://115.com/c.vtt?x=3".to_string(),
+            ],
+            subtitles_mounted: 0,
+        };
+        assert_eq!(
+            plan_subtitle_mounts(&state),
+            vec![(0, "select"), (1, "auto"), (2, "auto")]
+        );
+    }
+
+    #[test]
+    fn subtitle_mount_plan_is_idempotent_after_progress() {
+        // 推进后不再重复挂载同一条：FileLoaded/PlaybackRestart 可能多次触发。
+        let mut state = RemoteSession {
+            pick_code: "pick".to_string(),
+            last_position: None,
+            recoveries: 0,
+            subtitle_urls: vec!["https://115.com/a.ass?x=1".to_string()],
+            subtitles_mounted: 0,
+        };
+        assert_eq!(plan_subtitle_mounts(&state).len(), 1);
+        state.subtitles_mounted = state.subtitle_urls.len();
+        assert!(plan_subtitle_mounts(&state).is_empty());
+    }
+
+    #[test]
+    fn subtitle_mount_plan_empty_without_session() {
+        // 本地文件没有远程会话，字幕挂载直接跳过。
+        assert!(plan_subtitle_mounts(&local_session()).is_empty());
+    }
+
+    fn local_session() -> RemoteSession {
+        RemoteSession {
+            pick_code: "pick".to_string(),
+            last_position: None,
+            recoveries: 0,
+            subtitle_urls: Vec::new(),
+            subtitles_mounted: 0,
+        }
     }
 }

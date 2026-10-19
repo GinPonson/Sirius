@@ -139,8 +139,14 @@ export function AlbumsView() {
         folderId === ROOT_ID
           ? "网盘根目录"
           : rootFolders.find((folder) => folder.id === folderId)?.name ?? "";
-      await albumsService.recognize({ folderId, folderName });
+      const overview = await albumsService.recognize({ folderId, folderName });
       await loadIndex();
+      if (overview.truncated) {
+        const name = overview.folderName || "所选目录";
+        setError(
+          `${name}扫描不完整：已扫描 ${overview.scannedCount} 条。当前扫描最多读取每目录 200 条、总计 12 次请求、每层 8 个子目录，并在命中照片层后停止深入；本次未保存结果，已有完整索引已保留。`,
+        );
+      }
     } catch (reason) {
       setError(`照片识别失败：${String(reason)}`);
     } finally {
@@ -161,8 +167,14 @@ export function AlbumsView() {
     setIndexing(true);
     setError(null);
     try {
-      await albumsService.indexFolders(folders);
+      const overviews = await albumsService.indexFolders(folders);
       await loadIndex();
+      const truncated = overviews.filter((overview) => overview.truncated);
+      if (truncated.length > 0) {
+        setError(
+          `${truncated.length} 个目录扫描不完整：当前扫描最多读取每目录 200 条、总计 12 次请求、每层 8 个子目录，并在命中照片层后停止深入。未保存这些不完整结果，对应已有完整索引已保留。`,
+        );
+      }
     } catch (reason) {
       setError(`批量索引失败：${String(reason)}`);
     } finally {

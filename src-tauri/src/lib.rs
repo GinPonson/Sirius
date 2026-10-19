@@ -1,11 +1,14 @@
 mod ai;
 mod ai_chat;
 mod albums;
+mod backup;
 mod cloud115;
 mod comics;
+mod credentials;
 mod library;
 mod media_info;
 mod playback;
+mod player_window;
 mod transfer;
 
 use ai::{
@@ -14,6 +17,7 @@ use ai::{
 };
 use ai_chat::{AiChatSendReceipt, ChatStreamRegistry};
 use albums::{AlbumFolderInput, AlbumsIndexSummary, PhotosOverview};
+use backup::BackupRunResult;
 use comics::{ComicOpenInput, ComicSession, ComicsIndexSummary, ComicsOverview};
 
 use cloud115::{
@@ -28,11 +32,17 @@ use library::{
     LibraryTask, MediaInfo, MediaItem, PlaybackProgress, UploadSession,
 };
 use playback::{PlaybackManager, PlaybackSnapshot, RemoteSourceResolver};
-use std::sync::Arc;
-use tauri::{window::WindowBuilder, AppHandle, Emitter, Manager, State, Window};
+use player_window::{
+    create_controls_webview, create_video_view, focus_controls, PlayerWindowLifecycle, VideoWindow,
+    WindowDestroyedSignal, VIDEO_WINDOW_LABEL,
+};
+use serde::Serialize;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+use tauri::{window::WindowBuilder, AppHandle, Emitter, Manager, State, Window, WindowEvent};
 use transfer::TransferProgress;
-
-const VIDEO_WINDOW_LABEL: &str = "video";
 
 /// 把传输进度事件转发到 WebView；负载契约与 `src/services/events.ts` 保持一致。
 fn transfer_progress_callback(app: &AppHandle) -> transfer::ProgressCallback {
@@ -52,10 +62,21 @@ fn cloud115_client_apps(provider: State<'_, Arc<Cloud115Provider>>) -> Vec<Cloud
 
 /// 返回本机钥匙串中的 115 登录状态，不向前端暴露 Token。
 #[tauri::command]
-fn cloud115_account_status(
+async fn cloud115_account_status(
     provider: State<'_, Arc<Cloud115Provider>>,
 ) -> Result<Cloud115AccountStatus, String> {
-    provider.account_status()
+    // 钥匙串可能等待系统授权，不能占用 WebKit 的主线程和阻塞窗口响应。
+    let provider = Arc::clone(provider.inner());
+    let status = tauri::async_runtime::spawn_blocking({
+        let provider = Arc::clone(&provider);
+        move || provider.account_status()
+    })
+    .await
+    .map_err(|error| format!("读取 115 登录状态线程异常终止：{error}"))??;
+    if !status.connected {
+        return Ok(status);
+    }
+    provider.confirm_account_identity().await
 }
 
 /// 使用用户选择的 Client ID 申请 115 设备码和二维码。
@@ -77,8 +98,11 @@ async fn cloud115_poll_auth(
 
 /// 清除本机保存的 115 登录态。
 #[tauri::command]
-fn cloud115_sign_out(provider: State<'_, Arc<Cloud115Provider>>) -> Result<(), String> {
-    provider.sign_out()
+async fn cloud115_sign_out(provider: State<'_, Arc<Cloud115Provider>>) -> Result<(), String> {
+    let provider = Arc::clone(provider.inner());
+    tauri::async_runtime::spawn_blocking(move || provider.sign_out())
+        .await
+        .map_err(|error| format!("清除 115 登录状态线程异常终止：{error}"))?
 }
 
 /// 返回当前 115 用户的公开资料、容量与会员信息。
@@ -363,10 +387,12 @@ async fn update_app_settings(
 /// 返回 SQLite 中尚未完成的 115 multipart 会话，供任务页展示与恢复调度。
 #[tauri::command]
 async fn cloud115_upload_sessions(
+    provider: State<'_, Arc<Cloud115Provider>>,
     repository: State<'_, Arc<LibraryRepository>>,
 ) -> Result<Vec<UploadSession>, String> {
+    let account_id = provider.account_id()?;
     let repository = Arc::clone(repository.inner());
-    tauri::async_runtime::spawn_blocking(move || repository.upload_sessions())
+    tauri::async_runtime::spawn_blocking(move || repository.upload_sessions(account_id))
         .await
         .map_err(|error| format!("上传会话查询线程异常终止：{error}"))?
 }
@@ -374,10 +400,12 @@ async fn cloud115_upload_sessions(
 /// 列出全部备份配对（本地目录 → 115 目录）。
 #[tauri::command]
 async fn backup_list_pairs(
+    provider: State<'_, Arc<Cloud115Provider>>,
     repository: State<'_, Arc<LibraryRepository>>,
 ) -> Result<Vec<BackupPair>, String> {
+    let account_id = provider.account_id()?;
     let repository = Arc::clone(repository.inner());
-    tauri::async_runtime::spawn_blocking(move || repository.backup_pairs())
+    tauri::async_runtime::spawn_blocking(move || repository.backup_pairs(account_id))
         .await
         .map_err(|error| format!("备份列表查询线程异常终止：{error}"))?
 }
@@ -388,11 +416,18 @@ async fn backup_add_pair(
     local_path: String,
     remote_folder_id: String,
     remote_folder_name: String,
+    provider: State<'_, Arc<Cloud115Provider>>,
     repository: State<'_, Arc<LibraryRepository>>,
 ) -> Result<BackupPair, String> {
+    let account_id = provider.account_id()?;
     let repository = Arc::clone(repository.inner());
     tauri::async_runtime::spawn_blocking(move || {
-        repository.add_backup_pair(&local_path, &remote_folder_id, &remote_folder_name)
+        repository.add_backup_pair(
+            account_id,
+            &local_path,
+            &remote_folder_id,
+            &remote_folder_name,
+        )
     })
     .await
     .map_err(|error| format!("新增备份配对线程异常终止：{error}"))?
@@ -402,47 +437,33 @@ async fn backup_add_pair(
 #[tauri::command]
 async fn backup_delete_pair(
     pair_id: String,
+    provider: State<'_, Arc<Cloud115Provider>>,
     repository: State<'_, Arc<LibraryRepository>>,
 ) -> Result<(), String> {
+    let account_id = provider.account_id()?;
     let repository = Arc::clone(repository.inner());
-    tauri::async_runtime::spawn_blocking(move || repository.delete_backup_pair(&pair_id))
-        .await
-        .map_err(|error| format!("删除备份配对线程异常终止：{error}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        repository.delete_backup_pair(account_id, &pair_id)
+    })
+    .await
+    .map_err(|error| format!("删除备份配对线程异常终止：{error}"))?
 }
 
 /// 扫描备份目录，返回需要上传的相对路径；不发起任何网络请求。
 #[tauri::command]
 async fn backup_scan_pair(
     pair_id: String,
+    provider: State<'_, Arc<Cloud115Provider>>,
     repository: State<'_, Arc<LibraryRepository>>,
 ) -> Result<BackupScanResult, String> {
+    let account_id = provider.account_id()?;
     let repository = Arc::clone(repository.inner());
-    tauri::async_runtime::spawn_blocking(move || repository.scan_backup_pair(&pair_id))
+    tauri::async_runtime::spawn_blocking(move || repository.scan_backup_pair(account_id, &pair_id))
         .await
         .map_err(|error| format!("备份扫描线程异常终止：{error}"))?
 }
 
-/// 备份执行结果；失败条目单独列出，不因个别失败丢弃整体进度。
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct BackupRunResult {
-    uploaded: u64,
-    failed: Vec<BackupFailure>,
-    /// 本次是否因为全部成功而刷新了配对的最近同步时间。
-    completed: bool,
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct BackupFailure {
-    relative_path: String,
-    reason: String,
-}
-
-/// 执行备份：按扫描结果逐文件上传，每个成功后立即写入同步指纹。
-///
-/// 逐个上传而非并发：115 控制面本身有限速，并发只会让限速器互相排队；
-/// 单个文件失败不影响后续文件，失败项如实返回给界面。
+/// 执行当前账号的备份；保留目录层级，并仅登记实际成功上传且未变化的文件。
 #[tauri::command]
 async fn backup_run_pair(
     pair_id: String,
@@ -450,86 +471,15 @@ async fn backup_run_pair(
     repository: State<'_, Arc<LibraryRepository>>,
     app: AppHandle,
 ) -> Result<BackupRunResult, String> {
-    let repository = Arc::clone(repository.inner());
-    let scan_repository = Arc::clone(&repository);
-    let scan_pair_id = pair_id.clone();
-    let scan = tauri::async_runtime::spawn_blocking(move || {
-        scan_repository.scan_backup_pair(&scan_pair_id)
-    })
+    let account_id = provider.account_id()?;
+    backup::run_backup(
+        provider.inner(),
+        Arc::clone(repository.inner()),
+        account_id,
+        pair_id,
+        Some(transfer_progress_callback(&app)),
+    )
     .await
-    .map_err(|error| format!("备份扫描线程异常终止：{error}"))??;
-
-    let pair = {
-        let query_repository = Arc::clone(&repository);
-        let query_pair_id = pair_id.clone();
-        tauri::async_runtime::spawn_blocking(move || query_repository.backup_pair(&query_pair_id))
-            .await
-            .map_err(|error| format!("备份配对查询线程异常终止：{error}"))??
-    };
-
-    let mut uploaded = 0_u64;
-    let mut failed = Vec::new();
-    for relative_path in &scan.pending_paths {
-        let absolute = std::path::Path::new(&pair.local_path).join(relative_path);
-        let absolute_str = absolute.to_string_lossy().to_string();
-        match provider
-            .upload_file_from_disk(
-                repository.as_ref(),
-                &absolute_str,
-                &pair.remote_folder_id,
-                Some(transfer_progress_callback(&app)),
-            )
-            .await
-        {
-            Ok(result) => {
-                uploaded += 1;
-                // 指纹以「上传成功这一刻」的本地状态为准：上传期间文件若被修改，
-                // 下次扫描会因为大小/时间不符而重新上传，不会漏掉变化。
-                if let Ok(metadata) = std::fs::metadata(&absolute) {
-                    let modified_at = metadata
-                        .modified()
-                        .ok()
-                        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-                        .map(|duration| duration.as_secs())
-                        .unwrap_or(0);
-                    let record_repository = Arc::clone(&repository);
-                    let record_pair_id = pair_id.clone();
-                    let record_path = relative_path.clone();
-                    let size = metadata.len();
-                    let pick_code = result.pick_code.clone();
-                    let _ = tauri::async_runtime::spawn_blocking(move || {
-                        record_repository.record_backup_file(
-                            &record_pair_id,
-                            &record_path,
-                            size,
-                            modified_at,
-                            &pick_code,
-                        )
-                    })
-                    .await;
-                }
-            }
-            Err(reason) => failed.push(BackupFailure {
-                relative_path: relative_path.clone(),
-                reason,
-            }),
-        }
-    }
-
-    let completed = failed.is_empty();
-    if uploaded > 0 {
-        let touch_repository = Arc::clone(&repository);
-        let touch_pair_id = pair_id.clone();
-        let _ = tauri::async_runtime::spawn_blocking(move || {
-            touch_repository.touch_backup_pair(&touch_pair_id)
-        })
-        .await;
-    }
-    Ok(BackupRunResult {
-        uploaded,
-        failed,
-        completed,
-    })
 }
 
 /// 从 SQLite 会话恢复 multipart；本地文件按需流式读取与校验，不再有 64 MiB 上限。
@@ -544,11 +494,12 @@ async fn cloud115_resume_upload(
     if session_id.trim().is_empty() {
         return Err("上传会话 ID 不能为空".to_string());
     }
+    let account_id = provider.account_id()?;
     let repository = Arc::clone(repository.inner());
     let query_repository = Arc::clone(&repository);
     let session = tauri::async_runtime::spawn_blocking(move || {
         query_repository
-            .upload_sessions()?
+            .upload_sessions(account_id)?
             .into_iter()
             .find(|session| session.id == session_id)
             .ok_or_else(|| "未找到指定上传会话".to_string())
@@ -566,15 +517,21 @@ async fn cloud115_resume_upload(
 
 /// 返回 AI 整理服务商配置；密钥只返回是否已保存，永不返回内容。
 #[tauri::command]
-fn ai_provider_settings(
+async fn ai_provider_settings(
     repository: State<'_, Arc<LibraryRepository>>,
 ) -> Result<AiProviderSettingsView, String> {
-    let settings = repository.ai_provider()?;
-    Ok(AiProviderSettingsView {
-        base_url: settings.base_url,
-        model: settings.model,
-        key_stored: ai::stored_api_key()?,
+    let repository = Arc::clone(repository.inner());
+    // 首次读取可能等待系统授权；和 115 登录态一样，不能让钥匙串阻塞 WebKit 主线程。
+    tauri::async_runtime::spawn_blocking(move || {
+        let settings = repository.ai_provider()?;
+        Ok(AiProviderSettingsView {
+            base_url: settings.base_url,
+            model: settings.model,
+            key_stored: ai::stored_api_key()?,
+        })
     })
+    .await
+    .map_err(|error| format!("读取 AI 配置线程异常终止：{error}"))?
 }
 
 /// 保存 AI 服务商配置；api_key 提供非空值时覆盖钥匙串中的密钥。
@@ -695,6 +652,7 @@ async fn ai_chat_send(
     session_id: String,
     content: String,
     context: Option<serde_json::Value>,
+    regenerate_message_id: Option<String>,
     repository: State<'_, Arc<LibraryRepository>>,
     registry: State<'_, Arc<ChatStreamRegistry>>,
     app: AppHandle,
@@ -704,7 +662,7 @@ async fn ai_chat_send(
         return Err("会话 ID 不能为空".to_string());
     }
     let content = content.trim().to_string();
-    if content.is_empty() {
+    if content.is_empty() && regenerate_message_id.is_none() {
         return Err("消息内容不能为空".to_string());
     }
     let repository = Arc::clone(repository.inner());
@@ -726,28 +684,59 @@ async fn ai_chat_send(
     let stopper = registry.register(&session_id)?;
 
     let send_result = async {
-        let history = {
-            let repository = Arc::clone(&repository);
-            let session_id = session_id.clone();
-            tauri::async_runtime::spawn_blocking(move || repository.ai_chat_messages(&session_id))
+        let (history, content, context, user_message_id, message_id, replace_existing) =
+            if let Some(target_id) = regenerate_message_id {
+                let history_repository = Arc::clone(&repository);
+                let history_session = session_id.clone();
+                let (target, source, mut history) =
+                    tauri::async_runtime::spawn_blocking(move || {
+                        history_repository.regenerate_ai_chat_context(&history_session, &target_id)
+                    })
+                    .await
+                    .map_err(|error| format!("读取重新生成上下文线程异常终止：{error}"))??;
+                // build_chat_turns 自己附加原提问，因此取出的历史移除末尾原用户消息。
+                history.pop();
+                let saved_context = source
+                    .context_json
+                    .as_deref()
+                    .map(serde_json::from_str)
+                    .transpose()
+                    .map_err(|error| format!("原消息上下文无效：{error}"))?;
+                (
+                    history,
+                    source.content,
+                    saved_context,
+                    source.id,
+                    target.id,
+                    true,
+                )
+            } else {
+                let history_repository = Arc::clone(&repository);
+                let history_session = session_id.clone();
+                let history = tauri::async_runtime::spawn_blocking(move || {
+                    history_repository.ai_chat_messages(&history_session)
+                })
                 .await
-                .map_err(|error| format!("读取对话历史线程异常终止：{error}"))??
-        };
-        let user_message_id = ai_chat::next_chat_message_id();
-        // 上下文的解析与大小校验都发生在任何持久化之前。
+                .map_err(|error| format!("读取对话历史线程异常终止：{error}"))??;
+                (
+                    history,
+                    content,
+                    context,
+                    ai_chat::next_chat_message_id(),
+                    ai_chat::next_chat_message_id(),
+                    false,
+                )
+            };
         let turns = ai_chat::build_chat_turns(&history, &content, context.as_ref())?;
         let context_json = ai_chat::context_to_json(context.as_ref())?;
-
-        // 先持久化用户消息再启动流：流失败或应用退出时消息也不丢失。
-        {
-            let repository = Arc::clone(&repository);
-            let session_id = session_id.clone();
-            let user_message_id = user_message_id.clone();
-            let content = content.clone();
+        if !replace_existing {
+            let message_repository = Arc::clone(&repository);
+            let message_session = session_id.clone();
+            let user_id = user_message_id.clone();
             tauri::async_runtime::spawn_blocking(move || {
-                repository.append_ai_chat_message(
-                    &user_message_id,
-                    &session_id,
+                message_repository.append_ai_chat_message(
+                    &user_id,
+                    &message_session,
                     "user",
                     &content,
                     context_json.as_deref(),
@@ -757,8 +746,6 @@ async fn ai_chat_send(
             .map_err(|error| format!("保存对话消息线程异常终止：{error}"))??;
         }
 
-        // 助手消息 ID 在首个增量事件前确定，前端用它聚合 delta。
-        let message_id = ai_chat::next_chat_message_id();
         let task_repository = Arc::clone(&repository);
         let task_registry = Arc::clone(&registry);
         let task_session_id = session_id.clone();
@@ -771,6 +758,7 @@ async fn ai_chat_send(
                 turns: &turns,
                 session_id: &task_session_id,
                 message_id: &task_message_id,
+                replace_existing,
             };
             ai_chat::run_chat_stream(
                 task_repository.as_ref(),
@@ -965,26 +953,281 @@ fn cloud115_save_playback_progress(
     repository.save_playback_progress(&file_id, position_seconds, duration_seconds)
 }
 
-/// 创建或复用不含 WebView 的原生视频窗口。
+/// 创建或复用播放器窗口、原生视频面和透明控制 WebView。
 ///
-/// 该窗口只提供 AppKit 绘制表面；控制界面仍由主 WebView 承载，避免两个渲染体系
-/// 争用同一个 NSView。
-fn ensure_video_window(app: &AppHandle) -> Result<Window, String> {
-    if let Some(window) = app.get_window(VIDEO_WINDOW_LABEL) {
-        return Ok(window);
+/// 调用方必须持有生命周期操作锁，避免关闭过程释放正在建立的 CGL surface。
+async fn ensure_video_window(
+    app: &AppHandle,
+    manager: Arc<PlaybackManager>,
+    lifecycle: Arc<PlayerWindowLifecycle>,
+) -> Result<VideoWindow, String> {
+    if lifecycle.is_closing() {
+        let signal = lifecycle
+            .destroy_signal()
+            .ok_or_else(|| "播放器窗口正在关闭，但没有销毁完成信号".to_string())?;
+        signal
+            .wait(PLAYER_WINDOW_DESTROY_TIMEOUT)
+            .await
+            .map_err(|error| format!("等待上一播放器窗口销毁失败：{error}"))?;
+        lifecycle.mark_closed(true);
+        lifecycle.clear_destroy_signal();
     }
 
-    WindowBuilder::new(app, VIDEO_WINDOW_LABEL)
-        .title("Sirius Player")
-        .inner_size(960.0, 540.0)
-        .min_inner_size(640.0, 360.0)
-        .background_color(tauri::window::Color(0, 0, 0, 255))
-        .resizable(true)
-        // POC 阶段统一由控制窗口关闭会话，避免用户直接销毁仍被 CGL 持有的窗口。
-        .closable(false)
-        .visible(false)
-        .build()
-        .map_err(|error| format!("创建播放器窗口失败：{error}"))
+    let window = if let Some(window) = app.get_window(VIDEO_WINDOW_LABEL) {
+        window
+    } else {
+        // 每个窗口实例使用新的 native view 和 Destroyed 信号，杜绝复用旧 NSView 地址。
+        lifecycle.clear_video_view();
+        let destroyed = WindowDestroyedSignal::new();
+        lifecycle.set_destroy_signal(Arc::clone(&destroyed));
+        let window = match WindowBuilder::new(app, VIDEO_WINDOW_LABEL)
+            .title("Sirius Player")
+            .inner_size(960.0, 540.0)
+            .min_inner_size(640.0, 360.0)
+            .background_color(tauri::window::Color(0, 0, 0, 255))
+            .resizable(true)
+            .closable(true)
+            .visible(false)
+            .build()
+        {
+            Ok(window) => window,
+            Err(error) => {
+                // build 失败时没有 runtime window，也不会有 Destroyed 事件可等。
+                lifecycle.mark_closed(true);
+                lifecycle.clear_destroy_signal();
+                return Err(format!("创建播放器窗口失败：{error}"));
+            }
+        };
+        install_player_window_close_handler(
+            &window,
+            app.clone(),
+            Arc::clone(&manager),
+            Arc::clone(&lifecycle),
+            destroyed,
+        );
+        lifecycle.mark_closed(false);
+        window
+    };
+
+    let video_view = if let Some(video_view) = lifecycle.video_view() {
+        video_view
+    } else {
+        match create_video_view(&window).await {
+            Ok(video_view) => {
+                lifecycle.set_video_view(video_view);
+                video_view
+            }
+            Err(error) => {
+                return match destroy_uninitialized_player_window(&window, &lifecycle).await {
+                    Ok(()) => Err(error),
+                    Err(cleanup_error) => {
+                        Err(format!("{error}；清理播放器窗口失败：{cleanup_error}"))
+                    }
+                };
+            }
+        }
+    };
+
+    if app
+        .get_webview(player_window::VIDEO_CONTROLS_LABEL)
+        .is_none()
+    {
+        if let Err(error) = create_controls_webview(&window, video_view) {
+            return match destroy_uninitialized_player_window(&window, &lifecycle).await {
+                Ok(()) => Err(error),
+                Err(cleanup_error) => Err(format!("{error}；清理播放器窗口失败：{cleanup_error}")),
+            };
+        }
+    }
+
+    lifecycle.mark_closed(false);
+    VideoWindow::new(window, video_view)
+}
+
+/// 将 native close 请求转换为先停 worker、后销毁窗口的异步生命周期。
+fn install_player_window_close_handler(
+    window: &Window,
+    app: AppHandle,
+    manager: Arc<PlaybackManager>,
+    lifecycle: Arc<PlayerWindowLifecycle>,
+    destroyed: Arc<WindowDestroyedSignal>,
+) {
+    window.on_window_event(move |event| {
+        if matches!(event, WindowEvent::Destroyed) {
+            destroyed.signal();
+            return;
+        }
+        let WindowEvent::CloseRequested { api, .. } = event else {
+            return;
+        };
+        api.prevent_close();
+
+        if !lifecycle.request_close_once() && !lifecycle.is_closing() {
+            return;
+        }
+        let app = app.clone();
+        let manager = Arc::clone(&manager);
+        let lifecycle = Arc::clone(&lifecycle);
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) = close_player_window(app, manager, lifecycle).await {
+                eprintln!("关闭播放器窗口失败：{error}");
+            }
+        });
+    });
+}
+
+const PLAYER_WINDOW_DESTROY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// 清理尚未启动渲染 worker 的部分初始化窗口，并等待真实 `Destroyed` 事件。
+async fn destroy_uninitialized_player_window(
+    window: &Window,
+    lifecycle: &Arc<PlayerWindowLifecycle>,
+) -> Result<(), String> {
+    let signal = lifecycle
+        .destroy_signal()
+        .ok_or_else(|| "播放器窗口没有销毁完成信号".to_string())?;
+    let _ = lifecycle.request_close_once();
+    if let Err(error) = window.destroy() {
+        lifecycle.mark_closed(false);
+        return Err(format!("请求销毁播放器窗口失败：{error}"));
+    }
+    lifecycle.clear_video_view();
+    signal.wait(PLAYER_WINDOW_DESTROY_TIMEOUT).await?;
+    lifecycle.mark_closed(true);
+    lifecycle.clear_destroy_signal();
+    Ok(())
+}
+
+#[derive(Clone, Serialize)]
+struct PlayerWindowClosedPayload {
+    error: Option<String>,
+}
+
+/// 串行关闭播放 worker 与窗口，并通知主 WebView 更新播放状态。
+async fn close_player_window(
+    app: AppHandle,
+    manager: Arc<PlaybackManager>,
+    lifecycle: Arc<PlayerWindowLifecycle>,
+) -> Result<(), String> {
+    let _operation = lifecycle.operation_gate.lock().await;
+    if lifecycle.is_closed() {
+        return Ok(());
+    }
+
+    let window = app.get_window(VIDEO_WINDOW_LABEL);
+    let manager_for_shutdown = Arc::clone(&manager);
+    let shutdown =
+        tauri::async_runtime::spawn_blocking(move || manager_for_shutdown.destroy()).await;
+    let mut error = match shutdown {
+        Ok(Ok(())) => None,
+        Ok(Err(error)) => Some(error),
+        Err(error) => {
+            // 任务 panic 时无法证明 CGL worker 已 join，保留原生视图避免悬空句柄。
+            lifecycle.mark_closed(false);
+            return Err(format!("等待播放工作线程关闭失败：{error}"));
+        }
+    };
+
+    if let Some(window) = window {
+        let signal = lifecycle
+            .destroy_signal()
+            .ok_or_else(|| "播放器窗口没有销毁完成信号".to_string())?;
+        if let Err(window_error) = window.destroy() {
+            lifecycle.mark_closed(false);
+            return Err(format!("销毁播放器窗口失败：{window_error}"));
+        }
+        lifecycle.clear_video_view();
+        // 超时仍保持 closing 状态；再次关闭或重新打开时会继续等同一实例的事件。
+        signal.wait(PLAYER_WINDOW_DESTROY_TIMEOUT).await?;
+        lifecycle.mark_closed(true);
+        lifecycle.clear_destroy_signal();
+
+        let payload = PlayerWindowClosedPayload {
+            error: error.clone(),
+        };
+        if let Err(event_error) = app.emit_to("main", "player-window-closed", payload) {
+            append_player_close_error(
+                &mut error,
+                format!("通知主窗口播放器已关闭失败：{event_error}"),
+            );
+        }
+    } else {
+        if let Some(signal) = lifecycle.destroy_signal() {
+            // Runtime 可能先从窗口表移除窗口，再分发 Destroyed 回调；仍以真实事件作为
+            // 可安全复用 NSView 状态的唯一确认。
+            signal.wait(PLAYER_WINDOW_DESTROY_TIMEOUT).await?;
+        }
+        lifecycle.mark_closed(true);
+        lifecycle.clear_destroy_signal();
+    }
+
+    error.map_or(Ok(()), Err)
+}
+
+fn append_player_close_error(error: &mut Option<String>, next: String) {
+    if let Some(current) = error {
+        current.push('；');
+        current.push_str(&next);
+    } else {
+        *error = Some(next);
+    }
+}
+
+/// 主窗口关闭时先回收隐藏或可见的播放器会话，再销毁最后一个窗口。
+fn install_main_window_close_handler(
+    app: AppHandle,
+    manager: Arc<PlaybackManager>,
+    lifecycle: Arc<PlayerWindowLifecycle>,
+) -> Result<(), String> {
+    let main_window = app
+        .get_window("main")
+        .ok_or_else(|| "主窗口尚未创建，无法注册播放器关闭联动".to_string())?;
+    let close_pending = Arc::new(AtomicBool::new(false));
+    main_window.on_window_event(move |event| {
+        let WindowEvent::CloseRequested { api, .. } = event else {
+            return;
+        };
+        if app.get_window(VIDEO_WINDOW_LABEL).is_none() {
+            return;
+        }
+
+        api.prevent_close();
+        if close_pending.swap(true, Ordering::AcqRel) {
+            return;
+        }
+
+        let app = app.clone();
+        let manager = Arc::clone(&manager);
+        let lifecycle = Arc::clone(&lifecycle);
+        let close_pending = Arc::clone(&close_pending);
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) = close_player_window(app.clone(), manager, lifecycle).await {
+                emit_main_close_error(&app, &error);
+                close_pending.store(false, Ordering::Release);
+                return;
+            }
+
+            if let Some(main_window) = app.get_window("main") {
+                if let Err(error) = main_window.destroy() {
+                    emit_main_close_error(&app, &format!("销毁主窗口失败：{error}"));
+                    close_pending.store(false, Ordering::Release);
+                }
+            }
+        });
+    });
+    Ok(())
+}
+
+fn emit_main_close_error(app: &AppHandle, error: &str) {
+    if let Err(event_error) = app.emit_to(
+        "main",
+        "player-window-close-error",
+        PlayerWindowClosedPayload {
+            error: Some(error.to_string()),
+        },
+    ) {
+        eprintln!("发送播放器关闭失败提示失败：{event_error}；原始错误：{error}");
+    }
 }
 
 /// 打开本地媒体并创建或复用唯一的 libmpv 播放会话。
@@ -993,13 +1236,19 @@ async fn open_local_file(
     path: String,
     app: AppHandle,
     manager: State<'_, Arc<PlaybackManager>>,
+    lifecycle: State<'_, Arc<PlayerWindowLifecycle>>,
 ) -> Result<PlaybackSnapshot, String> {
-    let video_window = ensure_video_window(&app)?;
     let manager = Arc::clone(manager.inner());
-    let snapshot =
-        tauri::async_runtime::spawn_blocking(move || manager.open_local_file(&path, video_window))
-            .await
-            .map_err(|error| format!("播放工作线程异常终止：{error}"))??;
+    let lifecycle = Arc::clone(lifecycle.inner());
+    let _operation = lifecycle.operation_gate.lock().await;
+    let video_window =
+        ensure_video_window(&app, Arc::clone(&manager), Arc::clone(&lifecycle)).await?;
+    let manager_for_open = Arc::clone(&manager);
+    let snapshot = tauri::async_runtime::spawn_blocking(move || {
+        manager_for_open.open_local_file(&path, video_window)
+    })
+    .await
+    .map_err(|error| format!("播放工作线程异常终止：{error}"))??;
 
     let window = app
         .get_window(VIDEO_WINDOW_LABEL)
@@ -1010,6 +1259,7 @@ async fn open_local_file(
     window
         .set_focus()
         .map_err(|error| format!("聚焦播放器窗口失败：{error}"))?;
+    focus_controls(&app)?;
     Ok(snapshot)
 }
 
@@ -1019,19 +1269,35 @@ async fn open_local_file(
 /// 上下文必须绑定窗口才能创建，因此窗口仍需存在，但音频没有画面，弹出黑窗口是错误
 /// 交互。窗口保持隐藏，由前端底部音频播放条承载控制。
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri 命令参数由序列化输入和运行时状态分别注入。
 async fn open_remote_url(
     url: String,
     user_agent: String,
     subtitle_urls: Vec<String>,
     pick_code: String,
+    start_position_seconds: Option<f64>,
     audio_only: bool,
     app: AppHandle,
     manager: State<'_, Arc<PlaybackManager>>,
+    lifecycle: State<'_, Arc<PlayerWindowLifecycle>>,
 ) -> Result<PlaybackSnapshot, String> {
-    let video_window = ensure_video_window(&app)?;
+    // 在创建原生窗口或渲染线程前拒绝无效前端输入，避免留下空播放资源。
+    playback::loadfile_command_arguments(start_position_seconds)?;
     let manager = Arc::clone(manager.inner());
+    let lifecycle = Arc::clone(lifecycle.inner());
+    let _operation = lifecycle.operation_gate.lock().await;
+    let video_window =
+        ensure_video_window(&app, Arc::clone(&manager), Arc::clone(&lifecycle)).await?;
+    let manager_for_open = Arc::clone(&manager);
     let snapshot = tauri::async_runtime::spawn_blocking(move || {
-        manager.open_remote_url(&url, &user_agent, subtitle_urls, &pick_code, video_window)
+        manager_for_open.open_remote_url(
+            &url,
+            &user_agent,
+            subtitle_urls,
+            &pick_code,
+            start_position_seconds,
+            video_window,
+        )
     })
     .await
     .map_err(|error| format!("远程播放工作线程异常终止：{error}"))??;
@@ -1050,7 +1316,73 @@ async fn open_remote_url(
     window
         .set_focus()
         .map_err(|error| format!("聚焦播放器窗口失败：{error}"))?;
+    focus_controls(&app)?;
     Ok(snapshot)
+}
+
+/// 显示播放器窗口并将键盘焦点交给控制 WebView。
+#[tauri::command]
+async fn show_video_window(
+    app: AppHandle,
+    lifecycle: State<'_, Arc<PlayerWindowLifecycle>>,
+) -> Result<(), String> {
+    let lifecycle = Arc::clone(lifecycle.inner());
+    let _operation = lifecycle.operation_gate.lock().await;
+    let window = app
+        .get_window(VIDEO_WINDOW_LABEL)
+        .ok_or_else(|| "播放器窗口尚未创建".to_string())?;
+    window
+        .show()
+        .map_err(|error| format!("显示播放器窗口失败：{error}"))?;
+    window
+        .set_focus()
+        .map_err(|error| format!("聚焦播放器窗口失败：{error}"))?;
+    focus_controls(&app)
+}
+
+/// 切换播放器窗口的原生全屏状态并返回切换后的状态。
+#[tauri::command]
+async fn toggle_video_fullscreen(
+    app: AppHandle,
+    lifecycle: State<'_, Arc<PlayerWindowLifecycle>>,
+) -> Result<bool, String> {
+    let lifecycle = Arc::clone(lifecycle.inner());
+    let _operation = lifecycle.operation_gate.lock().await;
+    let window = app
+        .get_window(VIDEO_WINDOW_LABEL)
+        .ok_or_else(|| "播放器窗口尚未创建".to_string())?;
+    let fullscreen = !window
+        .is_fullscreen()
+        .map_err(|error| format!("读取播放器全屏状态失败：{error}"))?;
+    window
+        .set_fullscreen(fullscreen)
+        .map_err(|error| format!("切换播放器全屏状态失败：{error}"))?;
+    if !fullscreen {
+        focus_controls(&app)?;
+    }
+    Ok(fullscreen)
+}
+
+/// 退出播放器全屏状态。
+#[tauri::command]
+async fn exit_video_fullscreen(
+    app: AppHandle,
+    lifecycle: State<'_, Arc<PlayerWindowLifecycle>>,
+) -> Result<(), String> {
+    let lifecycle = Arc::clone(lifecycle.inner());
+    let _operation = lifecycle.operation_gate.lock().await;
+    let window = app
+        .get_window(VIDEO_WINDOW_LABEL)
+        .ok_or_else(|| "播放器窗口尚未创建".to_string())?;
+    if window
+        .is_fullscreen()
+        .map_err(|error| format!("读取播放器全屏状态失败：{error}"))?
+    {
+        window
+            .set_fullscreen(false)
+            .map_err(|error| format!("退出播放器全屏失败：{error}"))?;
+    }
+    focus_controls(&app)
 }
 
 /// 切换播放/暂停。
@@ -1104,33 +1436,28 @@ async fn playback_snapshot(
 async fn destroy_playback(
     app: AppHandle,
     manager: State<'_, Arc<PlaybackManager>>,
+    lifecycle: State<'_, Arc<PlayerWindowLifecycle>>,
 ) -> Result<(), String> {
     let manager = Arc::clone(manager.inner());
-    let destroy_result = tauri::async_runtime::spawn_blocking(move || manager.destroy())
-        .await
-        .map_err(|error| format!("播放工作线程异常终止：{error}"))?;
-
-    let window_result = if let Some(window) = app.get_window(VIDEO_WINDOW_LABEL) {
-        window
-            .close()
-            .map_err(|error| format!("关闭播放器窗口失败：{error}"))
-    } else {
-        Ok(())
-    };
-
-    match (destroy_result, window_result) {
-        (Ok(()), Ok(())) => Ok(()),
-        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
-        (Err(destroy_error), Err(window_error)) => Err(format!("{destroy_error}；{window_error}")),
-    }
+    let lifecycle = Arc::clone(lifecycle.inner());
+    let _ = lifecycle.request_close_once();
+    close_player_window(app, manager, lifecycle).await
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(Arc::new(PlaybackManager::default()))
+        .manage(Arc::new(PlayerWindowLifecycle::default()))
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            install_main_window_close_handler(
+                app.handle().clone(),
+                Arc::clone(app.state::<Arc<PlaybackManager>>().inner()),
+                Arc::clone(app.state::<Arc<PlayerWindowLifecycle>>().inner()),
+            )
+            .map_err(|error| format!("注册主窗口关闭生命周期失败：{error}"))?;
+
             let cloud115 = Arc::new(
                 Cloud115Provider::new()
                     .map_err(|error| format!("初始化 115 Provider 失败：{error}"))?,
@@ -1226,6 +1553,9 @@ pub fn run() {
             seek,
             set_volume,
             playback_snapshot,
+            show_video_window,
+            toggle_video_fullscreen,
+            exit_video_fullscreen,
             destroy_playback
         ])
         .run(tauri::generate_context!())

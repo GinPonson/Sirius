@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     env, fs,
     path::{Path, PathBuf},
     process::Command,
@@ -124,6 +124,9 @@ fn bundle_dynamic_libraries(root: &Path, destination: &Path) -> Result<(), Strin
             .map_err(|error| format!("复制动态库 {} 失败：{error}", library.source.display()))?;
     }
     for library in libraries.values() {
+        normalize_bundled_rpaths(&destination.join(&library.file_name))?;
+    }
+    for library in libraries.values() {
         patch_install_names(library, destination, &libraries)?;
     }
     for library in libraries.values() {
@@ -209,6 +212,131 @@ fn resolve_bundle_dependency(owner: &Path, install_name: &str) -> Result<Option<
 fn canonicalize_library(path: &Path) -> Result<PathBuf, String> {
     path.canonicalize()
         .map_err(|error| format!("解析动态库 {} 失败：{error}", path.display()))
+}
+
+/// 读取 Mach-O 中所有 `LC_RPATH` 的路径，`otool` 或格式异常时明确报错。
+fn dynamic_rpaths(library: &Path) -> Result<Vec<String>, String> {
+    let output = Command::new("otool")
+        .args(["-l"])
+        .arg(library)
+        .output()
+        .map_err(|error| format!("执行 otool -l 失败：{error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "otool -l 无法读取 {}：{}",
+            library.display(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|error| format!("otool -l 输出不是 UTF-8：{error}"))?;
+    let mut rpaths = Vec::new();
+    let mut awaiting_rpath = false;
+
+    for line in stdout.lines() {
+        let line = line.trim();
+        if line == "cmd LC_RPATH" {
+            if awaiting_rpath {
+                return Err(format!("{} 的 LC_RPATH 缺少 path 字段", library.display()));
+            }
+            awaiting_rpath = true;
+            continue;
+        }
+        if !awaiting_rpath {
+            continue;
+        }
+        if let Some(path_field) = line.strip_prefix("path ") {
+            let (path, offset) = path_field.rsplit_once(" (offset ").ok_or_else(|| {
+                format!(
+                    "{} 的 LC_RPATH path 字段格式无效：{line}",
+                    library.display()
+                )
+            })?;
+            if path.is_empty()
+                || offset
+                    .strip_suffix(')')
+                    .and_then(|value| value.parse::<usize>().ok())
+                    .is_none()
+            {
+                return Err(format!(
+                    "{} 的 LC_RPATH path 字段格式无效：{line}",
+                    library.display()
+                ));
+            }
+            rpaths.push(path.to_string());
+            awaiting_rpath = false;
+        } else if line.starts_with("Load command ") || line.starts_with("cmd ") {
+            return Err(format!("{} 的 LC_RPATH 缺少 path 字段", library.display()));
+        }
+    }
+
+    if awaiting_rpath {
+        return Err(format!("{} 的 LC_RPATH 缺少 path 字段", library.display()));
+    }
+    Ok(rpaths)
+}
+
+/// 让打包副本只用 `@loader_path` 查找同目录依赖，并移除来源库残留的搜索路径。
+///
+/// Homebrew 的 `LC_RPATH` 可能指向宿主机 Cellar；依赖已扁平化到同一目录，因此保留或新增
+/// 单个 `@loader_path` 就能解析改写后的 `@rpath` install name，避免运行时加载宿主库。
+fn normalize_bundled_rpaths(library: &Path) -> Result<(), String> {
+    let initial_rpaths = dynamic_rpaths(library)?;
+    let obsolete_rpaths = initial_rpaths
+        .into_iter()
+        .filter(|rpath| rpath != "@loader_path")
+        .collect::<BTreeSet<_>>();
+    let library_path = library.to_string_lossy().into_owned();
+
+    for rpath in obsolete_rpaths {
+        loop {
+            let before = dynamic_rpaths(library)?
+                .into_iter()
+                .filter(|current| current == &rpath)
+                .count();
+            if before == 0 {
+                break;
+            }
+            run_install_name_tool(&[
+                "-delete_rpath".to_string(),
+                rpath.clone(),
+                library_path.clone(),
+            ])?;
+            let after = dynamic_rpaths(library)?
+                .into_iter()
+                .filter(|current| current == &rpath)
+                .count();
+            if after >= before {
+                return Err(format!(
+                    "install_name_tool 未能从 {} 移除旧 LC_RPATH：{rpath}",
+                    library.display()
+                ));
+            }
+        }
+    }
+
+    let has_loader_path = dynamic_rpaths(library)?
+        .iter()
+        .any(|rpath| rpath == "@loader_path");
+    if !has_loader_path {
+        run_install_name_tool(&[
+            "-add_rpath".to_string(),
+            "@loader_path".to_string(),
+            library_path.clone(),
+        ])?;
+    }
+
+    let final_rpaths = dynamic_rpaths(library)?;
+    if !final_rpaths.iter().any(|rpath| rpath == "@loader_path")
+        || final_rpaths.iter().any(|rpath| rpath != "@loader_path")
+    {
+        return Err(format!(
+            "{} 的 LC_RPATH 未能规范为 @loader_path：{}",
+            library.display(),
+            final_rpaths.join(", ")
+        ));
+    }
+    Ok(())
 }
 
 fn patch_install_names(

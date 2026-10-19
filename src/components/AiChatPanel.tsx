@@ -23,6 +23,7 @@ import {
   toContextPayload,
   type AiPageContext,
 } from "../domain/pageContext";
+import { isCurrentChatSession, updateAssistantEntry } from "../domain/aiChatRegeneration";
 import { AiPlanCard, type PlanCardState } from "./AiPlanCard";
 import { Icon } from "./Icon";
 
@@ -244,6 +245,9 @@ export function AiChatPanel({ open, onToggle, onOverlayChange, playing, detail, 
   const handleTokenEvent = useCallback((event: AiChatTokenEvent) => {
     const aggregator = aggregatorRef.current;
     if (!aggregator) return;
+    const mapping = streamMapRef.current.get(event.messageId);
+    // 消息 ID 理应唯一；仍先校验映射，避免异常跨会话事件污染同一聚合流。
+    if (mapping && mapping.sessionId !== event.sessionId) return;
     const state = aggregator.consume(event);
     if (!state) {
       // 未知终态（如会话切换后回归）：重载当前会话历史兜底。
@@ -252,25 +256,37 @@ export function AiChatPanel({ open, onToggle, onOverlayChange, playing, detail, 
       }
       return;
     }
-    const mapping = streamMapRef.current.get(event.messageId);
-    if (!mapping || mapping.sessionId !== activeSessionRef.current) {
+    if (
+      !mapping ||
+      state.sessionId !== mapping.sessionId
+    ) {
+      if (event.done && event.sessionId === activeSessionRef.current) {
+        void reloadHistoryRef.current(event.sessionId);
+      }
+      return;
+    }
+    if (mapping.sessionId !== activeSessionRef.current) {
       // 其他会话的流静默继续，历史在切换回时加载；面板收起时新结果点亮气泡。
+      if (state.status !== "streaming") streamMapRef.current.delete(event.messageId);
       if (state.status !== "streaming" && !openRef.current) setUnseen(true);
       return;
     }
-    setEntries((current) => current.map((entry) => {
-      if (entry.kind !== "assistant" || entry.id !== mapping.entryId) return entry;
-      if (state.status === "streaming") {
-        return { ...entry, content: state.text, status: "streaming" as const };
-      }
-      if (state.status === "done") {
-        return { ...entry, content: state.text, status: "done" as const };
-      }
-      // 终态错误：停止保留已生成的部分内容，其他错误展示为可重试错误条。
-      return state.error === "已停止"
-        ? { ...entry, content: state.text || entry.content, status: "stopped" as const }
-        : { ...entry, content: state.text || entry.content, status: "error" as const, error: state.error };
-    }));
+    setEntries((current) => {
+      if (!isCurrentChatSession(mapping.sessionId, activeSessionRef.current, event.sessionId)) return current;
+      return current.map((entry) => {
+        if (entry.kind !== "assistant" || entry.id !== mapping.entryId) return entry;
+        if (state.status === "streaming") {
+          return { ...entry, content: state.text, status: "streaming" as const };
+        }
+        if (state.status === "done") {
+          return { ...entry, content: state.text, status: "done" as const };
+        }
+        // 终态错误：停止保留已生成的部分内容，其他错误展示为可重试错误条。
+        return state.error === "已停止"
+          ? { ...entry, content: state.text || entry.content, status: "stopped" as const }
+          : { ...entry, content: state.text || entry.content, status: "error" as const, error: state.error };
+      });
+    });
     if (state.status !== "streaming") {
       streamMapRef.current.delete(event.messageId);
       if (!openRef.current) setUnseen(true);
@@ -331,29 +347,67 @@ export function AiChatPanel({ open, onToggle, onOverlayChange, playing, detail, 
     }
   }, [updatePlanCard]);
 
-  /** 发送一条消息；replaceAssistantId 用于重新生成时原位替换回复。 */
-  const sendMessage = useCallback(async (rawContent: string, replaceAssistantId?: string) => {
+  /** 发送新消息或重生成指定助手回复；重生成沿用原用户消息及页面上下文。 */
+  const sendMessage = useCallback(async (
+    rawContent: string,
+    replaceAssistantId?: string,
+    originalContext?: AiPageContext | null,
+    originalUserMessageId?: string,
+  ) => {
     const content = rawContent.trim();
     const sessionId = activeSessionRef.current;
     if (!content || !sessionId || sendingRef.current || streamingRef.current) return;
-    const context = getPageContext();
+    const context = replaceAssistantId ? originalContext ?? null : getPageContext();
     setSendError(null);
     setSending(true);
     try {
-      const receipt = await chat.send(sessionId, content, toContextPayload(context));
-      const assistantId = replaceAssistantId ?? `assistant-${receipt.messageId}`;
+      const receipt = await chat.send(
+        sessionId,
+        content,
+        toContextPayload(context),
+        replaceAssistantId,
+      );
+      if (receipt.sessionId !== sessionId) {
+        throw new Error("AI 回执会话与发送会话不一致");
+      }
+      if (
+        replaceAssistantId &&
+        (receipt.messageId !== replaceAssistantId || receipt.userMessageId !== originalUserMessageId)
+      ) {
+        throw new Error("AI 重生成回执未指向原对话消息");
+      }
+
+      const assistantId = replaceAssistantId ?? receipt.messageId;
+      // 即使用户在等待回执期间切换了会话，也继续登记流事件，但不把 A 的结果写进 B。
+      streamMapRef.current.set(receipt.messageId, { entryId: assistantId, sessionId: receipt.sessionId });
+      aggregatorRef.current?.track(receipt);
+      if (!isCurrentChatSession(sessionId, activeSessionRef.current, receipt.sessionId)) return;
+
       const key = contextIdentity(context);
       // 切页判断必须在 setEntries 之前完成：updater 会在渲染期执行，
       // 届时再读 lastContextKeyRef 已经是新值，会漏掉分隔。
-      const needsSwitchDivider = Boolean(key && lastContextKeyRef.current && lastContextKeyRef.current !== key);
+      const needsSwitchDivider = !replaceAssistantId
+        && Boolean(key && lastContextKeyRef.current && lastContextKeyRef.current !== key);
       const switchLabel = context ? scopeLabel(context) : "新页面";
-      if (key) lastContextKeyRef.current = key;
+      if (!replaceAssistantId && key) lastContextKeyRef.current = key;
       const planIntent = !replaceAssistantId
         && looksLikeOrganizeIntent(content)
         && typeof context?.folderId === "string"
         && context.folderId !== "";
       const planEntryId = `plan-${receipt.messageId}`;
       setEntries((current) => {
+        if (!isCurrentChatSession(sessionId, activeSessionRef.current, receipt.sessionId)) return current;
+        if (replaceAssistantId) {
+          return updateAssistantEntry(current, replaceAssistantId, (entry) => {
+            if (entry.kind !== "assistant") return entry;
+            return {
+              ...entry,
+              status: "streaming",
+              error: undefined,
+              replyToId: receipt.userMessageId,
+            };
+          });
+        }
         const next: ChatEntry[] = [...current];
         if (needsSwitchDivider) {
           next.push({
@@ -380,8 +434,6 @@ export function AiChatPanel({ open, onToggle, onOverlayChange, playing, detail, 
         next.push({ kind: "assistant", id: assistantId, content: "", status: "streaming", replyToId: receipt.userMessageId });
         return next;
       });
-      streamMapRef.current.set(receipt.messageId, { entryId: assistantId, sessionId: receipt.sessionId });
-      aggregatorRef.current?.track(receipt);
       if (planIntent) {
         void runAnalyze(
           planEntryId,
@@ -390,7 +442,9 @@ export function AiChatPanel({ open, onToggle, onOverlayChange, playing, detail, 
         );
       }
     } catch (reason) {
-      setSendError(`发送消息失败：${String(reason)}`);
+      if (activeSessionRef.current === sessionId) {
+        setSendError(`发送消息失败：${String(reason)}`);
+      }
     } finally {
       setSending(false);
     }
@@ -402,7 +456,7 @@ export function AiChatPanel({ open, onToggle, onOverlayChange, playing, detail, 
     if (!target || target.kind !== "assistant") return;
     const userEntry = entriesRef.current.find((entry) => entry.kind === "user" && entry.id === target.replyToId);
     if (!userEntry || userEntry.kind !== "user") return;
-    await sendMessage(userEntry.content, assistantEntryId);
+    await sendMessage(userEntry.content, assistantEntryId, userEntry.context, userEntry.id);
   }, [sendMessage]);
 
   /** 停止当前会话的流式回复；终态事件会把回复标记为已停止。 */
@@ -457,6 +511,7 @@ export function AiChatPanel({ open, onToggle, onOverlayChange, playing, detail, 
     try {
       const created = await chat.create();
       setSessions((current) => [created, ...current]);
+      activeSessionRef.current = created.id;
       setActiveSessionId(created.id);
       setSessionsOpen(false);
     } catch (reason) {
@@ -475,13 +530,16 @@ export function AiChatPanel({ open, onToggle, onOverlayChange, playing, detail, 
     setSessions(remaining);
     if (sessionId === activeSessionId) {
       if (remaining.length > 0) {
+        activeSessionRef.current = remaining[0].id;
         setActiveSessionId(remaining[0].id);
       } else {
         try {
           const created = await chat.create();
           setSessions([created]);
+          activeSessionRef.current = created.id;
           setActiveSessionId(created.id);
         } catch {
+          activeSessionRef.current = null;
           setActiveSessionId(null);
         }
       }
@@ -591,7 +649,11 @@ export function AiChatPanel({ open, onToggle, onOverlayChange, playing, detail, 
                       role="option"
                       aria-selected={session.id === activeSessionId}
                     >
-                      <button type="button" onClick={() => { setActiveSessionId(session.id); setSessionsOpen(false); }}>
+                      <button type="button" onClick={() => {
+                        activeSessionRef.current = session.id;
+                        setActiveSessionId(session.id);
+                        setSessionsOpen(false);
+                      }}>
                         <strong>{session.title}</strong>
                         <small>{session.updatedAt}</small>
                       </button>

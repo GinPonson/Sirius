@@ -904,11 +904,10 @@ export function CloudFilesView({ account, query, onQueryChange, onStarredViewCha
 
   async function playEntry(entry: Cloud115FileEntry) {
     setPlayingId(entry.id);
-    setError(null);
     try {
+      // onPlay（应用壳 playCloudFile）已把失败统一送到 toast；此处不重复包装，
+      // 否则同一次播放失败会同时出现应用 toast 与本视图 inline 错误两条。
       await onPlay(entry);
-    } catch (reason) {
-      setError(`播放《${entry.name}》失败：${String(reason)}`);
     } finally {
       setPlayingId(null);
     }

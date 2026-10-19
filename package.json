@@ -1,12 +1,14 @@
 {
   "name": "sirius-desktop",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:local": "tauri build --bundles app && ./scripts/sign-local.sh",
+    "test": "node --test scripts/test-*.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },

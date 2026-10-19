@@ -21,6 +21,7 @@ const IDLE_SNAPSHOT: PlaybackSnapshot = {
   durationSeconds: null,
   volume: 80,
   error: null,
+  warning: null,
 };
 
 /**

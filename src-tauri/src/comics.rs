@@ -16,6 +16,9 @@ const CACHE_BUDGET_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const READER_EXTENSIONS: &[&str] = &["cbz", "zip"];
 /// 封面缩略图最长边；缩放后统一存 JPEG，保证单张封面体积有界。
 const COVER_MAX_WIDTH: u32 = 320;
+/// 页图缓存的版本标记；只有 marker 与记录页数都有效时才允许命中缓存。
+const PAGE_CACHE_MARKER: &str = ".complete";
+const PAGE_CACHE_MARKER_VERSION: &str = "v1";
 /// 批量索引单次目录数上限：大目录性能上限先行，超过即显式拒绝。
 const INDEX_BATCH_LIMIT: usize = 20;
 /// 视为漫画压缩包的扩展名（不含点，大小写不敏感）。
@@ -376,7 +379,11 @@ pub struct ComicSession {
     pub resume_page_index: usize,
 }
 
-/// 打开漫画卷：命中本地缓存则跳过下载；否则断点续传下载到有界缓存并解压出页图。
+/// 打开漫画卷：恢复本地阅读进度，复用完整页图缓存或下载并原子解压到有界缓存。
+///
+/// `app` 提供应用缓存目录，`provider` 解析并下载远端压缩包，`repository` 读取原有阅读进度，
+/// `input` 提供卷标识、下载码、文件名和大小。返回完整页图路径及续读页码；格式、网络、解压、
+/// 缓存或进度读取失败均作为错误返回。
 pub async fn open_volume(
     app: &tauri::AppHandle,
     provider: &Cloud115Provider,
@@ -403,10 +410,11 @@ pub async fn open_volume(
     let archive_name = format!("source.{extension}");
     let archive_path = volume_dir.join(&archive_name);
 
-    // 目录准备与缓存命中检查在阻塞线程完成；marker 文件的修改时间兼作 LRU 依据。
-    let archive_ready = tokio::task::spawn_blocking({
+    // 目录准备与完整缓存检查在阻塞线程完成；lastopen 的修改时间兼作 LRU 依据。
+    let (page_cache_ready, archive_available) = tokio::task::spawn_blocking({
         let volume_dir = volume_dir.clone();
-        move || -> Result<bool, String> {
+        let archive_path = archive_path.clone();
+        move || -> Result<(bool, bool), String> {
             std::fs::create_dir_all(&volume_dir)
                 .map_err(|error| format!("创建漫画缓存目录失败：{error}"))?;
             let stamp = SystemTime::now()
@@ -416,14 +424,31 @@ pub async fn open_volume(
                 .to_string();
             std::fs::write(volume_dir.join("lastopen"), stamp)
                 .map_err(|error| format!("更新漫画缓存标记失败：{error}"))?;
-            Ok(volume_dir.join("pages").is_dir())
+            let page_cache_ready = load_complete_page_cache(&volume_dir.join("pages"))?.is_some();
+            let archive_available = if page_cache_ready {
+                false
+            } else {
+                match std::fs::symlink_metadata(&archive_path) {
+                    Ok(metadata) if metadata.is_file() => true,
+                    Ok(_) => {
+                        return Err(format!(
+                            "漫画源压缩包路径不是普通文件：{}",
+                            archive_path.display()
+                        ));
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+                    Err(error) => return Err(format!("检查漫画源压缩包失败：{error}")),
+                }
+            };
+            Ok((page_cache_ready, archive_available))
         }
     })
     .await
     .map_err(|error| format!("漫画缓存准备线程异常终止：{error}"))??;
 
-    if !archive_ready {
+    if !page_cache_ready && !archive_available {
         // 未下载：走断点续传下载（磁盘满、签名过期等错误显式返回，保留 .sirius-part 进度）。
+        // 已存在的 source archive 会在解压失败后保留，重试时直接复用，避免下载器拒绝覆盖。
         // 漫画缓存属于内部取数，不进入任务中心进度事件，回调传 None。
         provider
             .download_file(
@@ -481,18 +506,85 @@ pub async fn open_volume(
     })
 }
 
-/// 解压页图：跳过 macOS 元数据与隐藏文件，按自然排序输出零填充页名。
+/// 解压页图并原子发布完整缓存；跳过 macOS 元数据与隐藏文件，按自然排序输出零填充页名。
+///
+/// `archive_path` 是已下载的 ZIP/CBZ 源文件，`volume_dir` 是该卷的有界缓存目录。返回完整
+/// 页图路径；读取、写入或发布失败时返回错误，并清理本次临时页图，绝不把残片当作缓存。
 fn extract_pages(archive_path: &Path, volume_dir: &Path) -> Result<Vec<String>, String> {
+    extract_pages_with_writer(archive_path, volume_dir, |zip_file, target, _| {
+        let mut output =
+            std::fs::File::create(target).map_err(|error| format!("写入页图失败：{error}"))?;
+        std::io::copy(zip_file, &mut output).map_err(|error| format!("解压页图失败：{error}"))?;
+        output
+            .sync_all()
+            .map_err(|error| format!("同步页图失败：{error}"))?;
+        Ok(())
+    })
+}
+
+/// 将 ZIP 条目解压到临时目录，写入完成标记后再原子改名为正式页图目录。
+///
+/// `write_page` 负责把单个条目写入给定目标路径；它只用于注入本地 I/O 行为，生产路径会
+/// 同步每张页图。任何失败都会删除临时目录，旧的无标记缓存也会先移除并从源压缩包重建。
+fn extract_pages_with_writer<F>(
+    archive_path: &Path,
+    volume_dir: &Path,
+    mut write_page: F,
+) -> Result<Vec<String>, String>
+where
+    F: FnMut(&mut dyn std::io::Read, &Path, usize) -> Result<(), String>,
+{
     let pages_dir = volume_dir.join("pages");
-    // 缓存命中：pages 目录已有内容则直接列出，不重复解压。
-    if pages_dir.is_dir() {
-        let cached: Vec<String> = read_page_files(&pages_dir)?;
-        if !cached.is_empty() {
+    if let Some(cached) = load_complete_page_cache(&pages_dir)? {
+        return Ok(cached);
+    }
+    remove_path_if_exists(&pages_dir)
+        .map_err(|error| format!("清理不完整页图缓存失败：{error}"))?;
+    let staging_dir = create_pages_staging_dir(volume_dir)?;
+
+    let staged_pages = extract_archive_to_directory(archive_path, &staging_dir, &mut write_page)
+        .and_then(|pages| {
+            write_page_cache_marker(&staging_dir, pages.len())?;
+            Ok(pages)
+        });
+    let staged_pages = match staged_pages {
+        Ok(pages) => pages,
+        Err(error) => return Err(clean_staging_after_error(&staging_dir, error)),
+    };
+
+    if let Err(error) = std::fs::rename(&staging_dir, &pages_dir) {
+        if let Some(cached) = load_complete_page_cache(&pages_dir)? {
+            remove_path_if_exists(&staging_dir)
+                .map_err(|cleanup| format!("清理重复解压临时目录失败：{cleanup}"))?;
             return Ok(cached);
         }
+        return Err(clean_staging_after_error(
+            &staging_dir,
+            format!("发布完整页图缓存失败：{error}"),
+        ));
     }
-    std::fs::create_dir_all(&pages_dir).map_err(|error| format!("创建页图目录失败：{error}"))?;
 
+    // 返回正式目录中的路径，不暴露 staging 路径给阅读器。
+    let published_pages = load_complete_page_cache(&pages_dir)?
+        .ok_or_else(|| "漫画页图缓存发布后缺少有效完成标记".to_string())?;
+    if published_pages.len() != staged_pages.len() {
+        return Err("漫画页图缓存发布后页数与完成标记不一致".to_string());
+    }
+    Ok(published_pages)
+}
+
+/// 从源压缩包完整解压页图到给定目录；该目录必须是本次独占的临时目录。
+///
+/// `archive_path` 为 ZIP/CBZ 文件，`target_dir` 为临时输出目录，`write_page` 写入每个图片条目。
+/// 返回按自然序排列的临时页图路径，任何 ZIP 或写入错误都会向上传播。
+fn extract_archive_to_directory<F>(
+    archive_path: &Path,
+    target_dir: &Path,
+    write_page: &mut F,
+) -> Result<Vec<String>, String>
+where
+    F: FnMut(&mut dyn std::io::Read, &Path, usize) -> Result<(), String>,
+{
     let archive_file = std::fs::File::open(archive_path)
         .map_err(|error| format!("打开漫画压缩包失败：{error}"))?;
     let mut archive = zip::ZipArchive::new(archive_file)
@@ -525,17 +617,95 @@ fn extract_pages(archive_path: &Path, volume_dir: &Path) -> Result<Vec<String>, 
     let mut pages = Vec::with_capacity(image_indexes.len());
     for (target_index, (zip_index, file_name)) in image_indexes.iter().enumerate() {
         let extension = file_name.rsplit('.').next().unwrap_or("jpg");
-        let target = pages_dir.join(format!("{:04}.{extension}", target_index + 1));
+        let target = target_dir.join(format!("{:04}.{extension}", target_index + 1));
         let mut zip_file = archive
             .by_index(*zip_index)
             .map_err(|error| format!("读取压缩包条目失败：{error}"))?;
-        let mut output =
-            std::fs::File::create(&target).map_err(|error| format!("写入页图失败：{error}"))?;
-        std::io::copy(&mut zip_file, &mut output)
-            .map_err(|error| format!("解压页图失败：{error}"))?;
+        write_page(&mut zip_file, &target, target_index + 1)?;
         pages.push(target.to_string_lossy().into_owned());
     }
     Ok(pages)
+}
+
+/// 读取并校验已完成的页图缓存；缺失或损坏的标记返回 `None`，由调用方重新解压。
+///
+/// `pages_dir` 是正式页图目录。只有版本标记和页数都有效时返回缓存路径；目录不可读时
+/// 返回错误，避免把权限或磁盘故障误判成正常缓存未命中。
+fn load_complete_page_cache(pages_dir: &Path) -> Result<Option<Vec<String>>, String> {
+    if !pages_dir.is_dir() {
+        return Ok(None);
+    }
+    let marker_path = pages_dir.join(PAGE_CACHE_MARKER);
+    let marker = match std::fs::read_to_string(&marker_path) {
+        Ok(marker) => marker,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("读取漫画页图完成标记失败：{error}")),
+    };
+    let Some(count) = marker
+        .trim()
+        .strip_prefix(&format!("{PAGE_CACHE_MARKER_VERSION}:"))
+        .and_then(|value| value.parse::<usize>().ok())
+    else {
+        return Ok(None);
+    };
+    let pages = read_page_files(pages_dir)?;
+    if pages.len() != count {
+        return Ok(None);
+    }
+    Ok(Some(pages))
+}
+
+/// 将页数和缓存版本写入临时目录；完成标记始终在所有页图写完之后生成。
+///
+/// `staging_dir` 是本次解压的临时目录，`page_count` 是全部成功写出的页图数。写入失败时
+/// 返回错误，调用方会删除整个临时目录。
+fn write_page_cache_marker(staging_dir: &Path, page_count: usize) -> Result<(), String> {
+    let marker_path = staging_dir.join(PAGE_CACHE_MARKER);
+    let mut marker = std::fs::File::create(marker_path)
+        .map_err(|error| format!("写入漫画页图完成标记失败：{error}"))?;
+    use std::io::Write;
+    write!(marker, "{PAGE_CACHE_MARKER_VERSION}:{page_count}")
+        .map_err(|error| format!("写入漫画页图完成标记失败：{error}"))?;
+    marker
+        .sync_all()
+        .map_err(|error| format!("同步漫画页图完成标记失败：{error}"))
+}
+
+/// 创建唯一临时页图目录；它与正式目录位于同一卷，以便最终 rename 原子发布。
+///
+/// `volume_dir` 是卷缓存目录。返回新建临时目录，创建失败时报告明确的本地文件系统错误。
+fn create_pages_staging_dir(volume_dir: &Path) -> Result<PathBuf, String> {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| "系统时钟异常".to_string())?
+        .as_nanos();
+    let staging_dir = volume_dir.join(format!(".pages-partial-{}-{nonce}", std::process::id()));
+    std::fs::create_dir(&staging_dir).map_err(|error| format!("创建页图临时目录失败：{error}"))?;
+    Ok(staging_dir)
+}
+
+/// 删除指定路径；不存在视作已清理，其他错误向上传播。
+///
+/// `path` 可以是文件或目录。成功删除或原本不存在时返回 `Ok(())`。
+fn remove_path_if_exists(path: &Path) -> Result<(), String> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_dir() => std::fs::remove_dir_all(path),
+        Ok(_) => std::fs::remove_file(path),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.to_string()),
+    }
+    .map_err(|error| error.to_string())
+}
+
+/// 清理失败解压的临时目录，并保留主错误与清理错误信息。
+///
+/// `staging_dir` 是本次临时页图目录，`error` 是解压或发布的主错误。返回适合向用户展示的
+/// 错误字符串；若清理也失败，会同时说明两项错误以便定位磁盘状态。
+fn clean_staging_after_error(staging_dir: &Path, error: String) -> String {
+    match remove_path_if_exists(staging_dir) {
+        Ok(()) => error,
+        Err(cleanup_error) => format!("{error}；清理临时页图目录也失败：{cleanup_error}"),
+    }
 }
 
 /// 列出已解压的页图；文件名零填充，按名称排序即页序。
@@ -547,7 +717,12 @@ fn read_page_files(pages_dir: &Path) -> Result<Vec<String>, String> {
         let path = dir_entry
             .map_err(|error| format!("读取页图目录失败：{error}"))?
             .path();
-        if path.is_file() {
+        let extension = path
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        if path.is_file() && IMAGE_EXTENSIONS.contains(&extension.as_str()) {
             pages.push(path.to_string_lossy().into_owned());
         }
     }
@@ -695,6 +870,30 @@ fn natural_cmp(a: &str, b: &str) -> Ordering {
 mod tests {
     use super::*;
 
+    fn test_directory(label: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "sirius-comics-{label}-{}-{nonce}",
+            std::process::id()
+        ))
+    }
+
+    fn two_page_archive(path: &Path) {
+        use std::io::Write;
+
+        let file = std::fs::File::create(path).unwrap();
+        let mut archive = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default();
+        archive.start_file("page10.jpg", options).unwrap();
+        archive.write_all(b"page ten bytes").unwrap();
+        archive.start_file("page2.jpg", options).unwrap();
+        archive.write_all(b"page two bytes").unwrap();
+        archive.finish().unwrap();
+    }
+
     #[test]
     fn generate_cover_downscales_first_page() {
         let volume_dir =
@@ -729,6 +928,64 @@ mod tests {
             names,
             vec!["001.jpg", "2.jpg", "page2.jpg", "page10.jpg", "封面.jpg"]
         );
+    }
+
+    #[test]
+    fn failed_second_page_never_publishes_a_single_page_cache() {
+        let root = test_directory("atomic-pages");
+        std::fs::create_dir_all(&root).unwrap();
+        let archive = root.join("source.cbz");
+        two_page_archive(&archive);
+
+        let error = extract_pages_with_writer(&archive, &root, |zip_file, target, page_number| {
+            let mut output = std::fs::File::create(target).unwrap();
+            if page_number == 2 {
+                use std::io::Write;
+                output.write_all(b"partial second page").unwrap();
+                return Err("injected second page write failure".to_string());
+            }
+            std::io::copy(zip_file, &mut output).unwrap();
+            Ok(())
+        })
+        .unwrap_err();
+        assert!(error.contains("injected second page write failure"));
+        assert!(!root.join("pages").exists());
+        let partial_directories = std::fs::read_dir(&root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".pages-partial-")
+            })
+            .count();
+        assert_eq!(partial_directories, 0);
+
+        // 源压缩包仍可重试；完整重试必须返回两页，绝不能命中第一次留下的单页残片。
+        let pages = extract_pages(&archive, &root).unwrap();
+        assert_eq!(pages.len(), 2);
+        assert!(root.join("pages").join(PAGE_CACHE_MARKER).is_file());
+        assert_eq!(extract_pages(&archive, &root).unwrap().len(), 2);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn interrupted_or_invalid_page_cache_is_rebuilt_from_archive() {
+        let root = test_directory("recover-pages");
+        let archive = root.join("source.cbz");
+        let pages_dir = root.join("pages");
+        std::fs::create_dir_all(&pages_dir).unwrap();
+        std::fs::write(pages_dir.join("0001.jpg"), b"stale partial page").unwrap();
+        // 页数与完成标记不符，模拟进程中断或损坏后的旧缓存状态。
+        std::fs::write(pages_dir.join(PAGE_CACHE_MARKER), "v1:2").unwrap();
+        two_page_archive(&archive);
+
+        let pages = extract_pages(&archive, &root).unwrap();
+        assert_eq!(pages.len(), 2);
+        assert_eq!(std::fs::read(&pages[0]).unwrap(), b"page two bytes");
+        assert_eq!(std::fs::read(&pages[1]).unwrap(), b"page ten bytes");
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

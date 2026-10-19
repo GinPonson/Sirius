@@ -11,8 +11,8 @@
  *   通过 `window.__SIRIUS_MOCK_EMIT__(event, payload)` 可手动触发任意事件。
  * - 传输模拟：`cloud115_upload_file`/`cloud115_resume_upload`/`cloud115_download_file`
  *   会按契约发出 `transfer://progress` 事件序列（preparing → transferring → finalizing → done）。
- * - AI 对话模拟：`ai_chat_*` 六命令（内存会话表），`ai_chat_send` 触发
- *   `ai://chat-token` 流（2-4 字增量、80-150ms 间隔、终态恰好一次，支持停止）。
+ * - AI 对话模拟：`ai_chat_*` 六命令（内存会话表），`ai_chat_send` 支持普通发送与原位重生成，
+ *   并触发 `ai://chat-token` 流（2-4 字增量、80-150ms 间隔、终态恰好一次，支持停止）。
  * - 暗色预览：URL 带 `theme=dark` 时为根元素写入 `data-theme="dark"`。
  */
 
@@ -851,6 +851,7 @@ const IDLE_SNAPSHOT = {
   durationSeconds: null,
   volume: 80,
   error: null,
+  warning: null,
 };
 
 function playbackPosition(playbackSession: MockPlayback): number {
@@ -873,6 +874,7 @@ function snapshotOf(playbackSession: MockPlayback) {
     durationSeconds: playbackSession.durationSeconds,
     volume: playbackSession.volume,
     error: null,
+    warning: null,
   };
 }
 
@@ -1135,6 +1137,7 @@ async function runChatTokenStream(
   messageId: string,
   content: string,
   context: Record<string, unknown> | null,
+  replaceExisting: boolean,
 ): Promise<void> {
   const reply = buildChatReply(content, context);
   const chunks: string[] = [];
@@ -1156,14 +1159,22 @@ async function runChatTokenStream(
   stoppedChatSessions.delete(session.id);
   activeChatSessions.delete(session.id);
   if (accumulated) {
-    session.messages.push({
-      id: messageId,
-      sessionId: session.id,
-      role: "assistant",
-      content: accumulated,
-      contextJson: null,
-      createdAt: formatStamp(now()),
-    });
+    const existingIndex = session.messages.findIndex(
+      (message) => message.id === messageId && message.role === "assistant",
+    );
+    if (replaceExisting && existingIndex >= 0) {
+      // 保留原助手行的位置与 ID，后续消息继续留在原处。
+      session.messages[existingIndex].content = accumulated;
+    } else if (!replaceExisting) {
+      session.messages.push({
+        id: messageId,
+        sessionId: session.id,
+        role: "assistant",
+        content: accumulated,
+        contextJson: null,
+        createdAt: formatStamp(now()),
+      });
+    }
   }
   session.updatedAt = formatStamp(now());
   emitMockEvent(AI_CHAT_TOKEN_EVENT, {
@@ -1936,25 +1947,56 @@ const HANDLERS: Record<string, CmdHandler> = {
   ai_chat_send: (args) => {
     const session = requireChatSession(str(args.sessionId));
     if (activeChatSessions.has(session.id)) fail("同一会话正在回复中，请先停止当前回复");
-    const content = str(args.content).trim();
-    if (!content) fail("消息内容不能为空");
-    const context = (args.context ?? null) as Record<string, unknown> | null;
+    const regenerateMessageId = str(args.regenerateMessageId).trim();
+    const replaceExisting = regenerateMessageId !== "";
+    let content = str(args.content).trim();
+    let context = (args.context ?? null) as Record<string, unknown> | null;
+    let userMessageId: string;
+    let messageId: string;
+
+    if (replaceExisting) {
+      const assistantIndex = session.messages.findIndex(
+        (message) => message.id === regenerateMessageId && message.role === "assistant",
+      );
+      if (assistantIndex < 0) fail("重新生成目标不存在或不是助手消息");
+      let sourceUser: MockChatMessage | undefined;
+      for (let index = assistantIndex - 1; index >= 0; index -= 1) {
+        const message = session.messages[index];
+        if (message?.role === "user") {
+          sourceUser = message;
+          break;
+        }
+      }
+      if (!sourceUser) fail("助手消息缺少对应的用户消息，无法重新生成");
+      // 与 Rust command 一样，重生成以持久化用户消息为准，不信任调用方传入的内容或上下文。
+      content = sourceUser.content;
+      context = sourceUser.contextJson
+        ? JSON.parse(sourceUser.contextJson) as Record<string, unknown>
+        : null;
+      userMessageId = sourceUser.id;
+      messageId = regenerateMessageId;
+    } else {
+      if (!content) fail("消息内容不能为空");
+      userMessageId = nextChatMessageId();
+      messageId = nextChatMessageId();
+    }
+
     if (context && JSON.stringify(context).length > 32 * 1024) {
       fail("页面上下文超过 32KiB 上限");
     }
-    const userMessageId = `chatmsg-${(chatMessageSeq += 1)}`;
-    const messageId = `chatmsg-${(chatMessageSeq += 1)}`;
-    session.messages.push({
-      id: userMessageId,
-      sessionId: session.id,
-      role: "user",
-      content,
-      contextJson: context ? JSON.stringify(context) : null,
-      createdAt: formatStamp(now()),
-    });
+    if (!replaceExisting) {
+      session.messages.push({
+        id: userMessageId,
+        sessionId: session.id,
+        role: "user",
+        content,
+        contextJson: context ? JSON.stringify(context) : null,
+        createdAt: formatStamp(now()),
+      });
+    }
     session.updatedAt = formatStamp(now());
     activeChatSessions.add(session.id);
-    void runChatTokenStream(session, messageId, content, context);
+    void runChatTokenStream(session, messageId, content, context, replaceExisting);
     return { sessionId: session.id, messageId, userMessageId };
   },
   ai_chat_stop: (args) => {
@@ -2210,7 +2252,14 @@ const HANDLERS: Record<string, CmdHandler> = {
   open_remote_url: (args) => {
     const url = str(args.url);
     if (!url) fail("缺少远程播放地址");
-    return openPlayback(url);
+    const initial = openPlayback(url);
+    if (args.startPositionSeconds === null || args.startPositionSeconds === undefined) return initial;
+    const start = Number(args.startPositionSeconds);
+    if (!Number.isFinite(start) || start < 0) fail("起播位置必须是有限且非负的秒数");
+    // 与 Rust 的 per-file start 一致：新媒体从指定位置起播，不依赖加载后第二次 seek。
+    const current = requirePlayback();
+    current.positionBase = Math.min(current.durationSeconds, start);
+    return snapshotOf(current);
   },
   playback_snapshot: () => (playback ? snapshotOf(playback) : { ...IDLE_SNAPSHOT }),
   toggle_pause: () => {

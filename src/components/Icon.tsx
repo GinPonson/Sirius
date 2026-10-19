@@ -14,7 +14,9 @@ import {
   LayoutGrid,
   ListChecks,
   LogOut,
+  Maximize2,
   PanelLeft,
+  Pause,
   Pencil,
   Play,
   Plus,
@@ -45,6 +47,8 @@ export type IconName =
   | "settings"
   | "search"
   | "play"
+  | "pause"
+  | "fullscreen"
   | "close"
   | "cloud"
   | "check"
@@ -82,6 +86,8 @@ const ICONS: Record<IconName, LucideIcon> = {
   settings: Settings,
   search: Search,
   play: Play,
+  pause: Pause,
+  fullscreen: Maximize2,
   close: X,
   cloud: Cloud,
   check: Check,

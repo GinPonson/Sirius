@@ -115,12 +115,15 @@ export class PlaybackService {
    *
    * @param audioOnly 纯音频播放：Rust 侧只初始化会话、不显示播放器窗口。
    *   音频没有画面，弹出黑窗口属于错误交互，由底部播放条承载控制。
+   * @param startPositionSeconds 新媒体从指定秒数起播；由 loadfile 的 start 选项应用，
+   *   不能在异步加载尚未完成时紧接着 seek。null 表示从默认位置起播。
    */
   openRemote(
     source: RemotePlayableSource,
     subtitles: Cloud115SubtitleStream[] = [],
     pickCode = "",
     audioOnly = false,
+    startPositionSeconds: number | null = null,
   ): Promise<PlaybackSnapshot> {
     return invoke<PlaybackSnapshot>("open_remote_url", {
       url: source.url,
@@ -128,6 +131,7 @@ export class PlaybackService {
       subtitleUrls: subtitles.map((subtitle) => subtitle.url),
       pickCode,
       audioOnly,
+      startPositionSeconds,
     });
   }
 

@@ -120,8 +120,14 @@ export class AiChatService {
     sessionId: string,
     content: string,
     context?: Record<string, unknown> | null,
+    regenerateMessageId?: string,
   ): Promise<AiChatSendReceipt> {
-    return invoke("ai_chat_send", { sessionId, content, context: context ?? null });
+    return invoke("ai_chat_send", {
+      sessionId,
+      content,
+      context: context ?? null,
+      regenerateMessageId: regenerateMessageId ?? null,
+    });
   }
 
   /** 中断会话当前流式回复；返回是否确实存在进行中的流。 */

@@ -1,3 +1,4 @@
+use crate::credentials::CredentialCache;
 use crate::library::{LibraryRepository, UploadPartState, UploadSession};
 use crate::transfer::{
     speed_bytes_per_sec, DownloadProgressGate, ProgressCallback, TransferReporter, TransferStage,
@@ -8,8 +9,8 @@ use hmac::{Hmac, Mac};
 use qrcode::{render::svg, QrCode};
 use reqwest::{
     header::{
-        HeaderMap, HeaderValue, ACCEPT, ACCEPT_LANGUAGE, ORIGIN, RANGE, REFERER,
-        USER_AGENT as HEADER_USER_AGENT,
+        HeaderMap, HeaderValue, ACCEPT, ACCEPT_LANGUAGE, CONTENT_LENGTH, CONTENT_RANGE, ORIGIN,
+        RANGE, REFERER, USER_AGENT as HEADER_USER_AGENT,
     },
     Client, StatusCode, Url,
 };
@@ -17,10 +18,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 use std::{
+    collections::HashMap,
     fs::File,
     io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{Arc, Mutex, OnceLock, Weak},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::{fs::OpenOptions, io::AsyncWriteExt, sync::Mutex as AsyncMutex, time::timeout};
@@ -144,6 +146,7 @@ struct Cloud115UploadInit {
 
 struct UploadSessionSeed<'a> {
     id: String,
+    account_id: u64,
     local_path: &'a str,
     file_name: &'a str,
     target_id: &'a str,
@@ -286,6 +289,20 @@ pub struct Cloud115DownloadResult {
     pub resumed_bytes: u64,
 }
 
+/// 校验 HTTP 下载响应后确定的追加方式、响应体长度与远端总大小。
+struct DownloadResponsePlan {
+    append: bool,
+    body_bytes: Option<u64>,
+    total_bytes: Option<u64>,
+}
+
+/// 解析后的 `Content-Range`，均为从零开始的闭区间字节偏移。
+struct DownloadContentRange {
+    start: u64,
+    end: u64,
+    total: u64,
+}
+
 /// 校验远端文件名可安全落盘：拒绝空名、路径分隔符与父目录引用，防止路径穿越。
 pub(crate) fn sanitize_remote_file_name(file_name: &str) -> Result<String, String> {
     let trimmed = file_name.trim();
@@ -376,13 +393,26 @@ pub struct Cloud115RecyclePage {
     pub has_more: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct OAuthTokens {
     access_token: String,
     refresh_token: String,
     expires_at: u64,
     user_id: u64,
     user_name: String,
+}
+
+/// 将本地 Token 快照映射为不含凭据内容的账号状态。
+///
+/// `tokens` 是当前 OAuth 快照，缺失时表示尚未登录；返回的用户 ID 仅在非零时暴露。
+fn account_status_from_tokens(tokens: Option<&OAuthTokens>) -> Cloud115AccountStatus {
+    Cloud115AccountStatus {
+        connected: tokens.is_some(),
+        user_name: tokens
+            .map(|value| value.user_name.clone())
+            .filter(|value| !value.is_empty()),
+        user_id: tokens.map(|value| value.user_id).filter(|value| *value > 0),
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -402,6 +432,8 @@ pub struct Cloud115Provider {
     refresh_lock: AsyncMutex<()>,
     // 控制面限速锚点：记录上一次 OpenAPI 请求的发起时刻。
     last_control_request: AsyncMutex<Option<Instant>>,
+    // 同一落盘目标只允许一个下载任务操作，避免两个任务交错续写或竞争最终文件名。
+    download_locks: Mutex<HashMap<PathBuf, Weak<AsyncMutex<()>>>>,
 }
 
 impl Cloud115Provider {
@@ -433,6 +465,7 @@ impl Cloud115Provider {
             auth_session: Mutex::new(None),
             refresh_lock: AsyncMutex::new(()),
             last_control_request: AsyncMutex::new(None),
+            download_locks: Mutex::new(HashMap::new()),
         })
     }
 
@@ -442,17 +475,75 @@ impl Cloud115Provider {
 
     pub fn account_status(&self) -> Result<Cloud115AccountStatus, String> {
         let tokens = load_tokens()?;
-        Ok(Cloud115AccountStatus {
-            connected: tokens.is_some(),
-            user_name: tokens
-                .as_ref()
-                .map(|value| value.user_name.clone())
-                .filter(|value| !value.is_empty()),
-            user_id: tokens
-                .as_ref()
-                .map(|value| value.user_id)
-                .filter(|value| *value > 0),
-        })
+        Ok(account_status_from_tokens(tokens.as_ref()))
+    }
+
+    /// 确认当前 115 账号身份；缺少本地账号 ID 时从该 Token 对应的用户资料补全并持久化。
+    ///
+    /// 已有非零账号 ID 时直接返回缓存状态；仅缺少账号 ID 时刷新凭据并从对应用户资料补全。
+    /// 返回值来自已确认的凭据快照；网络、持久化或并发凭据变化都会作为错误返回。
+    pub async fn confirm_account_identity(&self) -> Result<Cloud115AccountStatus, String> {
+        let initial_tokens =
+            load_tokens()?.ok_or_else(|| "115 登录状态在账号身份确认期间已变化".to_string())?;
+        // 已验证过身份的账号无需联网，这也保留了原有离线启动能力。
+        if initial_tokens.user_id > 0 {
+            return Ok(account_status_from_tokens(Some(&initial_tokens)));
+        }
+
+        // 只有缺少身份的旧登录态才需要刷新；刷新后必须重新取快照，避免用过期凭据做身份确认。
+        self.access_token().await?;
+        let tokens =
+            load_tokens()?.ok_or_else(|| "115 登录状态在账号身份确认期间已变化".to_string())?;
+        if tokens.user_id > 0 {
+            return Ok(account_status_from_tokens(Some(&tokens)));
+        }
+
+        let profile = self
+            .user_profile_with_access_token(&tokens.access_token)
+            .await?;
+        let verified_tokens = bind_verified_user_id(&tokens, profile.user_id)?;
+        let expected = tokens.clone();
+        let updated = verified_tokens.clone();
+        let persisted =
+            tokio::task::spawn_blocking(move || update_tokens_if_equal(&expected, &updated))
+                .await
+                .map_err(|error| format!("补全 115 账号身份线程异常终止：{error}"))??;
+        if !persisted {
+            return Err(
+                "115 登录凭据在账号身份确认期间发生变化，未覆盖新凭据，请重新读取账号状态"
+                    .to_string(),
+            );
+        }
+        Ok(account_status_from_tokens(Some(&verified_tokens)))
+    }
+
+    /// 返回当前 115 登录账号 ID。
+    ///
+    /// 返回值是本地登录态中的非零 `user_id`；未登录、账号 ID 无效或登录态读取失败时返回错误。
+    pub fn account_id(&self) -> Result<u64, String> {
+        let tokens = load_tokens()?.ok_or_else(|| "尚未登录 115 账号".to_string())?;
+        if tokens.user_id == 0 {
+            return Err("115 登录态中的账号 ID 无效".to_string());
+        }
+        Ok(tokens.user_id)
+    }
+
+    /// 获取落盘目标对应的共享异步锁，确保同一目标的下载任务串行执行。
+    ///
+    /// `path` 是规范化后的最终文件路径；返回的锁在调用方持有期间阻止并发下载。
+    fn download_lock(&self, path: &Path) -> Result<Arc<AsyncMutex<()>>, String> {
+        let mut locks = self
+            .download_locks
+            .lock()
+            .map_err(|_| "下载锁状态异常".to_string())?;
+        // 只保留仍被任务使用的锁，避免长期运行时为已完成路径积累状态。
+        locks.retain(|_, lock| lock.strong_count() > 0);
+        if let Some(lock) = locks.get(path).and_then(Weak::upgrade) {
+            return Ok(lock);
+        }
+        let lock = Arc::new(AsyncMutex::new(()));
+        locks.insert(path.to_path_buf(), Arc::downgrade(&lock));
+        Ok(lock)
     }
 
     /// 申请设备码，并在本地把 115 返回的扫码 URL 编码成 QR SVG。
@@ -540,16 +631,17 @@ impl Cloud115Provider {
             )),
             2 => {
                 let tokens = self.exchange_token(&session.uid).await?;
-                save_tokens(&tokens)?;
+                // 使用本次刚交换出的 Token 查证身份，不能把缓存中的旧账号资料套用到新登录。
+                let profile = self
+                    .user_profile_with_access_token(&tokens.access_token)
+                    .await?;
+                let tokens = bind_verified_user_id(&tokens, profile.user_id)?;
+                self.save_tokens_blocking(tokens.clone()).await?;
                 *self
                     .auth_session
                     .lock()
                     .map_err(|_| "115 授权会话锁已损坏".to_string())? = None;
-                let account = Cloud115AccountStatus {
-                    connected: true,
-                    user_name: Some(tokens.user_name).filter(|value| !value.is_empty()),
-                    user_id: Some(tokens.user_id).filter(|value| *value > 0),
-                };
+                let account = account_status_from_tokens(Some(&tokens));
                 Ok(auth_poll("authorized", "115 网盘已连接", Some(account)))
             }
             -1 => Ok(auth_poll("expired", "二维码已过期，请重新生成", None)),
@@ -574,29 +666,36 @@ impl Cloud115Provider {
             )
             .await?;
         let data = envelope_data(&payload, "读取 115 用户资料")?;
-        let space = data.get("rt_space_info").unwrap_or(&Value::Null);
-        let vip = data.get("vip_info").unwrap_or(&Value::Null);
-        Ok(Cloud115UserProfile {
-            user_id: value_u64(data.get("user_id"))
-                .ok_or_else(|| "115 用户资料缺少 user_id".to_string())?,
-            user_name: required_string(data, "user_name", "115 用户资料")?,
-            // 头像尺寸优先级对齐 StarVault：列表头像只有 28~38px，中尺寸 m 足够清晰
-            // 且比 l 更省流量；缺失时按 l → s 回退。
-            avatar_url: value_string(
-                data.get("user_face_m")
-                    .or_else(|| data.get("user_face_l"))
-                    .or_else(|| data.get("user_face_s")),
-            )
-            .unwrap_or_default(),
-            total_bytes: nested_size(space, "all_total"),
-            used_bytes: nested_size(space, "all_use"),
-            remaining_bytes: nested_size(space, "all_remain"),
-            total_formatted: nested_size_format(space, "all_total"),
-            used_formatted: nested_size_format(space, "all_use"),
-            remaining_formatted: nested_size_format(space, "all_remain"),
-            vip_level: value_string(vip.get("level_name")).unwrap_or_default(),
-            vip_expires_at: value_u64(vip.get("expire")).unwrap_or(0),
-        })
+        parse_user_profile(data)
+    }
+
+    /// 使用指定 Token 读取用户资料，不访问或借用进程缓存中的当前账号。
+    ///
+    /// `access_token` 必须来自待确认的 OAuth 快照；返回 115 `/open/user/info` 中的资料，
+    /// HTTP、业务响应或身份字段错误均原样作为错误返回。
+    async fn user_profile_with_access_token(
+        &self,
+        access_token: &str,
+    ) -> Result<Cloud115UserProfile, String> {
+        self.pace_control_request().await;
+        let response = self
+            .client
+            .get(format!("{API_BASE_URL}/open/user/info"))
+            .bearer_auth(access_token)
+            .send()
+            .await
+            .map_err(network_error)?;
+        let payload = parse_json_response(response, "读取 115 用户资料").await?;
+        parse_user_profile(envelope_data(&payload, "读取 115 用户资料")?)
+    }
+
+    /// 在线程池中持久化 Token，避免同步钥匙串写入占用异步运行线程。
+    ///
+    /// `tokens` 是待保存的完整快照；只有真实持久化成功才会更新进程缓存。
+    async fn save_tokens_blocking(&self, tokens: OAuthTokens) -> Result<(), String> {
+        tokio::task::spawn_blocking(move || save_tokens(&tokens))
+            .await
+            .map_err(|error| format!("保存 115 登录状态线程异常终止：{error}"))?
     }
 
     /// 获取 Aliyun OSS STS 临时凭证；调用方必须仅在 Rust 进程内短时持有。
@@ -733,6 +832,11 @@ impl Cloud115Provider {
         if file_size == 0 {
             return Err("OSS multipart 文件大小必须大于零".to_string());
         }
+        if let Some((_, seed)) = persistence.as_ref() {
+            if self.account_id()? != seed.account_id {
+                return Err("上传期间 115 登录账号已切换，已停止创建断点会话".to_string());
+            }
+        }
         let initiate = self
             .oss_request(
                 credentials,
@@ -762,6 +866,7 @@ impl Cloud115Provider {
         let mut stored_session = persistence.map(|(repository, seed)| {
             let session = UploadSession {
                 id: seed.id,
+                account_id: seed.account_id,
                 local_path: seed.local_path.to_string(),
                 file_name: seed.file_name.to_string(),
                 target_id: seed.target_id.to_string(),
@@ -945,7 +1050,7 @@ impl Cloud115Provider {
             };
         }
         if let Some((repository, session)) = stored_session {
-            repository.delete_upload_session(&session.id)?;
+            repository.delete_upload_session(session.account_id, &session.id)?;
         }
         Ok(())
     }
@@ -1175,7 +1280,7 @@ impl Cloud115Provider {
             repository.save_upload_session(&session)?;
             return Err(error);
         }
-        repository.delete_upload_session(&session.id)?;
+        repository.delete_upload_session(session.account_id, &session.id)?;
         Ok(Cloud115UploadResult {
             file_name: session.file_name,
             pick_code: init.pick_code.clone(),
@@ -1208,6 +1313,10 @@ impl Cloud115Provider {
         source: &Path,
         reporter: &TransferReporter,
     ) -> Result<Cloud115UploadResult, String> {
+        let account_id = self.account_id()?;
+        if session.account_id != account_id {
+            return Err("上传会话属于另一个 115 账号，已停止恢复".to_string());
+        }
         reporter.report(TransferStage::Preparing, TransferUpdate::default());
         let (file_sha1, pre_sha1, file_size) = tokio::task::spawn_blocking({
             let source = source.to_path_buf();
@@ -1276,6 +1385,11 @@ impl Cloud115Provider {
             .map_err(|error| format!("上传文件校验线程异常终止：{error}"))??
         };
 
+        let session_account_id = if file_size > MULTIPART_PART_BYTES {
+            Some(self.account_id()?)
+        } else {
+            None
+        };
         let mut init = self
             .initialize_upload(
                 &file_name, file_size, target_id, &file_sha1, &pre_sha1, None,
@@ -1315,6 +1429,8 @@ impl Cloud115Provider {
                 if file_size > MULTIPART_PART_BYTES {
                     let seed = UploadSessionSeed {
                         id: format!("cloud115-upload-{}", unix_millis()?),
+                        account_id: session_account_id
+                            .ok_or_else(|| "创建断点会话时缺少 115 账号 ID".to_string())?,
                         local_path,
                         file_name: &file_name,
                         target_id,
@@ -1603,9 +1719,11 @@ impl Cloud115Provider {
         parse_downurl_payload(&payload, action)
     }
 
-    /// 将文件下载到本地目录。存在 `.sirius-part` 临时文件时按 Range 续传；
-    /// 401/403 时重新解析一次下载地址；成功后原子重命名，失败保留临时文件供重试。
-    /// 进度经 `on_progress` 回调限频上报，离线测试与不关心进度的调用方可传 `None`。
+    /// 将远端文件下载到本地目录，并按远端身份安全续传。
+    ///
+    /// `pick_code` 标识远端文件，`target_dir` 必须是已存在目录的绝对路径，`file_name` 是落盘名，
+    /// `expected_size_bytes` 为已知远端大小（未知时传 0），`on_progress` 接收限频进度事件。
+    /// 成功返回落盘信息；登录、网络、响应校验或本地文件操作失败时返回错误。
     pub async fn download_file(
         &self,
         pick_code: &str,
@@ -1622,6 +1740,18 @@ impl Cloud115Provider {
         if !dir.is_absolute() {
             return Err("下载目标目录必须使用绝对路径".to_string());
         }
+        let dir = tokio::fs::canonicalize(&dir)
+            .await
+            .map_err(|error| format!("解析下载目标目录失败：{error}"))?;
+        let dir_metadata = tokio::fs::metadata(&dir)
+            .await
+            .map_err(|error| format!("检查下载目标目录失败：{error}"))?;
+        if !dir_metadata.is_dir() {
+            return Err("下载目标必须是目录".to_string());
+        }
+        let temp_path = download_temp_path(&dir, pick_code, expected_size_bytes);
+        let lock = self.download_lock(&temp_path)?;
+        let _guard = lock.lock().await;
         let reporter = TransferReporter::download(on_progress, &safe_name);
         let result = self
             .download_with_progress(pick_code, &dir, &safe_name, expected_size_bytes, &reporter)
@@ -1631,6 +1761,10 @@ impl Cloud115Provider {
     }
 
     /// 下载的具体流程；终态事件由外层 `download_file` 统一补发。
+    ///
+    /// `pick_code` 标识远端文件，`dir` 是规范化的落盘目录，`safe_name` 已通过文件名校验，
+    /// `expected_size_bytes` 是远端元数据大小，`reporter` 接收阶段与进度更新。
+    /// 成功返回文件落盘信息；请求、协议校验或本地文件操作失败时返回错误。
     async fn download_with_progress(
         &self,
         pick_code: &str,
@@ -1640,34 +1774,28 @@ impl Cloud115Provider {
         reporter: &TransferReporter,
     ) -> Result<Cloud115DownloadResult, String> {
         let final_path = dir.join(safe_name);
-        let temp_path = dir.join(format!("{safe_name}.sirius-part"));
-        match tokio::fs::metadata(&final_path).await {
-            Ok(_) => return Err(format!("目标位置已存在同名文件：{}", final_path.display())),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(format!("检查下载目标失败：{error}")),
-        }
-        let mut offset = match tokio::fs::metadata(&temp_path).await {
-            Ok(metadata) if metadata.is_file() => metadata.len(),
-            Ok(_) => return Err("下载临时文件位置被非普通文件占用".to_string()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
-            Err(error) => return Err(format!("检查下载临时文件失败：{error}")),
-        };
-        if expected_size_bytes > 0 && offset > expected_size_bytes {
+        // 临时文件路径含 pick_code 与预期大小摘要；历史无身份 `.sirius-part` 不会参与续传。
+        let temp_path = download_temp_path(dir, pick_code, expected_size_bytes);
+        ensure_download_target_absent(&final_path).await?;
+        let mut total_size = expected_size_bytes;
+        let existing_temp_size = inspect_download_temp(&temp_path).await?;
+        let mut offset = existing_temp_size.unwrap_or(0);
+        if total_size > 0 && offset > total_size {
             return Err("本地下载临时文件大于远端文件大小，已停止以避免数据损坏".to_string());
         }
         // preparing：本地检查完成后上报；续传时携带已有的字节基数。
         reporter.report(
             TransferStage::Preparing,
-            download_progress_update(offset, expected_size_bytes),
+            download_progress_update(offset, total_size),
         );
         let mut gate = DownloadProgressGate::new();
         let mut refreshed = false;
         loop {
-            if expected_size_bytes > 0 && offset == expected_size_bytes {
+            if total_size > 0 && offset == total_size {
                 // 临时文件已完整：补发一次终态前进度再落盘。
                 reporter.report(
                     TransferStage::Transferring,
-                    download_progress_update(offset, expected_size_bytes),
+                    download_progress_update(offset, total_size),
                 );
                 Self::finalize_download(&temp_path, &final_path).await?;
                 return Ok(Cloud115DownloadResult {
@@ -1699,25 +1827,52 @@ impl Cloud115Provider {
                 refreshed = true;
                 continue;
             }
+            if status == StatusCode::RANGE_NOT_SATISFIABLE && offset > 0 {
+                let remote_size = parse_unsatisfied_content_range(response.headers())?;
+                if remote_size != offset || (total_size > 0 && total_size != remote_size) {
+                    return Err("下载断点与服务端报告的文件大小不一致，已停止落盘".to_string());
+                }
+                reporter.report(
+                    TransferStage::Transferring,
+                    download_progress_update(offset, remote_size),
+                );
+                Self::finalize_download(&temp_path, &final_path).await?;
+                return Ok(Cloud115DownloadResult {
+                    file_name: safe_name.to_string(),
+                    saved_path: final_path.to_string_lossy().into_owned(),
+                    size_bytes: remote_size,
+                    resumed_bytes: offset,
+                });
+            }
             if !status.is_success() {
                 return Err(format!("下载请求失败：HTTP {status}"));
             }
 
-            let mut sink = if status == StatusCode::PARTIAL_CONTENT && offset > 0 {
-                OpenOptions::new()
-                    .append(true)
-                    .open(&temp_path)
-                    .await
-                    .map_err(|error| format!("打开下载临时文件失败：{error}"))?
+            let plan = validate_download_response(status, offset, total_size, response.headers())?;
+            if let Some(remote_size) = plan.total_bytes {
+                total_size = remote_size;
+            }
+
+            let mut sink = if plan.append {
+                open_download_temp_append(&temp_path).await?
             } else {
                 // 服务端忽略 Range 时必须从头重下，避免拼接出损坏的数据。
-                offset = 0;
-                tokio::fs::File::create(&temp_path)
+                if existing_temp_size.is_some() || offset > 0 {
+                    remove_download_temp(&temp_path).await?;
+                }
+                let file = OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&temp_path)
                     .await
-                    .map_err(|error| format!("创建下载临时文件失败：{error}"))?
+                    .map_err(|error| format!("创建下载临时文件失败：{error}"))?;
+                validate_open_download_temp(&temp_path, &file).await?;
+                offset = 0;
+                file
             };
 
-            let mut received = offset;
+            let transfer_offset = offset;
+            let mut received_body = 0_u64;
             loop {
                 let chunk = match timeout(Duration::from_secs(60), response.chunk()).await {
                     Ok(Ok(Some(bytes))) => bytes,
@@ -1731,18 +1886,36 @@ impl Cloud115Provider {
                         return Err("下载停滞超过 60 秒，已停止；重新下载将从断点继续".to_string())
                     }
                 };
+                let chunk_size = chunk.len() as u64;
+                if plan
+                    .body_bytes
+                    .is_some_and(|body_bytes| received_body.saturating_add(chunk_size) > body_bytes)
+                {
+                    return Err(
+                        "下载响应正文超过 Content-Range/Content-Length 声明的大小".to_string()
+                    );
+                }
+                if total_size > 0
+                    && transfer_offset
+                        .saturating_add(received_body)
+                        .saturating_add(chunk_size)
+                        > total_size
+                {
+                    return Err("下载响应正文超过远端文件大小".to_string());
+                }
                 if let Err(error) = sink.write_all(&chunk).await {
                     if error.kind() == std::io::ErrorKind::StorageFull {
                         return Err("磁盘空间不足，下载进度已保留".to_string());
                     }
                     return Err(format!("写入本地文件失败：{error}"));
                 }
-                received += chunk.len() as u64;
+                received_body += chunk_size;
+                let received = transfer_offset + received_body;
                 // 限频上报：每 200ms 或每 1 MiB 至多一次，速度按上次发射以来的差值估算。
                 if let Some(emission) = gate.admit(Instant::now(), received, false) {
                     reporter.report(
                         TransferStage::Transferring,
-                        download_progress_update(emission.transferred_bytes, expected_size_bytes)
+                        download_progress_update(emission.transferred_bytes, total_size)
                             .with_speed(emission.speed_bytes_per_sec),
                     );
                 }
@@ -1752,16 +1925,30 @@ impl Cloud115Provider {
                 .map_err(|error| format!("写入本地文件失败：{error}"))?;
             drop(sink);
 
-            if expected_size_bytes > 0 && received != expected_size_bytes {
+            if plan
+                .body_bytes
+                .is_some_and(|body_bytes| received_body != body_bytes)
+            {
                 return Err(format!(
-                    "下载数据不完整（{received}/{expected_size_bytes} 字节）；进度已保留，重新下载将从断点继续"
+                    "下载响应正文长度与服务端声明不一致（{received_body}/{} 字节）；进度已保留",
+                    plan.body_bytes.unwrap_or_default()
                 ));
+            }
+            let received = transfer_offset + received_body;
+            if total_size > 0 && received != total_size {
+                return Err(format!(
+                    "下载数据不完整（{received}/{total_size} 字节）；进度已保留，重新下载将从断点继续"
+                ));
+            }
+            // 未提供大小且服务器未给长度时，以完整响应正文长度作为已验证总大小。
+            if total_size == 0 {
+                total_size = received;
             }
             // 传输结束必发一次最终进度，避免限频吞掉最后一段字节。
             if let Some(emission) = gate.admit(Instant::now(), received, true) {
                 reporter.report(
                     TransferStage::Transferring,
-                    download_progress_update(emission.transferred_bytes, expected_size_bytes)
+                    download_progress_update(emission.transferred_bytes, total_size)
                         .with_speed(emission.speed_bytes_per_sec),
                 );
             }
@@ -1775,10 +1962,28 @@ impl Cloud115Provider {
         }
     }
 
+    /// 将已验证的续传文件安全落盘，不覆盖已存在的目标目录项。
+    ///
+    /// `temp_path` 是身份绑定且大小已校验的临时文件，`final_path` 是最终路径；
+    /// 成功时移除临时目录项，任何校验、落盘或清理错误均返回给调用方。
     async fn finalize_download(temp_path: &Path, final_path: &Path) -> Result<(), String> {
-        tokio::fs::rename(temp_path, final_path)
+        inspect_download_temp(temp_path)
+            .await?
+            .ok_or_else(|| "下载临时文件不存在，无法完成落盘".to_string())?;
+        ensure_download_target_absent(final_path).await?;
+        // hard_link 在目标已存在时会失败，不会像 Unix rename 一样覆盖用户文件。
+        tokio::fs::hard_link(temp_path, final_path)
             .await
-            .map_err(|error| format!("下载文件落盘失败：{error}"))
+            .map_err(|error| {
+                if error.kind() == std::io::ErrorKind::AlreadyExists {
+                    format!("目标位置已存在同名文件：{}", final_path.display())
+                } else {
+                    format!("下载文件落盘失败：{error}")
+                }
+            })?;
+        tokio::fs::remove_file(temp_path)
+            .await
+            .map_err(|error| format!("下载已落盘，但清理临时文件失败：{error}"))
     }
 
     /// 读取单个文件或文件夹详情，用于详情页、预览和后续文件操作。
@@ -1935,43 +2140,26 @@ impl Cloud115Provider {
             failed: Vec::new(),
         };
         // 远端目录缓存：相对路径（空串代表根）→ 云端目录 ID，避免重复查询同名目录。
-        let mut remote_dirs: std::collections::HashMap<String, String> =
-            std::collections::HashMap::new();
+        let mut remote_dirs: HashMap<String, String> = HashMap::new();
         let remote_root = self
-            .ensure_child_folder(target_id, &root_name, &mut result)
+            .ensure_child_folder(target_id, &root_name, &mut result.created_folders)
             .await?;
-        remote_dirs.insert(String::new(), remote_root);
+        remote_dirs.insert(String::new(), remote_root.clone());
 
         for (absolute, relative) in collect_directory_files(&root)? {
             let parent_relative = relative
                 .rsplit_once('/')
                 .map(|(parent, _)| parent.to_string())
                 .unwrap_or_default();
-            // 逐级确保父目录存在；collect_directory_files 已按路径深度排序，
-            // 因此父目录一定先于子文件被处理。
-            let parent_id = match remote_dirs.get(&parent_relative) {
-                Some(id) => id.clone(),
-                None => {
-                    let mut current = String::new();
-                    let mut current_id = target_id.to_string();
-                    for segment in parent_relative.split('/').filter(|part| !part.is_empty()) {
-                        if !current.is_empty() {
-                            current.push('/');
-                        }
-                        current.push_str(segment);
-                        if let Some(id) = remote_dirs.get(&current) {
-                            current_id = id.clone();
-                            continue;
-                        }
-                        let id = self
-                            .ensure_child_folder(&current_id, segment, &mut result)
-                            .await?;
-                        remote_dirs.insert(current.clone(), id.clone());
-                        current_id = id;
-                    }
-                    current_id
-                }
-            };
+            // 路径相对已建立的 remote_root；缓存未命中也必须从该根开始逐级解析。
+            let parent_id = self
+                .ensure_upload_parent(
+                    &remote_root,
+                    &parent_relative,
+                    &mut remote_dirs,
+                    &mut result.created_folders,
+                )
+                .await?;
             let absolute_str = absolute.to_string_lossy().to_string();
             match self
                 .upload_file_from_disk(repository, &absolute_str, &parent_id, on_progress.clone())
@@ -1987,18 +2175,54 @@ impl Cloud115Provider {
         Ok(result)
     }
 
-    /// 在 `parent_id` 下取同名子目录，不存在则创建；创建成功时累加 `created_folders`。
+    /// 从已建立的远端根目录解析或创建相对父路径，并复用调用方的路径缓存。
+    ///
+    /// `root_id` 是被上传目录对应的远端根目录 ID；`relative_parent` 使用 `/` 分隔且相对该根；
+    /// `remote_dirs` 保存相对路径到目录 ID 的映射；`created_folders` 累计本次新建目录数。
+    /// 返回该父路径对应的远端目录 ID，远端查询或创建失败时返回错误。
+    pub async fn ensure_upload_parent(
+        &self,
+        root_id: &str,
+        relative_parent: &str,
+        remote_dirs: &mut HashMap<String, String>,
+        created_folders: &mut u64,
+    ) -> Result<String, String> {
+        let root_id = root_id.trim();
+        let (mut current_path, mut current_id, missing_segments) =
+            upload_parent_resolution(root_id, relative_parent, remote_dirs)?;
+        remote_dirs
+            .entry(String::new())
+            .or_insert_with(|| root_id.to_string());
+
+        for segment in missing_segments {
+            if !current_path.is_empty() {
+                current_path.push('/');
+            }
+            current_path.push_str(&segment);
+            let child_id = self
+                .ensure_child_folder(&current_id, &segment, created_folders)
+                .await?;
+            remote_dirs.insert(current_path.clone(), child_id.clone());
+            current_id = child_id;
+        }
+        Ok(current_id)
+    }
+
+    /// 在 `parent_id` 下取同名子目录，不存在则创建并累加新建目录数。
+    ///
+    /// `parent_id` 是远端父目录 ID，`name` 是一个子目录名，`created_folders` 累计新建数量；
+    /// 返回匹配或新建子目录的 ID，远端查询或创建失败时返回错误。
     async fn ensure_child_folder(
         &self,
         parent_id: &str,
         name: &str,
-        result: &mut Cloud115UploadDirectoryResult,
+        created_folders: &mut u64,
     ) -> Result<String, String> {
         if let Some(existing) = self.find_child_folder(parent_id, name).await? {
             return Ok(existing);
         }
         let created = self.create_folder(parent_id, name).await?;
-        result.created_folders += 1;
+        *created_folders += 1;
         Ok(created.id)
     }
 
@@ -2238,7 +2462,7 @@ impl Cloud115Provider {
             .map_err(network_error)?;
         let payload = parse_json_response(response, "刷新 115 Token").await?;
         let refreshed = parse_tokens(envelope_data(&payload, "刷新 115 Token")?, Some(&current))?;
-        save_tokens(&refreshed)?;
+        self.save_tokens_blocking(refreshed.clone()).await?;
         Ok(refreshed.access_token)
     }
 
@@ -2291,10 +2515,11 @@ impl Cloud115Provider {
 
         // 对齐 StarVault：HTTP 401、业务码 401* 和 99 都只刷新并重试一次，防止递归风暴。
         let current = load_tokens()?.ok_or_else(|| "115 登录已失效".to_string())?;
-        save_tokens(&OAuthTokens {
+        self.save_tokens_blocking(OAuthTokens {
             expires_at: 0,
             ..current
-        })?;
+        })
+        .await?;
         let refreshed = self.access_token().await?;
         // 重试同样是控制面请求，遵守同一限速间隔。
         self.pace_control_request().await;
@@ -2613,6 +2838,59 @@ fn parse_tokens(data: &Value, previous: Option<&OAuthTokens>) -> Result<OAuthTok
     })
 }
 
+/// 从 `/open/user/info` 的 `data` 节点解析账号资料，并拒绝缺失或为零的用户 ID。
+///
+/// `data` 是 115 用户资料响应的业务数据节点；返回可供身份绑定和前端资料展示的资料，
+/// 必须包含非零 `user_id` 与服务端用户名，否则返回明确错误。
+fn parse_user_profile(data: &Value) -> Result<Cloud115UserProfile, String> {
+    let user_id =
+        value_u64(data.get("user_id")).ok_or_else(|| "115 用户资料缺少 user_id".to_string())?;
+    if user_id == 0 {
+        return Err("115 用户资料返回的 user_id 无效，必须大于零".to_string());
+    }
+    let space = data.get("rt_space_info").unwrap_or(&Value::Null);
+    let vip = data.get("vip_info").unwrap_or(&Value::Null);
+    Ok(Cloud115UserProfile {
+        user_id,
+        user_name: required_string(data, "user_name", "115 用户资料")?,
+        // 头像尺寸优先级对齐 StarVault：列表头像只有 28~38px，中尺寸 m 足够清晰
+        // 且比 l 更省流量；缺失时按 l → s 回退。
+        avatar_url: value_string(
+            data.get("user_face_m")
+                .or_else(|| data.get("user_face_l"))
+                .or_else(|| data.get("user_face_s")),
+        )
+        .unwrap_or_default(),
+        total_bytes: nested_size(space, "all_total"),
+        used_bytes: nested_size(space, "all_use"),
+        remaining_bytes: nested_size(space, "all_remain"),
+        total_formatted: nested_size_format(space, "all_total"),
+        used_formatted: nested_size_format(space, "all_use"),
+        remaining_formatted: nested_size_format(space, "all_remain"),
+        vip_level: value_string(vip.get("level_name")).unwrap_or_default(),
+        vip_expires_at: value_u64(vip.get("expire")).unwrap_or(0),
+    })
+}
+
+/// 将服务端用户资料的真实 ID 绑定到 Token，拒绝零值和两端账号身份冲突。
+///
+/// `tokens` 是与资料请求对应的 OAuth 快照，`verified_user_id` 来自同一 Token 的用户资料；
+/// 返回仅修改 `user_id` 的副本，若服务端 ID 为零或与 Token 已有 ID 不同则返回错误。
+fn bind_verified_user_id(
+    tokens: &OAuthTokens,
+    verified_user_id: u64,
+) -> Result<OAuthTokens, String> {
+    if verified_user_id == 0 {
+        return Err("115 用户资料返回的账号 ID 无效，必须大于零".to_string());
+    }
+    if tokens.user_id != 0 && tokens.user_id != verified_user_id {
+        return Err("115 Token 响应与用户资料的账号 ID 不一致".to_string());
+    }
+    let mut verified = tokens.clone();
+    verified.user_id = verified_user_id;
+    Ok(verified)
+}
+
 async fn parse_json_response(response: reqwest::Response, action: &str) -> Result<Value, String> {
     let status = response.status();
     let text = response
@@ -2776,6 +3054,64 @@ fn collect_directory_files(root: &PathBuf) -> Result<Vec<(PathBuf, String)>, Str
         depth(&a.1).cmp(&depth(&b.1)).then_with(|| a.1.cmp(&b.1))
     });
     Ok(files)
+}
+
+/// 解析远端上传父路径，返回最深缓存祖先及尚需创建的路径段。
+///
+/// `root_id` 是相对路径的远端根 ID；`relative_parent` 是 `/` 分隔的相对路径；
+/// `remote_dirs` 是相对路径到远端目录 ID 的缓存。返回 `(祖先路径, 祖先 ID, 缺失路径段)`。
+fn upload_parent_resolution(
+    root_id: &str,
+    relative_parent: &str,
+    remote_dirs: &HashMap<String, String>,
+) -> Result<(String, String, Vec<String>), String> {
+    if root_id.is_empty() {
+        return Err("115 上传根目录 ID 不能为空".to_string());
+    }
+    if remote_dirs
+        .get("")
+        .is_some_and(|cached_root| cached_root != root_id)
+    {
+        return Err("上传目录缓存与远端根目录不匹配".to_string());
+    }
+    if relative_parent.starts_with('/') || relative_parent.contains('\\') {
+        return Err("上传父路径必须是相对路径并使用 `/` 分隔".to_string());
+    }
+    if relative_parent.is_empty() {
+        return Ok((String::new(), root_id.to_string(), Vec::new()));
+    }
+
+    let segments = relative_parent.split('/').collect::<Vec<_>>();
+    if segments
+        .iter()
+        .any(|segment| segment.is_empty() || sanitize_remote_file_name(segment).is_err())
+    {
+        return Err("上传父路径包含非法目录名".to_string());
+    }
+
+    let mut current_path = String::new();
+    let mut current_id = root_id.to_string();
+    for (index, segment) in segments.iter().enumerate() {
+        let path = if current_path.is_empty() {
+            (*segment).to_string()
+        } else {
+            format!("{current_path}/{segment}")
+        };
+        if let Some(id) = remote_dirs.get(&path) {
+            current_path = path;
+            current_id = id.clone();
+            continue;
+        }
+        return Ok((
+            current_path,
+            current_id,
+            segments[index..]
+                .iter()
+                .map(|segment| (*segment).to_string())
+                .collect(),
+        ));
+    }
+    Ok((current_path, current_id, Vec::new()))
 }
 
 /// 合并两路解析结果，决定播放主线路与后备档位。
@@ -3185,9 +3521,211 @@ fn report_multipart_progress(
     );
 }
 
+/// 为指定远端文件生成独立续传路径，旧版无身份临时文件不会被复用。
+///
+/// `dir` 是规范化后的下载目录，`pick_code` 是远端文件身份，`expected_size_bytes` 是远端大小；
+/// 返回值不包含原始 pick_code，避免把远端身份明文写入文件名。
+fn download_temp_path(dir: &Path, pick_code: &str, expected_size_bytes: u64) -> PathBuf {
+    let mut digest = Sha1::new();
+    digest.update(pick_code.trim().as_bytes());
+    digest.update([0]);
+    digest.update(expected_size_bytes.to_be_bytes());
+    let identity = format!("{:X}", digest.finalize());
+    dir.join(format!(".sirius-part-{identity}"))
+}
+
+/// 校验 HTTP 正文长度、Range 起点与远端总大小后，生成可安全写入的响应计划。
+///
+/// `status` 是响应状态，`offset` 是请求的 Range 起点，`expected_size_bytes` 为已知总大小，
+/// `headers` 是响应头。成功返回追加策略与字节约束，协议字段缺失或矛盾时返回错误。
+fn validate_download_response(
+    status: StatusCode,
+    offset: u64,
+    expected_size_bytes: u64,
+    headers: &HeaderMap,
+) -> Result<DownloadResponsePlan, String> {
+    let content_length = parse_content_length(headers)?;
+    if status == StatusCode::PARTIAL_CONTENT {
+        let content_range = parse_content_range(headers)?;
+        if content_range.start != offset || content_range.end + 1 != content_range.total {
+            return Err("下载续传响应的 Content-Range 与请求断点不匹配".to_string());
+        }
+        if expected_size_bytes > 0 && content_range.total != expected_size_bytes {
+            return Err("下载续传响应的远端大小与文件元数据不一致".to_string());
+        }
+        let body_bytes = content_range.end - content_range.start + 1;
+        if content_length.is_some_and(|length| length != body_bytes) {
+            return Err("下载续传响应的 Content-Length 与 Content-Range 不一致".to_string());
+        }
+        return Ok(DownloadResponsePlan {
+            append: offset > 0,
+            body_bytes: Some(body_bytes),
+            total_bytes: Some(content_range.total),
+        });
+    }
+    if status != StatusCode::OK {
+        return Err(format!("下载服务返回了不支持的成功状态：HTTP {status}"));
+    }
+    if expected_size_bytes > 0 && content_length.is_some_and(|length| length != expected_size_bytes)
+    {
+        return Err("下载响应的 Content-Length 与文件元数据不一致".to_string());
+    }
+    let total_bytes = if expected_size_bytes > 0 {
+        Some(expected_size_bytes)
+    } else {
+        content_length
+    };
+    Ok(DownloadResponsePlan {
+        append: false,
+        body_bytes: content_length.or(total_bytes),
+        total_bytes,
+    })
+}
+
+/// 从 HTTP 响应头读取完整的 `Content-Range` 区间与总大小。
+fn parse_content_range(headers: &HeaderMap) -> Result<DownloadContentRange, String> {
+    let value = headers
+        .get(CONTENT_RANGE)
+        .ok_or_else(|| "下载续传响应缺少 Content-Range".to_string())?
+        .to_str()
+        .map_err(|_| "下载续传响应的 Content-Range 无效".to_string())?;
+    let range = value
+        .strip_prefix("bytes ")
+        .ok_or_else(|| "下载续传响应的 Content-Range 单位无效".to_string())?;
+    let (bounds, total) = range
+        .split_once('/')
+        .ok_or_else(|| "下载续传响应的 Content-Range 格式无效".to_string())?;
+    let (start, end) = bounds
+        .split_once('-')
+        .ok_or_else(|| "下载续传响应的 Content-Range 区间无效".to_string())?;
+    let start = start
+        .parse::<u64>()
+        .map_err(|_| "下载续传响应的 Content-Range 起点无效".to_string())?;
+    let end = end
+        .parse::<u64>()
+        .map_err(|_| "下载续传响应的 Content-Range 终点无效".to_string())?;
+    let total = total
+        .parse::<u64>()
+        .map_err(|_| "下载续传响应未提供有效的 Content-Range 总大小".to_string())?;
+    if end < start || end >= total {
+        return Err("下载续传响应的 Content-Range 区间超出文件大小".to_string());
+    }
+    Ok(DownloadContentRange { start, end, total })
+}
+
+/// 读取并校验 HTTP `Content-Length`；缺失时返回 `None`。
+fn parse_content_length(headers: &HeaderMap) -> Result<Option<u64>, String> {
+    headers
+        .get(CONTENT_LENGTH)
+        .map(|value| {
+            value
+                .to_str()
+                .map_err(|_| "下载响应的 Content-Length 无效".to_string())?
+                .parse::<u64>()
+                .map_err(|_| "下载响应的 Content-Length 无效".to_string())
+        })
+        .transpose()
+}
+
+/// 校验 416 响应声明的完整远端大小，用于确认未知大小文件的本地断点确已完整。
+fn parse_unsatisfied_content_range(headers: &HeaderMap) -> Result<u64, String> {
+    let value = headers
+        .get(CONTENT_RANGE)
+        .ok_or_else(|| "下载服务拒绝 Range 请求但未提供 Content-Range".to_string())?
+        .to_str()
+        .map_err(|_| "下载服务的 Content-Range 无效".to_string())?;
+    value
+        .strip_prefix("bytes */")
+        .ok_or_else(|| "下载服务的 Content-Range 格式无效".to_string())?
+        .parse::<u64>()
+        .map_err(|_| "下载服务未提供有效的文件总大小".to_string())
+}
+
+/// 确认最终目标路径不存在；符号链接也视为已占用，避免替换用户创建的目录项。
+async fn ensure_download_target_absent(path: &Path) -> Result<(), String> {
+    match tokio::fs::symlink_metadata(path).await {
+        Ok(_) => Err(format!("目标位置已存在同名文件：{}", path.display())),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("检查下载目标失败：{error}")),
+    }
+}
+
+/// 检查身份绑定的续传文件；拒绝符号链接、非普通文件和被其它路径共享的硬链接。
+async fn inspect_download_temp(path: &Path) -> Result<Option<u64>, String> {
+    match tokio::fs::symlink_metadata(path).await {
+        Ok(metadata) => {
+            validate_private_download_metadata(&metadata)?;
+            Ok(Some(metadata.len()))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(format!("检查下载临时文件失败：{error}")),
+    }
+}
+
+/// 校验下载临时文件句柄仍指向同一普通文件，防止打开期间被替换为符号链接。
+async fn validate_open_download_temp(path: &Path, file: &tokio::fs::File) -> Result<(), String> {
+    let path_metadata = tokio::fs::symlink_metadata(path)
+        .await
+        .map_err(|error| format!("检查下载临时文件失败：{error}"))?;
+    let file_metadata = file
+        .metadata()
+        .await
+        .map_err(|error| format!("读取下载临时文件信息失败：{error}"))?;
+    validate_private_download_metadata(&path_metadata)?;
+    validate_private_download_metadata(&file_metadata)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if path_metadata.dev() != file_metadata.dev() || path_metadata.ino() != file_metadata.ino()
+        {
+            return Err("下载临时文件在打开期间被替换，已停止写入".to_string());
+        }
+    }
+    Ok(())
+}
+
+/// 校验文件为单链接普通文件，避免写入符号链接目标或通过硬链接改动其它用户文件。
+fn validate_private_download_metadata(metadata: &std::fs::Metadata) -> Result<(), String> {
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
+        return Err("下载临时文件位置被非普通文件占用".to_string());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if metadata.nlink() != 1 {
+            return Err("下载临时文件存在硬链接，已停止以避免修改其它文件".to_string());
+        }
+    }
+    Ok(())
+}
+
+/// 以追加模式打开并核对续传文件身份，避免跟随替换后的符号链接。
+async fn open_download_temp_append(path: &Path) -> Result<tokio::fs::File, String> {
+    inspect_download_temp(path)
+        .await?
+        .ok_or_else(|| "下载续传文件已不存在".to_string())?;
+    let file = OpenOptions::new()
+        .append(true)
+        .open(path)
+        .await
+        .map_err(|error| format!("打开下载临时文件失败：{error}"))?;
+    validate_open_download_temp(path, &file).await?;
+    Ok(file)
+}
+
+/// 删除已验证的旧断点；只用于服务器忽略 Range 后从头重新下载。
+async fn remove_download_temp(path: &Path) -> Result<(), String> {
+    if inspect_download_temp(path).await?.is_some() {
+        tokio::fs::remove_file(path)
+            .await
+            .map_err(|error| format!("清理旧下载临时文件失败：{error}"))?;
+    }
+    Ok(())
+}
+
 /// 开发构建会频繁改变二进制签名，使用权限为 0600 的用户临时文件避免钥匙串反复询问。
 #[cfg(debug_assertions)]
-fn load_tokens() -> Result<Option<OAuthTokens>, String> {
+fn load_tokens_from_storage() -> Result<Option<OAuthTokens>, String> {
     let path = std::env::temp_dir().join(DEV_TOKEN_FILE);
     match std::fs::read(path) {
         Ok(bytes) => serde_json::from_slice(&bytes)
@@ -3199,7 +3737,7 @@ fn load_tokens() -> Result<Option<OAuthTokens>, String> {
 }
 
 #[cfg(debug_assertions)]
-fn save_tokens(tokens: &OAuthTokens) -> Result<(), String> {
+fn save_tokens_to_storage(tokens: &OAuthTokens) -> Result<(), String> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
 
@@ -3223,7 +3761,7 @@ fn save_tokens(tokens: &OAuthTokens) -> Result<(), String> {
 }
 
 #[cfg(debug_assertions)]
-fn delete_tokens() -> Result<(), String> {
+fn delete_tokens_from_storage() -> Result<(), String> {
     let path = std::env::temp_dir().join(DEV_TOKEN_FILE);
     match std::fs::remove_file(path) {
         Ok(()) => Ok(()),
@@ -3233,18 +3771,22 @@ fn delete_tokens() -> Result<(), String> {
 }
 
 #[cfg(all(not(debug_assertions), target_os = "macos"))]
-fn load_tokens() -> Result<Option<OAuthTokens>, String> {
-    match security_framework::passwords::get_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT) {
+fn load_tokens_from_storage() -> Result<Option<OAuthTokens>, String> {
+    let result = match security_framework::passwords::get_generic_password(
+        KEYCHAIN_SERVICE,
+        KEYCHAIN_ACCOUNT,
+    ) {
         Ok(bytes) => serde_json::from_slice(&bytes)
             .map(Some)
             .map_err(|error| format!("钥匙串中的 115 Token 无效：{error}")),
-        Err(error) if error.code() == -25300 => Ok(None),
+        Err(error) if error.code() == -25300 => return Ok(None),
         Err(error) => Err(format!("读取 macOS 钥匙串失败：{error}")),
-    }
+    };
+    result.map_err(crate::credentials::keychain_read_error)
 }
 
 #[cfg(all(not(debug_assertions), target_os = "macos"))]
-fn save_tokens(tokens: &OAuthTokens) -> Result<(), String> {
+fn save_tokens_to_storage(tokens: &OAuthTokens) -> Result<(), String> {
     let bytes =
         serde_json::to_vec(tokens).map_err(|error| format!("序列化 115 Token 失败：{error}"))?;
     security_framework::passwords::set_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT, &bytes)
@@ -3252,13 +3794,43 @@ fn save_tokens(tokens: &OAuthTokens) -> Result<(), String> {
 }
 
 #[cfg(all(not(debug_assertions), target_os = "macos"))]
-fn delete_tokens() -> Result<(), String> {
+fn delete_tokens_from_storage() -> Result<(), String> {
     match security_framework::passwords::delete_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
     {
         Ok(()) => Ok(()),
         Err(error) if error.code() == -25300 => Ok(()),
         Err(error) => Err(format!("从 macOS 钥匙串删除 115 Token 失败：{error}")),
     }
+}
+
+static TOKEN_CACHE: OnceLock<CredentialCache<OAuthTokens>> = OnceLock::new();
+
+/// 返回进程共享的 115 Token 缓存。
+fn token_cache() -> &'static CredentialCache<OAuthTokens> {
+    TOKEN_CACHE.get_or_init(CredentialCache::new)
+}
+
+/// 读取进程内缓存的 115 Token；首次调用才会访问当前构建对应的持久存储。
+fn load_tokens() -> Result<Option<OAuthTokens>, String> {
+    token_cache().load(load_tokens_from_storage)
+}
+
+/// 持久化 115 Token 并同步更新进程缓存，避免后续请求再次读取钥匙串。
+fn save_tokens(tokens: &OAuthTokens) -> Result<(), String> {
+    token_cache().save(tokens.clone(), || save_tokens_to_storage(tokens))
+}
+
+/// 仅当缓存仍是 `expected` 快照时持久化 `updated`，防止身份响应覆盖并发变更。
+///
+/// `expected` 是用于身份请求的完整旧快照，`updated` 只应在此快照上补入已验证字段；
+/// 返回 `true` 表示写入成功，`false` 表示缓存已变化且本次没有持久化。
+fn update_tokens_if_equal(expected: &OAuthTokens, updated: &OAuthTokens) -> Result<bool, String> {
+    token_cache().update_if_equal(expected, updated.clone(), save_tokens_to_storage)
+}
+
+/// 删除持久化的 115 Token 并同步清空进程缓存。
+fn delete_tokens() -> Result<(), String> {
+    token_cache().delete(delete_tokens_from_storage)
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -3323,6 +3895,105 @@ mod tests {
         assert_eq!(relative, vec!["real/kept.txt"]);
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 缓存未命中时，远端子目录链必须从已创建的上传根目录开始解析。
+    #[test]
+    fn upload_parent_cache_miss_starts_at_remote_root() {
+        let remote_dirs = HashMap::new();
+        let (cached_path, cached_id, missing) =
+            upload_parent_resolution("remote-root", "a/b", &remote_dirs)
+                .expect("relative upload parent should resolve");
+        assert_eq!(cached_path, "");
+        assert_eq!(cached_id, "remote-root");
+        assert_eq!(missing, vec!["a", "b"]);
+
+        let mut remote_dirs = HashMap::from([
+            (String::new(), "remote-root".to_string()),
+            ("a".to_string(), "remote-a".to_string()),
+        ]);
+        let (cached_path, cached_id, missing) =
+            upload_parent_resolution("remote-root", "a/b", &remote_dirs)
+                .expect("cached upload parent should resolve");
+        assert_eq!(cached_path, "a");
+        assert_eq!(cached_id, "remote-a");
+        assert_eq!(missing, vec!["b"]);
+
+        remote_dirs.insert(String::new(), "different-root".to_string());
+        assert!(upload_parent_resolution("remote-root", "a/b", &remote_dirs).is_err());
+    }
+
+    /// 续传临时路径稳定绑定 pick_code 与文件大小，并与旧版无身份文件名隔离。
+    #[test]
+    fn download_temp_path_is_bound_to_remote_identity() {
+        let dir = std::env::temp_dir();
+        let first = download_temp_path(&dir, "pick-a", 100);
+        assert_eq!(first, download_temp_path(&dir, "pick-a", 100));
+        assert_ne!(first, download_temp_path(&dir, "pick-b", 100));
+        assert_ne!(first, download_temp_path(&dir, "pick-a", 101));
+        assert_ne!(
+            first,
+            dir.join("movie.mkv.sirius-part"),
+            "旧版无身份临时文件不得复用"
+        );
+    }
+
+    /// 最终目标若在下载期间出现，落盘失败且保留用户已有内容。
+    #[test]
+    fn finalize_download_does_not_overwrite_existing_target() {
+        let root = std::env::temp_dir().join(format!(
+            "sirius-download-finalize-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let temp_path = root.join("identity-part");
+        let final_path = root.join("movie.mkv");
+        std::fs::write(&temp_path, b"downloaded").unwrap();
+        std::fs::write(&final_path, b"user data").unwrap();
+
+        let result = tauri::async_runtime::block_on(Cloud115Provider::finalize_download(
+            &temp_path,
+            &final_path,
+        ));
+        assert!(result.is_err());
+        assert_eq!(std::fs::read(&final_path).unwrap(), b"user data");
+        assert_eq!(std::fs::read(&temp_path).unwrap(), b"downloaded");
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// Range 响应必须精确覆盖请求断点到文件尾，且总大小和正文长度互相一致。
+    #[test]
+    fn validates_download_content_range_and_size() {
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_RANGE, HeaderValue::from_static("bytes 4-9/10"));
+        headers.insert(CONTENT_LENGTH, HeaderValue::from_static("6"));
+        let plan = validate_download_response(StatusCode::PARTIAL_CONTENT, 4, 10, &headers)
+            .expect("matching range response should be accepted");
+        assert!(plan.append);
+        assert_eq!(plan.body_bytes, Some(6));
+        assert_eq!(plan.total_bytes, Some(10));
+
+        assert!(validate_download_response(StatusCode::PARTIAL_CONTENT, 5, 10, &headers).is_err());
+        assert!(validate_download_response(StatusCode::PARTIAL_CONTENT, 4, 11, &headers).is_err());
+        headers.insert(CONTENT_LENGTH, HeaderValue::from_static("5"));
+        assert!(validate_download_response(StatusCode::PARTIAL_CONTENT, 4, 10, &headers).is_err());
+    }
+
+    /// 服务端忽略 Range 时只允许从头覆盖身份临时文件，并校验完整响应大小。
+    #[test]
+    fn validates_full_download_content_length() {
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_LENGTH, HeaderValue::from_static("10"));
+        let plan = validate_download_response(StatusCode::OK, 4, 10, &headers)
+            .expect("full response with matching length should be accepted");
+        assert!(!plan.append);
+        assert_eq!(plan.body_bytes, Some(10));
+        assert_eq!(plan.total_bytes, Some(10));
+        assert!(validate_download_response(StatusCode::OK, 4, 11, &headers).is_err());
     }
 
     #[test]
@@ -3861,6 +4532,94 @@ mod tests {
         assert_eq!(source.url, "https://cdn.115.com/original.mkv");
         assert_eq!(source.quality, "原画");
         assert!(source.fallback_options.is_empty());
+    }
+
+    /// Token 响应缺少账号 ID 时，只从同一凭据的用户资料补入真实非零 ID。
+    #[test]
+    fn token_without_user_id_uses_verified_profile_identity() {
+        let tokens = parse_tokens(
+            &serde_json::json!({
+                "access_token": "fixture-access",
+                "refresh_token": "fixture-refresh",
+                "expires_in": 7200,
+                "user_name": "fixture-user"
+            }),
+            None,
+        )
+        .expect("token response without user_id should parse as pending identity");
+        assert_eq!(tokens.user_id, 0);
+
+        let profile = parse_user_profile(&serde_json::json!({
+            "user_id": 314159,
+            "user_name": "fixture-user"
+        }))
+        .expect("profile should provide the authoritative account ID");
+        let verified = bind_verified_user_id(&tokens, profile.user_id)
+            .expect("verified profile ID should complete the token");
+
+        assert_eq!(verified.user_id, 314159);
+        assert_eq!(verified.access_token, tokens.access_token);
+        assert_eq!(verified.refresh_token, tokens.refresh_token);
+        assert_eq!(verified.expires_at, tokens.expires_at);
+        assert_eq!(verified.user_name, tokens.user_name);
+    }
+
+    /// 服务端零 ID 与 Token/资料身份冲突都明确失败，当前缓存快照保持不变。
+    #[test]
+    fn rejects_zero_or_conflicting_profile_identity_without_replacing_tokens() {
+        let cached = OAuthTokens {
+            access_token: "cached-access".to_string(),
+            refresh_token: "cached-refresh".to_string(),
+            expires_at: 100,
+            user_id: 71,
+            user_name: "cached-user".to_string(),
+        };
+        let cache = CredentialCache::new();
+        cache
+            .save(cached.clone(), || Ok(()))
+            .expect("fixture token should enter the offline cache");
+
+        assert!(parse_user_profile(&serde_json::json!({
+            "user_id": 0,
+            "user_name": "fixture-user"
+        }))
+        .unwrap_err()
+        .contains("必须大于零"));
+        assert!(bind_verified_user_id(&cached, 72)
+            .unwrap_err()
+            .contains("不一致"));
+        assert_eq!(
+            cache
+                .load(|| panic!("cached token should remain available"))
+                .unwrap(),
+            Some(cached)
+        );
+    }
+
+    /// 115 刷新响应即使不携带账号 ID，也必须保留此前已验证的身份和用户名。
+    #[test]
+    fn token_refresh_preserves_verified_account_identity() {
+        let previous = OAuthTokens {
+            access_token: "old-access".to_string(),
+            refresh_token: "old-refresh".to_string(),
+            expires_at: 1,
+            user_id: 314159,
+            user_name: "fixture-user".to_string(),
+        };
+        let refreshed = parse_tokens(
+            &serde_json::json!({
+                "access_token": "new-access",
+                "refresh_token": "new-refresh",
+                "expires_in": 7200
+            }),
+            Some(&previous),
+        )
+        .expect("refresh response should reuse verified identity");
+
+        assert_eq!(refreshed.access_token, "new-access");
+        assert_eq!(refreshed.refresh_token, "new-refresh");
+        assert_eq!(refreshed.user_id, previous.user_id);
+        assert_eq!(refreshed.user_name, previous.user_name);
     }
 
     /// 档位去重：同画质名只保留服务端第一条；与原画同址的线路不重复进入 fallback。
@@ -4456,6 +5215,7 @@ mod tests {
                     .to_string();
                 let session = UploadSession {
                     id: format!("resume-test-{suffix}"),
+                    account_id: provider.account_id()?,
                     local_path: local_path.to_string_lossy().into_owned(),
                     file_name: file_name.clone(),
                     target_id: folder.id.clone(),

@@ -352,31 +352,27 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .file-metadata { max-width:1320px; margin:54px auto 0; padding:18px 0 116px; border-top:1px solid var(--hairline); color:var(--muted); font-size:12px; line-height:1.6; }
 .file-metadata p { margin:3px 0; }
 
-.error-banner { display:grid; grid-template-columns:20px 1fr 24px; align-items:center; gap:9px; max-width:1320px; margin:-18px auto 24px; padding:11px 13px; border:1px solid color-mix(in srgb, var(--danger) 26%, var(--surface)); border-radius:10px; background:var(--danger-soft); color:var(--danger-ink); font-size:12px; }
-.error-banner button { display:grid; place-items:center; padding:0; border:0; background:transparent; color:inherit; cursor:pointer; }
-.now-playing { position:fixed; right:24px; bottom:20px; left:248px; display:grid; grid-template-columns:42px minmax(120px,200px) auto 34px 34px 34px minmax(160px,1fr) auto auto; align-items:center; gap:10px; padding:10px 12px; border:1px solid var(--frosted-border); border-radius: var(--radius-xl); background:var(--frosted-bg); backdrop-filter:var(--frosted-blur); box-shadow:var(--shadow-3), inset 0 1px 0 var(--frosted-highlight); z-index:2; }
-.now-playing-art { width:42px; height:42px; overflow:hidden; border-radius: var(--radius-md); background:#0d1830; }
+.now-playing { position:fixed; right:24px; bottom:20px; left:248px; display:flex; align-items:center; gap:10px; padding:10px 12px; border:1px solid var(--frosted-border); border-radius: var(--radius-xl); background:var(--frosted-bg); backdrop-filter:var(--frosted-blur); box-shadow:var(--shadow-3), inset 0 1px 0 var(--frosted-highlight); z-index:2; }
+.now-playing-art { flex:none; width:42px; height:42px; overflow:hidden; border-radius: var(--radius-md); background:#0d1830; }
 .now-playing-art img { display:block; width:100%; height:100%; object-fit:cover; }
-.now-playing-copy { display:flex; min-width:0; flex-direction:column; }
+.now-playing-copy { flex:1; display:flex; min-width:0; flex-direction:column; }
 .now-playing-copy small { color:var(--muted); font-size:12px; }
 .now-playing-copy strong { overflow:hidden; margin-top:3px; font-size:13px; text-overflow:ellipsis; white-space:nowrap; }
 .pause-icon { width:10px; height:12px; border-right:3px solid currentColor; border-left:3px solid currentColor; }
-.mini-progress { display:grid; grid-template-columns:1fr 72px; align-items:center; gap:10px; }
+.mini-progress { display:grid; grid-template-columns:minmax(0,1fr) 72px; align-items:center; gap:10px; }
 .mini-progress input { width:100%; height:3px; appearance:none; border-radius:2px; background:linear-gradient(to right,var(--primary) var(--progress),var(--hairline-strong) var(--progress)); }
 .mini-progress input::-webkit-slider-thumb { width:10px; height:10px; appearance:none; border-radius:50%; background:var(--primary); }
 .mini-progress span { color:var(--muted); font:12px ui-monospace,SFMono-Regular,monospace; }
-.stop-control { height:34px; padding:0 10px; border:0; background:transparent; color:var(--muted); font-size:12px; cursor:pointer; }
+.stop-control { height:34px; padding:0 10px; border:0; background:transparent; color:var(--muted); font-size:12px; white-space:nowrap; cursor:pointer; }
 
-/* 画质切换：按钮 + 向上弹出的档位菜单。只有一档时按钮不渲染（见 App.tsx）。 */
-.quality-picker { position:relative; }
-.quality-picker-button { display:inline-flex; height:28px; padding:0 8px; align-items:center; gap:4px; border:1px solid var(--hairline-strong); border-radius:6px; background:var(--surface); color:var(--fg); font-size:12px; white-space:nowrap; cursor:pointer; }
-.quality-picker-button:hover { border-color:var(--primary-ink); }
-.quality-picker-button svg { transform:rotate(180deg); }
-
-.quality-picker-menu { position:absolute; bottom:calc(100% + 6px); left:0; z-index:5; display:grid; min-width:120px; padding:4px; border:1px solid var(--hairline-strong); border-radius:var(--radius-md); background:var(--surface-elevated); box-shadow:var(--shadow-2); }
-.quality-picker-menu button { display:flex; height:30px; padding:0 8px; align-items:center; justify-content:space-between; gap:8px; border:0; border-radius:5px; background:transparent; color:var(--fg); font-size:12px; text-align:left; white-space:nowrap; cursor:pointer; }
-.quality-picker-menu button:hover { background:var(--surface-hover); }
-.quality-picker-menu button.active { color:var(--primary-ink); font-weight:500; }
+/* 视频的完整控制位于画面窗口；工作区只保留当前播放信息和明确的返回入口。 */
+.now-playing.now-playing-summary { display:flex; gap:12px; }
+.now-playing-summary .now-playing-copy { flex:1; min-width:0; }
+.now-playing-time { flex:none; color:var(--muted); font:12px ui-monospace,SFMono-Regular,monospace; white-space:nowrap; }
+.player-return-button { display:inline-flex; height:34px; flex:none; align-items:center; gap:6px; padding:0 12px; border:1px solid var(--hairline-strong); border-radius:var(--radius-md); background:var(--surface); color:var(--fg); font-size:12px; white-space:nowrap; cursor:pointer; }
+.player-return-button:hover { border-color:var(--primary-ink); color:var(--primary-ink); }
+.player-return-button:focus-visible { outline:2px solid var(--primary); outline-offset:3px; }
+@media (max-width:900px) { .now-playing-summary .now-playing-time { display:none; } }
 
 /* AI 整理计划表 —— 由对话面板方案卡与检查视图复用（DESIGN.md §16 modes.ai） */
 .ai-text-input { width:250px; height:38px; padding:0 11px; border:1px solid var(--hairline-strong); border-radius:8px; background:var(--surface); color:var(--fg); font-size:13px; }

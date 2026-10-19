@@ -1,7 +1,9 @@
-use crate::cloud115::{Cloud115FileEntry, Cloud115Provider};
+use crate::cloud115::{Cloud115FileEntry, Cloud115FilePage, Cloud115Provider};
 use crate::library::LibraryRepository;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
+use std::future::Future;
+use std::pin::Pin;
 use std::time::Duration;
 
 /// 单次识别读取的目录条目上限：大目录性能上限先行，自动索引与缩略图缓存留待后续。
@@ -96,13 +98,16 @@ fn civil_from_days(days_since_epoch: i64) -> (i64, u32, u32) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
-/// 只读识别一个目录：图片按 UTC 月份聚合成时间线，其他文件只计数；结果持久化到本机索引。
-/// 识别的总 list_files 请求预算（含首层）：BFS 逐层下探直到照片层或预算耗尽，
-/// 与每层 200 项上限共同构成大目录性能边界（最坏 12 次控制请求 ≈ 12 秒）。
+/// 单次照片识别的 list_files 请求预算（含首层）；与每页 200 项共同限制扫描成本。
 const SCAN_REQUEST_BUDGET: usize = 12;
 /// 每一层最多下探的文件夹数，防止单层海量目录吃光预算。
 const SUBFOLDERS_PER_LEVEL: usize = 8;
 
+/// 手动识别一个目录并按 UTC 月份整理照片；只有完整结果会覆盖本机索引。
+///
+/// `provider` 读取 115 目录，`repository` 保存完整索引，`input` 提供目录 ID 与展示名称。
+/// 返回识别汇总；若触及扫描预算，会返回 `truncated=true` 的结果且保留原索引；网络或存储
+/// 错误向调用方传播。
 pub async fn recognize_photos(
     provider: &Cloud115Provider,
     repository: &LibraryRepository,
@@ -119,48 +124,23 @@ pub async fn recognize_photos(
         return Err("该目录没有可识别的内容".to_string());
     }
 
-    // 手机备份把照片嵌套在「相册/设备/分类」等多层文件夹里：
-    // BFS 逐层下探（每层最多 8 个文件夹），直到照片层或请求预算耗尽。
-    let mut all_entries = page.entries.clone();
-    let mut truncated = page.has_more;
-    let mut budget = SCAN_REQUEST_BUDGET.saturating_sub(1);
-    let mut queue: std::collections::VecDeque<Cloud115FileEntry> = page
-        .entries
-        .iter()
-        .filter(|entry| entry.kind == "folder")
-        .take(SUBFOLDERS_PER_LEVEL)
-        .cloned()
-        .collect();
-    while budget > 0 {
-        let Some(next) = queue.pop_front() else {
-            break;
-        };
-        budget -= 1;
-        if let Ok(mut sub_page) = provider.list_files(&next.id, 0, SCAN_PAGE_LIMIT, "").await {
-            // 命中照片层后停止下探：更深的目录通常是应用私有结构。
-            let has_images = sub_page
-                .entries
-                .iter()
-                .any(|entry| IMAGE_EXTENSIONS.contains(&entry.extension.to_lowercase().as_str()));
-            truncated = truncated || sub_page.has_more;
-            if !has_images {
-                for entry in sub_page
-                    .entries
-                    .iter()
-                    .filter(|entry| entry.kind == "folder")
-                    .take(SUBFOLDERS_PER_LEVEL)
-                {
-                    queue.push_back(entry.clone());
-                }
-            }
-            all_entries.append(&mut sub_page.entries);
-        }
-    }
+    let (all_entries, truncated) = scan_photo_tree(page, |folder_id| {
+        Box::pin(async move {
+            provider
+                .list_files(&folder_id, 0, SCAN_PAGE_LIMIT, "")
+                .await
+        })
+    })
+    .await?;
     if all_entries.is_empty() {
         return Err("该目录没有可识别的内容".to_string());
     }
 
     let overview = group_photos(&all_entries, folder_id, input.folder_name.trim(), truncated);
+    // 预算或分页上限造成的扫描结果不能覆盖此前的完整索引。
+    if overview.truncated {
+        return Ok(overview);
+    }
     // 幂等覆盖该目录的索引；索引行数由仓储层限制在最近 50 个目录。
     let payload =
         serde_json::to_string(&overview).map_err(|error| format!("序列化相册索引失败：{error}"))?;
@@ -175,6 +155,68 @@ pub async fn recognize_photos(
             .sum::<usize>() as i64,
     )?;
     Ok(overview)
+}
+
+/// 按既有性能上限扫描照片目录树；任何未处理页或目录都会显式标记为截断。
+///
+/// `root_page` 是调用方已读取的首层页面；`list_directory` 读取一个子目录，返回其页面或
+/// 可供用户诊断的错误。返回所有已读取条目及完整性标记；子目录读取失败时返回错误。
+async fn scan_photo_tree<'a, F>(
+    root_page: Cloud115FilePage,
+    mut list_directory: F,
+) -> Result<(Vec<Cloud115FileEntry>, bool), String>
+where
+    F: FnMut(String) -> Pin<Box<dyn Future<Output = Result<Cloud115FilePage, String>> + Send + 'a>>,
+{
+    // 手机备份常把照片嵌在多层目录中；保留 BFS，并明确标出触及任一边界的结果。
+    let mut all_entries = root_page.entries;
+    let mut truncated = root_page.has_more;
+    let root_folders: Vec<Cloud115FileEntry> = all_entries
+        .iter()
+        .filter(|entry| entry.kind == "folder")
+        .cloned()
+        .collect();
+    if root_folders.len() > SUBFOLDERS_PER_LEVEL {
+        truncated = true;
+    }
+    let mut queue: VecDeque<Cloud115FileEntry> = root_folders
+        .into_iter()
+        .take(SUBFOLDERS_PER_LEVEL)
+        .collect();
+    let mut budget = SCAN_REQUEST_BUDGET.saturating_sub(1);
+
+    while budget > 0 {
+        let Some(next) = queue.pop_front() else {
+            break;
+        };
+        budget -= 1;
+        let mut sub_page = list_directory(next.id.clone())
+            .await
+            .map_err(|error| format!("读取相册子目录「{}」失败：{error}", next.name))?;
+        let has_images = sub_page
+            .entries
+            .iter()
+            .any(|entry| IMAGE_EXTENSIONS.contains(&entry.extension.to_lowercase().as_str()));
+        truncated |= sub_page.has_more;
+        let child_folders: Vec<Cloud115FileEntry> = sub_page
+            .entries
+            .iter()
+            .filter(|entry| entry.kind == "folder")
+            .cloned()
+            .collect();
+        if has_images {
+            // 命中照片层后仍停止深入私有结构，但把被略过的后代目录记为不完整。
+            truncated |= !child_folders.is_empty();
+        } else {
+            if child_folders.len() > SUBFOLDERS_PER_LEVEL {
+                truncated = true;
+            }
+            queue.extend(child_folders.into_iter().take(SUBFOLDERS_PER_LEVEL));
+        }
+        all_entries.append(&mut sub_page.entries);
+    }
+    truncated |= !queue.is_empty();
+    Ok((all_entries, truncated))
 }
 
 /// 批量索引：顺序识别多个目录并各自持久化；单次上限 20 个目录，写操作间留出限速间隔。
@@ -352,6 +394,16 @@ fn group_photos(
 mod tests {
     use super::*;
 
+    fn page(entries: Vec<Cloud115FileEntry>, has_more: bool) -> Cloud115FilePage {
+        Cloud115FilePage {
+            total: entries.len() as u64,
+            offset: 0,
+            limit: SCAN_PAGE_LIMIT,
+            entries,
+            has_more,
+        }
+    }
+
     fn entry(
         id: &str,
         name: &str,
@@ -377,6 +429,10 @@ mod tests {
             thumb_url: thumb_url.map(str::to_string),
             children: None,
         }
+    }
+
+    fn folder_entry(id: &str) -> Cloud115FileEntry {
+        entry(id, &format!("目录 {id}"), "", 0, None)
     }
 
     fn overview(
@@ -470,5 +526,49 @@ mod tests {
         assert_eq!(months[0].photos[0].name, "a.jpg");
         assert_eq!(months[1].month_key, "2026-01");
         assert_eq!(months[1].photo_count, 1);
+    }
+
+    #[tokio::test]
+    async fn scan_photo_tree_marks_skipped_folders_and_remaining_budget_queue() {
+        let root_entries: Vec<Cloud115FileEntry> = (0..10)
+            .map(|index| folder_entry(&format!("root-{index}")))
+            .collect();
+        let root = page(root_entries, false);
+        let mut requested = Vec::new();
+        let (entries, truncated) = scan_photo_tree(root, |folder_id| {
+            requested.push(folder_id.clone());
+            let child_entries = if folder_id.starts_with("root-") {
+                vec![
+                    folder_entry(&format!("child-{folder_id}-a")),
+                    folder_entry(&format!("child-{folder_id}-b")),
+                ]
+            } else {
+                Vec::new()
+            };
+            let response = page(child_entries, false);
+            Box::pin(async move { Ok(response) })
+        })
+        .await
+        .unwrap();
+
+        assert!(truncated);
+        // 首层只请求前 8 个目录；第 9、10 个目录以及预算耗尽时剩余队列均被标明。
+        assert_eq!(requested.len(), SCAN_REQUEST_BUDGET - 1);
+        assert!(requested.iter().all(|id| id != "root-8" && id != "root-9"));
+        assert_eq!(entries.len(), 10 + 8 * 2);
+    }
+
+    #[tokio::test]
+    async fn scan_photo_tree_propagates_child_directory_errors() {
+        let root = page(vec![folder_entry("broken")], false);
+        let error = scan_photo_tree(root, |folder_id| {
+            let response = Err(format!("network failure for {folder_id}"));
+            Box::pin(async move { response })
+        })
+        .await
+        .unwrap_err();
+
+        assert!(error.contains("读取相册子目录「目录 broken」失败"));
+        assert!(error.contains("network failure for broken"));
     }
 }

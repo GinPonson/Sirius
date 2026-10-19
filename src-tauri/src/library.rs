@@ -31,6 +31,35 @@ pub struct BackupFileState {
     pub remote_file_id: String,
 }
 
+/// 一次磁盘文件快照；纳秒级时间避免同一秒内的等长编辑被误判为未变化。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BackupFingerprint {
+    pub size_bytes: u64,
+    pub modified_at: u64,
+}
+
+impl BackupFingerprint {
+    /// 读取普通文件的大小与修改时间；路径无效、符号链接或时间不可读时返回错误。
+    pub fn read(path: &Path) -> Result<Self, String> {
+        let metadata = std::fs::symlink_metadata(path)
+            .map_err(|error| format!("读取备份文件 {} 信息失败：{error}", path.display()))?;
+        if !metadata.is_file() {
+            return Err(format!("备份源不是普通文件：{}", path.display()));
+        }
+        let modified_at = metadata
+            .modified()
+            .map_err(|error| format!("读取备份文件修改时间失败：{error}"))?
+            .duration_since(UNIX_EPOCH)
+            .map_err(|error| format!("备份文件修改时间无效：{error}"))?
+            .as_nanos();
+        Ok(Self {
+            size_bytes: metadata.len(),
+            modified_at: u64::try_from(modified_at)
+                .map_err(|_| "备份文件修改时间超出支持范围".to_string())?,
+        })
+    }
+}
+
 /// 扫描结果：需要上传的文件与统计。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -178,6 +207,8 @@ pub struct UploadPartState {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UploadSession {
+    /// 创建会话的 115 用户；恢复上传时必须与当前登录账号一致。
+    pub account_id: u64,
     pub id: String,
     pub local_path: String,
     pub file_name: String,
@@ -378,11 +409,13 @@ impl LibraryRepository {
                    ON ai_chat_messages(session_id, seq);
                  CREATE TABLE IF NOT EXISTS backup_pairs (
                    id TEXT PRIMARY KEY,
-                   local_path TEXT NOT NULL UNIQUE,
+                   account_id INTEGER CHECK (account_id > 0),
+                   local_path TEXT NOT NULL,
                    remote_folder_id TEXT NOT NULL,
                    remote_folder_name TEXT NOT NULL,
                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                   last_synced_at TEXT
+                   last_synced_at TEXT,
+                   UNIQUE(account_id,local_path)
                  );
                  CREATE INDEX IF NOT EXISTS idx_backup_pairs_created
                    ON backup_pairs(created_at DESC);
@@ -399,6 +432,7 @@ impl LibraryRepository {
             .map_err(|error| format!("迁移 SQLite 媒体库失败：{error}"))?;
 
         let mut connection = connection;
+        migrate_account_ownership(&mut connection)?;
         seed_library_if_empty(&mut connection)?;
         Ok(Self {
             connection: Mutex::new(connection),
@@ -629,6 +663,61 @@ impl LibraryRepository {
             .commit()
             .map_err(|error| format!("提交对话消息写入事务失败：{error}"))?;
         Ok(())
+    }
+
+    /// 读取重生成目标、对应用户消息和截至该用户的历史；拒绝跨会话或非助手目标。
+    /// 返回顺序为（原助手、原用户、含原用户的历史），后续轮次不会进入新请求。
+    pub fn regenerate_ai_chat_context(
+        &self,
+        session_id: &str,
+        assistant_id: &str,
+    ) -> Result<(AiChatMessageRow, AiChatMessageRow, Vec<AiChatMessageRow>), String> {
+        let history = self.ai_chat_messages(session_id)?;
+        let target_index = history
+            .iter()
+            .position(|row| row.id == assistant_id && row.role == "assistant")
+            .ok_or_else(|| "重新生成目标不存在或不是当前会话的助手消息".to_string())?;
+        let user_index = history[..target_index]
+            .iter()
+            .rposition(|row| row.role == "user")
+            .ok_or_else(|| "助手消息缺少对应的用户消息，无法重新生成".to_string())?;
+        Ok((
+            history[target_index].clone(),
+            history[user_index].clone(),
+            history[..=user_index].to_vec(),
+        ))
+    }
+
+    /// 原位替换指定会话的助手内容；保留消息顺序、用户上下文和后续轮次。
+    pub fn replace_ai_chat_assistant_content(
+        &self,
+        session_id: &str,
+        assistant_id: &str,
+        content: &str,
+    ) -> Result<(), String> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| "SQLite 媒体库锁已损坏，必须重启应用".to_string())?;
+        let transaction = connection
+            .transaction()
+            .map_err(|error| format!("开始替换助手回复失败：{error}"))?;
+        let changed = transaction.execute(
+            "UPDATE ai_chat_messages SET content=?3 WHERE session_id=?1 AND id=?2 AND role='assistant'",
+            params![session_id, assistant_id, content],
+        ).map_err(|error| format!("替换助手回复失败：{error}"))?;
+        if changed != 1 {
+            return Err("重新生成目标不存在或不属于当前会话".to_string());
+        }
+        transaction
+            .execute(
+                "UPDATE ai_chat_sessions SET updated_at=CURRENT_TIMESTAMP WHERE id=?1",
+                [session_id],
+            )
+            .map_err(|error| format!("更新对话时间失败：{error}"))?;
+        transaction
+            .commit()
+            .map_err(|error| format!("提交助手回复失败：{error}"))
     }
 
     /// 删除会话及其全部消息；消息经外键级联清除（open 时已开启 foreign_keys）。
@@ -974,13 +1063,13 @@ impl LibraryRepository {
             .connection
             .lock()
             .map_err(|_| "SQLite 媒体库锁已损坏，必须重启应用".to_string())?;
-        connection
+        let changed = connection
             .execute(
                 "INSERT INTO upload_sessions
                  (id,local_path,file_name,target_id,file_size,file_sha1,pre_sha1,pick_code,
                   bucket,object_key,upload_id,callback,callback_var,part_size,
-                  completed_parts_json,status)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)
+                  completed_parts_json,status,account_id)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)
                  ON CONFLICT(id) DO UPDATE SET
                    local_path=excluded.local_path,file_name=excluded.file_name,
                    target_id=excluded.target_id,file_size=excluded.file_size,
@@ -990,7 +1079,8 @@ impl LibraryRepository {
                    callback=excluded.callback,callback_var=excluded.callback_var,
                    part_size=excluded.part_size,
                    completed_parts_json=excluded.completed_parts_json,
-                   status=excluded.status,updated_at=CURRENT_TIMESTAMP",
+                   status=excluded.status,updated_at=CURRENT_TIMESTAMP
+                 WHERE upload_sessions.account_id=excluded.account_id",
                 params![
                     session.id,
                     session.local_path,
@@ -1010,14 +1100,18 @@ impl LibraryRepository {
                         .map_err(|_| "上传分片大小超出 SQLite 整数范围".to_string())?,
                     completed_parts_json,
                     session.status,
+                    account_key(session.account_id)?,
                 ],
             )
             .map_err(|error| format!("保存上传会话失败：{error}"))?;
+        if changed == 0 {
+            return Err("上传会话不属于当前 115 账号，拒绝覆盖".to_string());
+        }
         Ok(())
     }
 
-    /// 返回全部未完成上传会话，供启动恢复与任务页展示。
-    pub fn upload_sessions(&self) -> Result<Vec<UploadSession>, String> {
+    /// 返回指定 115 账号的未完成上传会话；未知归属的历史记录不对任何账号开放。
+    pub fn upload_sessions(&self, account_id: u64) -> Result<Vec<UploadSession>, String> {
         let connection = self
             .connection
             .lock()
@@ -1026,12 +1120,12 @@ impl LibraryRepository {
             .prepare(
                 "SELECT id,local_path,file_name,target_id,file_size,file_sha1,pre_sha1,
                         pick_code,bucket,object_key,upload_id,callback,callback_var,part_size,
-                        completed_parts_json,status
-                 FROM upload_sessions ORDER BY updated_at DESC,id DESC",
+                        completed_parts_json,status,account_id
+                 FROM upload_sessions WHERE account_id=?1 ORDER BY updated_at DESC,id DESC",
             )
             .map_err(|error| format!("准备上传会话查询失败：{error}"))?;
         let rows = statement
-            .query_map([], upload_session_from_row)
+            .query_map([account_key(account_id)?], upload_session_from_row)
             .map_err(|error| format!("执行上传会话查询失败：{error}"))?;
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(|error| format!("读取上传会话失败：{error}"))?
@@ -1041,7 +1135,7 @@ impl LibraryRepository {
     }
 
     /// 上传完成或用户明确取消后删除对应会话，不影响其它任务记录。
-    pub fn delete_upload_session(&self, id: &str) -> Result<(), String> {
+    pub fn delete_upload_session(&self, account_id: u64, id: &str) -> Result<(), String> {
         if id.trim().is_empty() {
             return Err("上传会话 ID 不能为空".to_string());
         }
@@ -1049,9 +1143,15 @@ impl LibraryRepository {
             .connection
             .lock()
             .map_err(|_| "SQLite 媒体库锁已损坏，必须重启应用".to_string())?;
-        connection
-            .execute("DELETE FROM upload_sessions WHERE id=?1", [id])
+        let changed = connection
+            .execute(
+                "DELETE FROM upload_sessions WHERE id=?1 AND account_id=?2",
+                params![id, account_key(account_id)?],
+            )
             .map_err(|error| format!("删除上传会话失败：{error}"))?;
+        if changed == 0 {
+            return Err("上传会话不存在或不属于当前 115 账号".to_string());
+        }
         Ok(())
     }
 
@@ -1062,6 +1162,7 @@ impl LibraryRepository {
     /// 新增一条备份配对；本地路径唯一，重复添加会被 SQLite 拒绝。
     pub fn add_backup_pair(
         &self,
+        account_id: u64,
         local_path: &str,
         remote_folder_id: &str,
         remote_folder_name: &str,
@@ -1072,20 +1173,22 @@ impl LibraryRepository {
         {
             return Err("备份的本地路径与云端目录都不能为空".to_string());
         }
-        let id = format!("backup-{}", unix_timestamp_millis()?);
+        let account_id = account_key(account_id)?;
+        let id = format!("backup-{account_id}-{}", unix_timestamp_millis()?);
         let connection = self
             .connection
             .lock()
             .map_err(|_| "SQLite 媒体库锁已损坏，必须重启应用".to_string())?;
         connection
             .execute(
-                "INSERT INTO backup_pairs (id,local_path,remote_folder_id,remote_folder_name)
-                 VALUES (?1,?2,?3,?4)",
+                "INSERT INTO backup_pairs (id,local_path,remote_folder_id,remote_folder_name,account_id)
+                 VALUES (?1,?2,?3,?4,?5)",
                 rusqlite::params![
                     id,
                     local_path.trim(),
                     remote_folder_id.trim(),
-                    remote_folder_name.trim()
+                    remote_folder_name.trim(),
+                    account_id
                 ],
             )
             .map_err(|error| {
@@ -1107,7 +1210,7 @@ impl LibraryRepository {
     }
 
     /// 返回全部备份配对，并附带已同步/待同步文件数（按本地状态表统计）。
-    pub fn backup_pairs(&self) -> Result<Vec<BackupPair>, String> {
+    pub fn backup_pairs(&self, account_id: u64) -> Result<Vec<BackupPair>, String> {
         let connection = self
             .connection
             .lock()
@@ -1116,11 +1219,11 @@ impl LibraryRepository {
             .prepare(
                 "SELECT p.id,p.local_path,p.remote_folder_id,p.remote_folder_name,p.last_synced_at,
                         (SELECT COUNT(*) FROM backup_file_state s WHERE s.pair_id = p.id)
-                 FROM backup_pairs p ORDER BY p.created_at DESC, p.id DESC",
+                 FROM backup_pairs p WHERE p.account_id=?1 ORDER BY p.created_at DESC, p.id DESC",
             )
             .map_err(|error| format!("准备备份列表查询失败：{error}"))?;
         let rows = statement
-            .query_map([], |row| {
+            .query_map([account_key(account_id)?], |row| {
                 Ok(BackupPair {
                     id: row.get(0)?,
                     local_path: row.get(1)?,
@@ -1138,7 +1241,7 @@ impl LibraryRepository {
     }
 
     /// 删除一条备份配对；已同步记录随外键级联清理，不影响云端文件。
-    pub fn delete_backup_pair(&self, id: &str) -> Result<(), String> {
+    pub fn delete_backup_pair(&self, account_id: u64, id: &str) -> Result<(), String> {
         if id.trim().is_empty() {
             return Err("备份配对 ID 不能为空".to_string());
         }
@@ -1147,10 +1250,13 @@ impl LibraryRepository {
             .lock()
             .map_err(|_| "SQLite 媒体库锁已损坏，必须重启应用".to_string())?;
         let affected = connection
-            .execute("DELETE FROM backup_pairs WHERE id=?1", [id])
+            .execute(
+                "DELETE FROM backup_pairs WHERE id=?1 AND account_id=?2",
+                params![id, account_key(account_id)?],
+            )
             .map_err(|error| format!("删除备份配对失败：{error}"))?;
         if affected == 0 {
-            return Err("指定的备份配对不存在".to_string());
+            return Err("备份配对不存在或不属于当前 115 账号".to_string());
         }
         Ok(())
     }
@@ -1158,12 +1264,14 @@ impl LibraryRepository {
     /// 返回某个配对已同步文件的相对路径 → 本地指纹映射，供扫描时判断是否需要上传。
     pub fn backup_file_states(
         &self,
+        account_id: u64,
         pair_id: &str,
     ) -> Result<HashMap<String, BackupFileState>, String> {
         let connection = self
             .connection
             .lock()
             .map_err(|_| "SQLite 媒体库锁已损坏，必须重启应用".to_string())?;
+        ensure_backup_owner(&connection, account_id, pair_id)?;
         let mut statement = connection
             .prepare(
                 "SELECT relative_path,local_size,local_modified_at,remote_file_id
@@ -1189,6 +1297,7 @@ impl LibraryRepository {
     /// 记录单个文件已同步；同一相对路径重复同步时覆盖指纹。
     pub fn record_backup_file(
         &self,
+        account_id: u64,
         pair_id: &str,
         relative_path: &str,
         local_size: u64,
@@ -1199,6 +1308,7 @@ impl LibraryRepository {
             .connection
             .lock()
             .map_err(|_| "SQLite 媒体库锁已损坏，必须重启应用".to_string())?;
+        ensure_backup_owner(&connection, account_id, pair_id)?;
         connection
             .execute(
                 "INSERT INTO backup_file_state
@@ -1212,8 +1322,9 @@ impl LibraryRepository {
                 rusqlite::params![
                     pair_id,
                     relative_path,
-                    local_size as i64,
-                    local_modified_at as i64,
+                    i64::try_from(local_size).map_err(|_| "备份文件大小超出支持范围".to_string())?,
+                    i64::try_from(local_modified_at)
+                        .map_err(|_| "备份修改时间超出支持范围".to_string())?,
                     remote_file_id
                 ],
             )
@@ -1222,11 +1333,12 @@ impl LibraryRepository {
     }
 
     /// 更新配对的最近同步时间。
-    pub fn touch_backup_pair(&self, pair_id: &str) -> Result<(), String> {
+    pub fn touch_backup_pair(&self, account_id: u64, pair_id: &str) -> Result<(), String> {
         let connection = self
             .connection
             .lock()
             .map_err(|_| "SQLite 媒体库锁已损坏，必须重启应用".to_string())?;
+        ensure_backup_owner(&connection, account_id, pair_id)?;
         connection
             .execute(
                 "UPDATE backup_pairs SET last_synced_at=CURRENT_TIMESTAMP WHERE id=?1",
@@ -1237,21 +1349,25 @@ impl LibraryRepository {
     }
 
     /// 取单条备份配对；不存在时返回可读错误。
-    pub fn backup_pair(&self, pair_id: &str) -> Result<BackupPair, String> {
-        self.backup_pairs()?
+    pub fn backup_pair(&self, account_id: u64, pair_id: &str) -> Result<BackupPair, String> {
+        self.backup_pairs(account_id)?
             .into_iter()
             .find(|pair| pair.id == pair_id)
-            .ok_or_else(|| "指定的备份配对不存在".to_string())
+            .ok_or_else(|| "备份配对不存在或不属于当前 115 账号".to_string())
     }
 
     /// 扫描本地目录，对比上次同步指纹，得出需要上传的相对路径。
     ///
     /// 只比较「大小 + 修改时间」，不重新计算 SHA1：扫描阶段对整棵目录做摘要
     /// 会让大目录的预览等待过久，真正的秒传判定由上传链路自己完成。
-    pub fn scan_backup_pair(&self, pair_id: &str) -> Result<BackupScanResult, String> {
-        let pair = self.backup_pair(pair_id)?;
+    pub fn scan_backup_pair(
+        &self,
+        account_id: u64,
+        pair_id: &str,
+    ) -> Result<BackupScanResult, String> {
+        let pair = self.backup_pair(account_id, pair_id)?;
         let root = validate_scan_directory(&pair.local_path)?;
-        let known = self.backup_file_states(pair_id)?;
+        let known = self.backup_file_states(account_id, pair_id)?;
 
         let mut pending_paths = Vec::new();
         let mut total_files = 0_u64;
@@ -1472,7 +1588,106 @@ impl LibraryRepository {
     }
 }
 
+/// 给旧版远端任务增加账号归属；无法证明归属的旧记录保留为 NULL，禁止自动认领。
+/// 迁移幂等执行，重建备份表以把本地路径唯一约束收窄到同一账号。
+fn migrate_account_ownership(connection: &mut Connection) -> Result<(), String> {
+    let has_column = |table: &str| -> Result<bool, String> {
+        connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info(?1) WHERE name='account_id')",
+                [table],
+                |row| row.get(0),
+            )
+            .map_err(|error| format!("检查账号归属迁移失败：{error}"))
+    };
+    let migrate_backups = !has_column("backup_pairs")?;
+    let migrate_uploads = !has_column("upload_sessions")?;
+    if !migrate_backups && !migrate_uploads {
+        return Ok(());
+    }
+    // 暂停外键仅为了原子替换父表；子表与全部历史数据均保留，提交后恢复校验。
+    connection
+        .execute_batch("PRAGMA foreign_keys = OFF;")
+        .map_err(|error| format!("准备账号归属迁移失败：{error}"))?;
+    let migrated = (|| -> Result<(), String> {
+        let transaction = connection
+            .transaction()
+            .map_err(|error| format!("开始账号归属迁移失败：{error}"))?;
+        if migrate_backups {
+            transaction.execute_batch(
+                "CREATE TABLE backup_pairs_scoped (
+                   id TEXT PRIMARY KEY,
+                   account_id INTEGER CHECK (account_id > 0),
+                   local_path TEXT NOT NULL,
+                   remote_folder_id TEXT NOT NULL,
+                   remote_folder_name TEXT NOT NULL,
+                   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                   last_synced_at TEXT,
+                   UNIQUE(account_id,local_path)
+                 );
+                 INSERT INTO backup_pairs_scoped
+                   (id,local_path,remote_folder_id,remote_folder_name,created_at,last_synced_at)
+                   SELECT id,local_path,remote_folder_id,remote_folder_name,created_at,last_synced_at
+                   FROM backup_pairs;
+                 DROP TABLE backup_pairs;
+                 ALTER TABLE backup_pairs_scoped RENAME TO backup_pairs;
+                 CREATE INDEX idx_backup_pairs_created ON backup_pairs(created_at DESC);"
+            ).map_err(|error| format!("迁移备份账号归属失败：{error}"))?;
+        }
+        if migrate_uploads {
+            transaction
+                .execute_batch("ALTER TABLE upload_sessions ADD COLUMN account_id INTEGER CHECK (account_id > 0);")
+                .map_err(|error| format!("迁移上传账号归属失败：{error}"))?;
+        }
+        transaction
+            .execute(
+                "INSERT OR IGNORE INTO schema_migrations(version) VALUES (1)",
+                [],
+            )
+            .map_err(|error| format!("记录账号归属迁移失败：{error}"))?;
+        transaction
+            .commit()
+            .map_err(|error| format!("提交账号归属迁移失败：{error}"))
+    })();
+    let restored = connection
+        .execute_batch("PRAGMA foreign_keys = ON;")
+        .map_err(|error| format!("恢复 SQLite 外键校验失败：{error}"));
+    match (migrated, restored) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+        (Err(first), Err(second)) => Err(format!("{first}；{second}")),
+    }
+}
+
+/// 将有效 115 用户 ID 转为 SQLite 整数；拒绝未登录或超出范围的账号。
+fn account_key(account_id: u64) -> Result<i64, String> {
+    if account_id == 0 {
+        return Err("缺少有效的 115 账号归属".to_string());
+    }
+    i64::try_from(account_id).map_err(|_| "115 账号 ID 超出支持范围".to_string())
+}
+
+/// 在持有数据库锁时校验配对归属，防止凭前端传入 ID 操作其他账号记录。
+fn ensure_backup_owner(
+    connection: &Connection,
+    account_id: u64,
+    pair_id: &str,
+) -> Result<(), String> {
+    let exists: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM backup_pairs WHERE id=?1 AND account_id=?2)",
+            params![pair_id, account_key(account_id)?],
+            |row| row.get(0),
+        )
+        .map_err(|error| format!("校验备份账号归属失败：{error}"))?;
+    if !exists {
+        return Err("备份配对不存在或不属于当前 115 账号".to_string());
+    }
+    Ok(())
+}
+
 struct StoredUploadSession {
+    account_id: i64,
     id: String,
     local_path: String,
     file_name: String,
@@ -1493,6 +1708,7 @@ struct StoredUploadSession {
 
 fn upload_session_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredUploadSession> {
     Ok(StoredUploadSession {
+        account_id: row.get(16)?,
         id: row.get(0)?,
         local_path: row.get(1)?,
         file_name: row.get(2)?,
@@ -1515,6 +1731,8 @@ fn upload_session_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredUp
 impl StoredUploadSession {
     fn into_upload_session(self) -> Result<UploadSession, String> {
         Ok(UploadSession {
+            account_id: u64::try_from(self.account_id)
+                .map_err(|_| "上传会话账号归属无效".to_string())?,
             id: self.id,
             local_path: self.local_path,
             file_name: self.file_name,
@@ -1539,6 +1757,7 @@ impl StoredUploadSession {
 }
 
 fn validate_upload_session(session: &UploadSession) -> Result<(), String> {
+    account_key(session.account_id)?;
     if session.id.trim().is_empty()
         || session.file_name.trim().is_empty()
         || session.target_id.trim().is_empty()
@@ -1593,10 +1812,10 @@ fn validate_scan_directory(path: &str) -> Result<PathBuf, String> {
         .map_err(|error| format!("解析扫描目录失败：{error}"))
 }
 
-/// 递归收集备份目录下的全部普通文件，返回 (绝对路径, 字节数, 修改时间秒)。
+/// 递归收集备份目录下的全部普通文件，返回 (绝对路径, 字节数, 修改时间纳秒)。
 ///
 /// 与媒体扫描共用同一套遍历约束：显式栈、跳过符号链接、跳过非普通文件。
-/// 修改时间统一为秒级时间戳，便于与 SQLite 中记录的历史指纹直接比较。
+/// 修改时间统一为纳秒级时间戳，避免同秒修改且大小不变的文件被跳过。
 fn collect_backup_files(root: &Path) -> Result<Vec<(PathBuf, u64, u64)>, String> {
     let mut pending = vec![root.to_path_buf()];
     let mut files = Vec::new();
@@ -1620,13 +1839,12 @@ fn collect_backup_files(root: &Path) -> Result<Vec<(PathBuf, u64, u64)>, String>
             if !metadata.is_file() {
                 continue;
             }
-            let modified_at = metadata
-                .modified()
-                .ok()
-                .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
-                .map(|duration| duration.as_secs())
-                .unwrap_or(0);
-            files.push((entry.path(), metadata.len(), modified_at));
+            let fingerprint = BackupFingerprint::read(&entry.path())?;
+            files.push((
+                entry.path(),
+                fingerprint.size_bytes,
+                fingerprint.modified_at,
+            ));
         }
     }
     Ok(files)
@@ -1861,7 +2079,12 @@ const SEED_MEDIA: &[SeedMedia] = &[
 
 #[cfg(test)]
 mod tests {
-    use super::{AppSettings, LibraryRepository, MediaInfo, UploadPartState, UploadSession};
+    use super::{
+        AppSettings, BackupFingerprint, LibraryRepository, MediaInfo, UploadPartState,
+        UploadSession,
+    };
+    use rusqlite::Connection;
+    use std::time::UNIX_EPOCH;
     use std::{fs, path::Path, time::SystemTime};
 
     #[test]
@@ -2023,6 +2246,7 @@ mod tests {
     fn persists_updates_and_deletes_upload_sessions() {
         let repository = LibraryRepository::open(Path::new(":memory:")).unwrap();
         let mut session = UploadSession {
+            account_id: 1,
             id: "upload-1".to_string(),
             local_path: "/tmp/video.mkv".to_string(),
             file_name: "video.mkv".to_string(),
@@ -2047,9 +2271,21 @@ mod tests {
         });
         session.status = "paused".to_string();
         repository.save_upload_session(&session).unwrap();
-        assert_eq!(repository.upload_sessions().unwrap(), vec![session.clone()]);
-        repository.delete_upload_session(&session.id).unwrap();
-        assert!(repository.upload_sessions().unwrap().is_empty());
+        assert_eq!(
+            repository.upload_sessions(1).unwrap(),
+            vec![session.clone()]
+        );
+        assert!(repository.upload_sessions(2).unwrap().is_empty());
+        assert!(repository.delete_upload_session(2, &session.id).is_err());
+        let mut wrong_owner = session.clone();
+        wrong_owner.account_id = 2;
+        assert!(repository.save_upload_session(&wrong_owner).is_err());
+        assert_eq!(
+            repository.upload_sessions(1).unwrap(),
+            vec![session.clone()]
+        );
+        repository.delete_upload_session(1, &session.id).unwrap();
+        assert!(repository.upload_sessions(1).unwrap().is_empty());
     }
 
     #[test]
@@ -2161,10 +2397,10 @@ mod tests {
     #[test]
     fn backup_pairs_persist_and_cascade() {
         let repository = LibraryRepository::open(Path::new(":memory:")).unwrap();
-        assert!(repository.backup_pairs().unwrap().is_empty());
+        assert!(repository.backup_pairs(1).unwrap().is_empty());
 
         let pair = repository
-            .add_backup_pair("/tmp/sirius-backup-a", "folder-9", "纪录片")
+            .add_backup_pair(1, "/tmp/sirius-backup-a", "folder-9", "纪录片")
             .unwrap();
         assert_eq!(pair.remote_folder_id, "folder-9");
         assert_eq!(pair.synced_files, 0);
@@ -2172,33 +2408,43 @@ mod tests {
 
         // 同一本地目录不允许重复登记，错误信息必须点明原因。
         let duplicate = repository
-            .add_backup_pair("/tmp/sirius-backup-a", "folder-1", "电影")
+            .add_backup_pair(1, "/tmp/sirius-backup-a", "folder-1", "电影")
             .unwrap_err();
         assert!(duplicate.contains("已在备份列表"), "实际错误：{duplicate}");
 
         repository
-            .record_backup_file(&pair.id, "a/b.txt", 12, 1_700_000_000, "pick-1")
+            .record_backup_file(1, &pair.id, "a/b.txt", 12, 1_700_000_000, "pick-1")
             .unwrap();
         // 同一相对路径再次记录是覆盖而非插入。
         repository
-            .record_backup_file(&pair.id, "a/b.txt", 24, 1_700_000_100, "pick-2")
+            .record_backup_file(1, &pair.id, "a/b.txt", 24, 1_700_000_100, "pick-2")
             .unwrap();
-        let states = repository.backup_file_states(&pair.id).unwrap();
+        let states = repository.backup_file_states(1, &pair.id).unwrap();
         assert_eq!(states.len(), 1);
         assert_eq!(states["a/b.txt"].local_size, 24);
         assert_eq!(states["a/b.txt"].remote_file_id, "pick-2");
-        assert_eq!(repository.backup_pairs().unwrap()[0].synced_files, 1);
+        assert_eq!(repository.backup_pairs(1).unwrap()[0].synced_files, 1);
 
-        repository.touch_backup_pair(&pair.id).unwrap();
-        assert!(repository.backup_pairs().unwrap()[0]
+        repository.touch_backup_pair(1, &pair.id).unwrap();
+        assert!(repository.backup_pairs(1).unwrap()[0]
             .last_synced_at
             .is_some());
 
         // 删除配对必须级联清理同步记录，避免孤儿行。
-        repository.delete_backup_pair(&pair.id).unwrap();
-        assert!(repository.backup_pairs().unwrap().is_empty());
-        assert!(repository.backup_file_states(&pair.id).unwrap().is_empty());
-        let missing = repository.delete_backup_pair(&pair.id).unwrap_err();
+        repository.delete_backup_pair(1, &pair.id).unwrap();
+        assert!(repository.backup_pairs(1).unwrap().is_empty());
+        assert!(repository.backup_file_states(1, &pair.id).is_err());
+        let connection = repository.connection.lock().unwrap();
+        let remaining: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM backup_file_state WHERE pair_id=?1",
+                [&pair.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(remaining, 0);
+        drop(connection);
+        let missing = repository.delete_backup_pair(1, &pair.id).unwrap_err();
         assert!(missing.contains("不存在"), "实际错误：{missing}");
     }
 
@@ -2218,10 +2464,10 @@ mod tests {
 
         let repository = LibraryRepository::open(Path::new(":memory:")).unwrap();
         let pair = repository
-            .add_backup_pair(&root.to_string_lossy(), "folder-1", "目标")
+            .add_backup_pair(1, &root.to_string_lossy(), "folder-1", "目标")
             .unwrap();
 
-        let first = repository.scan_backup_pair(&pair.id).unwrap();
+        let first = repository.scan_backup_pair(1, &pair.id).unwrap();
         assert_eq!(first.total_files, 2);
         assert_eq!(first.pending_files, 2);
         assert_eq!(first.unchanged_files, 0);
@@ -2229,24 +2475,25 @@ mod tests {
 
         // 把两个文件都标记为已同步，且指纹与磁盘当前状态一致。
         for relative in ["nested/inner.txt", "top.txt"] {
-            let metadata = fs::metadata(root.join(relative)).unwrap();
-            let modified_at = metadata
-                .modified()
-                .ok()
-                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|duration| duration.as_secs())
-                .unwrap_or(0);
+            let fingerprint = BackupFingerprint::read(&root.join(relative)).unwrap();
             repository
-                .record_backup_file(&pair.id, relative, metadata.len(), modified_at, "pick")
+                .record_backup_file(
+                    1,
+                    &pair.id,
+                    relative,
+                    fingerprint.size_bytes,
+                    fingerprint.modified_at,
+                    "pick",
+                )
                 .unwrap();
         }
-        let second = repository.scan_backup_pair(&pair.id).unwrap();
+        let second = repository.scan_backup_pair(1, &pair.id).unwrap();
         assert_eq!(second.pending_files, 0);
         assert_eq!(second.unchanged_files, 2);
 
         // 修改内容后（大小变化）必须重新进入待上传列表。
         fs::write(root.join("top.txt"), b"top changed").unwrap();
-        let third = repository.scan_backup_pair(&pair.id).unwrap();
+        let third = repository.scan_backup_pair(1, &pair.id).unwrap();
         assert_eq!(third.pending_paths, vec!["top.txt"]);
 
         let _ = fs::remove_dir_all(&root);
@@ -2256,12 +2503,140 @@ mod tests {
     #[test]
     fn backup_scan_rejects_unknown_pair_and_missing_directory() {
         let repository = LibraryRepository::open(Path::new(":memory:")).unwrap();
-        assert!(repository.scan_backup_pair("backup-missing").is_err());
+        assert!(repository.scan_backup_pair(1, "backup-missing").is_err());
 
         let pair = repository
-            .add_backup_pair("/tmp/sirius-definitely-missing-dir", "folder-1", "目标")
+            .add_backup_pair(1, "/tmp/sirius-definitely-missing-dir", "folder-1", "目标")
             .unwrap();
-        let error = repository.scan_backup_pair(&pair.id).unwrap_err();
+        let error = repository.scan_backup_pair(1, &pair.id).unwrap_err();
         assert!(error.contains("不是目录"), "实际错误：{error}");
+    }
+
+    /// 不同账号可备份同一本地目录，但不能读取、写入或删除彼此的配对。
+    #[test]
+    fn backup_pairs_are_isolated_by_account() {
+        let repository = LibraryRepository::open(Path::new(":memory:")).unwrap();
+        let first = repository
+            .add_backup_pair(1, "/tmp/shared-source", "folder-a", "A")
+            .unwrap();
+        let second = repository
+            .add_backup_pair(2, "/tmp/shared-source", "folder-b", "B")
+            .unwrap();
+        assert_eq!(repository.backup_pairs(1).unwrap()[0].id, first.id);
+        assert_eq!(repository.backup_pairs(2).unwrap()[0].id, second.id);
+        assert!(repository.backup_pair(2, &first.id).is_err());
+        assert!(repository.backup_file_states(2, &first.id).is_err());
+        assert!(repository
+            .record_backup_file(2, &first.id, "file.txt", 1, 1, "pick")
+            .is_err());
+        assert!(repository.touch_backup_pair(2, &first.id).is_err());
+        assert!(repository.delete_backup_pair(2, &first.id).is_err());
+        assert_eq!(repository.backup_pairs(1).unwrap().len(), 1);
+        assert!(repository.backup_pairs(0).is_err());
+    }
+
+    /// 旧版记录无法证明账号归属时完整保留，但不暴露给首次登录的新账号。
+    #[test]
+    fn account_migration_preserves_unowned_backup_data_and_is_idempotent() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("sirius-account-migration-{unique}"));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("state.sqlite3");
+        {
+            let connection = Connection::open(&path).unwrap();
+            connection.execute_batch(
+                "PRAGMA foreign_keys=ON;
+                 CREATE TABLE backup_pairs (id TEXT PRIMARY KEY, local_path TEXT NOT NULL UNIQUE,
+                   remote_folder_id TEXT NOT NULL, remote_folder_name TEXT NOT NULL,
+                   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, last_synced_at TEXT);
+                 CREATE TABLE backup_file_state (pair_id TEXT NOT NULL REFERENCES backup_pairs(id) ON DELETE CASCADE,
+                   relative_path TEXT NOT NULL, local_size INTEGER NOT NULL, local_modified_at INTEGER NOT NULL,
+                   remote_file_id TEXT NOT NULL, synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                   PRIMARY KEY(pair_id,relative_path));
+                 INSERT INTO backup_pairs(id,local_path,remote_folder_id,remote_folder_name)
+                   VALUES('legacy','/tmp/legacy','old-folder','旧配对');
+                 INSERT INTO backup_file_state(pair_id,relative_path,local_size,local_modified_at,remote_file_id)
+                   VALUES('legacy','nested/file.txt',3,42,'old-pick');"
+            ).unwrap();
+        }
+        for _ in 0..2 {
+            let repository = LibraryRepository::open(&path).unwrap();
+            assert!(repository.backup_pairs(1).unwrap().is_empty());
+            assert!(repository.upload_sessions(1).unwrap().is_empty());
+            let connection = repository.connection.lock().unwrap();
+            let preserved: (String, Option<i64>) = connection
+                .query_row(
+                    "SELECT local_path,account_id FROM backup_pairs WHERE id='legacy'",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            assert_eq!(preserved, ("/tmp/legacy".to_string(), None));
+            assert_eq!(
+                connection
+                    .query_row(
+                        "SELECT COUNT(*) FROM backup_file_state WHERE pair_id='legacy'",
+                        [],
+                        |row| row.get::<_, i64>(0)
+                    )
+                    .unwrap(),
+                1
+            );
+            assert_eq!(
+                connection
+                    .query_row("PRAGMA foreign_keys", [], |row| row.get::<_, i64>(0))
+                    .unwrap(),
+                1
+            );
+            assert!(!connection
+                .prepare("PRAGMA foreign_key_check")
+                .unwrap()
+                .exists([])
+                .unwrap());
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// 重生成只能使用原提问之前的上下文，不可借助手 ID 访问另一个会话。
+    #[test]
+    fn regeneration_context_excludes_later_turns_and_rejects_wrong_targets() {
+        let repository = LibraryRepository::open(Path::new(":memory:")).unwrap();
+        repository.create_ai_chat_session("first", None).unwrap();
+        repository.create_ai_chat_session("other", None).unwrap();
+        for (id, role, text) in [
+            ("u1", "user", "原提问"),
+            ("a1", "assistant", "原回复"),
+            ("u2", "user", "后续提问"),
+            ("a2", "assistant", "后续回复"),
+        ] {
+            repository
+                .append_ai_chat_message(id, "first", role, text, None)
+                .unwrap();
+        }
+        let (target, user, history) = repository
+            .regenerate_ai_chat_context("first", "a1")
+            .unwrap();
+        assert_eq!(target.id, "a1");
+        assert_eq!(user.id, "u1");
+        assert_eq!(
+            history
+                .iter()
+                .map(|row| row.id.as_str())
+                .collect::<Vec<_>>(),
+            ["u1"]
+        );
+        assert!(repository
+            .regenerate_ai_chat_context("other", "a1")
+            .is_err());
+        assert!(repository
+            .regenerate_ai_chat_context("first", "u1")
+            .is_err());
+        assert!(repository
+            .replace_ai_chat_assistant_content("other", "a1", "替换")
+            .is_err());
+        assert_eq!(repository.ai_chat_messages("first").unwrap().len(), 4);
     }
 }

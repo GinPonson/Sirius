@@ -1,6 +1,6 @@
 [package]
 name = "sirius-desktop"
-version = "0.1.0"
+version = "0.1.1"
 description = "Sirius third-party 115 desktop client"
 authors = ["Sirius Contributors"]
 license = "MIT"
@@ -19,7 +19,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["protocol-asset", "unstable"] }
+tauri = { version = "2", features = ["protocol-asset", "unstable", "macos-private-api"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 libmpv2 = { version = "6.0.0", default-features = false, features = ["render"] }
@@ -39,3 +39,5 @@ image = { version = "0.25.10", default-features = false, features = ["jpeg", "pn
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = "3"
+objc2 = "0.6.4"
+objc2-app-kit = { version = "0.3.2", features = ["NSGraphics", "NSResponder", "NSView"] }

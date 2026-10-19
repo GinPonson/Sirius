@@ -62,4 +62,6 @@ export type PlaybackSnapshot = {
   volume: number;
   /** 远程播放自动恢复失败后的错误；恢复成功时清除。 */
   error: string | null;
+  /** 外挂字幕等非致命问题；媒体可继续播放，不应阻断播放控制。 */
+  warning: string | null;
 };

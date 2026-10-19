@@ -554,8 +554,12 @@ async fn send_stream_request(
     turns: &[AiChatTurn],
 ) -> Result<reqwest::Response, String> {
     // 流式客户端不设置整体超时：生成可能持续数分钟，空闲检测由读取循环负责。
-    let client = Client::builder()
-        .connect_timeout(Duration::from_secs(15))
+    let builder = Client::builder().connect_timeout(Duration::from_secs(15));
+    // 对话模块的 HTTP 单测只访问本地 mock；隔离宿主代理，避免本地地址被代理改写。
+    // 该分支仅进入测试构建，生产请求仍使用系统代理配置。
+    #[cfg(test)]
+    let builder = builder.no_proxy();
+    let client = builder
         .build()
         .map_err(|error| format!("初始化 AI 客户端失败：{error}"))?;
     let endpoint = format!(
@@ -596,6 +600,8 @@ pub struct ChatStreamJob<'a> {
     pub turns: &'a [AiChatTurn],
     pub session_id: &'a str,
     pub message_id: &'a str,
+    /// 为 true 时覆盖本次重生成指向的已有助手行，而不是追加新行。
+    pub replace_existing: bool,
 }
 
 /// 运行一次流式对话并完成终态：持久化助手回复、注销停止令牌、补发终态事件。
@@ -619,6 +625,7 @@ pub async fn run_chat_stream(
         turns,
         session_id,
         message_id,
+        replace_existing,
     } = *job;
     let outcome = stream_chat(settings, api_key, turns, stopper, |delta| {
         emit(AiChatTokenEvent::delta(session_id, message_id, delta));
@@ -631,12 +638,12 @@ pub async fn run_chat_stream(
         other => other.clone(),
     };
     if !outcome.content.is_empty() {
-        if let Err(error) = repository.append_ai_chat_message(
-            message_id,
+        if let Err(error) = persist_chat_reply(
+            repository,
             session_id,
-            "assistant",
+            message_id,
             &outcome.content,
-            None,
+            replace_existing,
         ) {
             eprintln!("保存 AI 对话回复失败：{error}");
             terminal_error = Some(format!("保存对话回复失败：{error}"));
@@ -652,12 +659,56 @@ pub async fn run_chat_stream(
     ));
 }
 
+/// 持久化一轮助手回复；普通发送追加消息，重生成覆盖已存在的助手行。
+fn persist_chat_reply(
+    repository: &LibraryRepository,
+    session_id: &str,
+    message_id: &str,
+    content: &str,
+    replace_existing: bool,
+) -> Result<(), String> {
+    if replace_existing {
+        repository.replace_ai_chat_assistant_content(session_id, message_id, content)
+    } else {
+        repository.append_ai_chat_message(message_id, session_id, "assistant", content, None)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::{Read, Write};
+    use std::path::Path;
     use std::sync::Mutex as StdMutex;
     use std::time::Instant;
+
+    #[test]
+    fn regenerating_assistant_replaces_only_its_existing_row() {
+        let repository = LibraryRepository::open(Path::new(":memory:")).unwrap();
+        repository.create_ai_chat_session("s1", None).unwrap();
+        repository
+            .append_ai_chat_message("u1", "s1", "user", "第一轮问题", None)
+            .unwrap();
+        repository
+            .append_ai_chat_message("a1", "s1", "assistant", "旧回复", None)
+            .unwrap();
+        repository
+            .append_ai_chat_message("u2", "s1", "user", "后续问题", None)
+            .unwrap();
+        repository
+            .append_ai_chat_message("a2", "s1", "assistant", "后续回复", None)
+            .unwrap();
+        let before = repository.ai_chat_messages("s1").unwrap();
+
+        persist_chat_reply(&repository, "s1", "a1", "新回复", true).unwrap();
+
+        let after = repository.ai_chat_messages("s1").unwrap();
+        assert_eq!(after.len(), before.len());
+        assert_eq!(after[1].id, "a1");
+        assert_eq!(after[1].content, "新回复");
+        assert_eq!(after[0], before[0]);
+        assert_eq!(after[2..], before[2..]);
+    }
 
     fn chat_turns() -> Vec<AiChatTurn> {
         vec![
